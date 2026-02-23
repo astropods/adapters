@@ -1,0 +1,1 @@
+{"version":3,"file":"index.d.ts","sourceRoot":"","sources":["../../src/mastra/index.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,KAAK,EAAE,MAAM,oBAAoB,CAAC;AAEhD,OAAO,KAAK,EAAE,YAAY,EAAE,MAAM,UAAU,CAAC;AAG7C,OAAO,EAAE,aAAa,EAAE,MAAM,WAAW,CAAC;AAE1C;;;;;;;;;;;;;;;GAeG;AACH,wBAAgB,KAAK,CAAC,KAAK,EAAE,KAAK,EAAE,OAAO,CAAC,EAAE,YAAY,GAAG,IAAI,CAGhE"}

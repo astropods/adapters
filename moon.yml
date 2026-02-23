@@ -1,0 +1,12 @@
+language: "typescript"
+type: "library"
+
+tasks:
+  build:
+    command: "bun run tsc"
+    inputs:
+      - "src/**/*"
+      - "tsconfig.json"
+      - "/tsconfig.base.json"
+    outputs:
+      - "dist"
