@@ -4,10 +4,10 @@ This guide explains how to build an adapter that connects any agent framework to
 
 ## The AgentAdapter interface
 
-Every adapter implements `AgentAdapter` from `@astromode-ai/astro-agent-adapters`:
+Every adapter implements `AgentAdapter` from `@astromode-ai/adapters`:
 
 ```typescript
-import type { AgentAdapter, StreamHooks, StreamOptions } from "@astromode-ai/astro-agent-adapters";
+import type { AgentAdapter, StreamHooks, StreamOptions } from "@astromode-ai/adapters";
 import type { AgentConfig } from "@astromode-ai/astro-messaging";
 
 interface AgentAdapter {
@@ -171,7 +171,7 @@ Add the framework as a peer dependency:
 
 ```typescript
 import { AgentExecutor } from "langchain/agents";
-import { serve } from "@astromode-ai/astro-agent-adapters/langchain";
+import { serve } from "@astromode-ai/adapters/langchain";
 
 const executor = AgentExecutor.fromAgentAndTools({ ... });
 

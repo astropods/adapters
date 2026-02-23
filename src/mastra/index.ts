@@ -10,7 +10,7 @@ export { MastraAdapter } from "./adapter";
  *
  * ```typescript
  * import { Agent } from '@mastra/core/agent';
- * import { serve } from '@astromode-ai/astro-agent-adapters/mastra';
+ * import { serve } from '@astromode-ai/adapters/mastra';
  *
  * const agent = new Agent({
  *   name: 'My Agent',
