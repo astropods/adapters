@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/lerna/schemas/lerna-schema.json",
   "private": false,
-  "npmClient": "bun",
+  "npmClient": "npm",
   "version": "independent",
   "message": "chore: publish",
   "conventionalCommits": true,
