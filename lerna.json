@@ -3,7 +3,6 @@
   "private": false,
   "npmClient": "npm",
   "version": "independent",
-  "message": "chore: publish",
   "conventionalCommits": true,
   "changelogPreset": {
     "name": "conventional-changelog-conventionalcommits",
@@ -18,5 +17,7 @@
     "main",
     "release/*"
   ],
-  "packages": ["packages/*"]
+  "packages": [
+    "packages/*"
+  ]
 }
