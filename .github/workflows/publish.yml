@@ -43,15 +43,15 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git fetch --tags
-          bunx lerna version --yes --no-push --force-git-tag
-
-      - name: Publish
-        run: bunx lerna publish from-git --yes
+          bunx lerna version --yes --no-push
 
       - name: Push release branch and tags
         run: |
           git push origin $BRANCH
           git push origin --tags
+
+      - name: Publish
+        run: bunx lerna publish from-package --yes
 
       - name: Open and auto-merge pull request
         run: |
