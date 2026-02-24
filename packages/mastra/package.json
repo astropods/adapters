@@ -1,5 +1,5 @@
 {
-  "name": "@astromode-ai/adapter-mastra",
+  "name": "@astropods/adapter-mastra",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,11 +24,11 @@
     "directory": "packages/mastra"
   },
   "publishConfig": {
-    "access": "restricted",
+    "access": "public",
     "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
-    "@astromode-ai/adapter-core": "workspace:*"
+    "@astropods/adapter-core": "workspace:*"
   },
   "peerDependencies": {
     "@mastra/core": ">=1.0.0"

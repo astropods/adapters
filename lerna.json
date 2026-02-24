@@ -1,6 +1,18 @@
 {
-  "$schema": "node_modules/lerna/schemas/lerna-schema.json",
-  "version": "independent",
+  "$schema": "./node_modules/lerna/schemas/lerna-schema.json",
+  "private": false,
   "npmClient": "bun",
+  "version": "independent",
+  "message": "chore: publish",
+  "conventionalCommits": true,
+  "changelogPreset": "conventional-changelog-conventionalcommits",
+  "ignoreChanges": [
+    "**/__tests__/**",
+    "**/tests/**",
+    "**/*.md"
+  ],
+  "allowBranch": [
+    "main"
+  ],
   "packages": ["packages/*"]
 }
