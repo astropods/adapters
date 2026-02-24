@@ -15,7 +15,8 @@
     "**/*.md"
   ],
   "allowBranch": [
-    "main"
+    "main",
+    "release/*"
   ],
   "packages": ["packages/*"]
 }

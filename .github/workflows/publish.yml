@@ -6,6 +6,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  pull-requests: write
 
 jobs:
   publish:
@@ -16,6 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main
 
       - uses: actions/setup-node@v4
         with:
@@ -30,8 +32,31 @@ jobs:
       - name: Build packages
         run: bunx lerna run build
 
-      - name: Publish
+      - name: Create release branch
+        run: |
+          BRANCH="release/$(date +'%Y-%m-%d-%H%M%S')"
+          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+          git checkout -b $BRANCH
+
+      - name: Version packages
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          bunx lerna publish --yes
+          bunx lerna version --yes --no-push
+
+      - name: Publish
+        run: bunx lerna publish from-git --yes
+
+      - name: Push release branch
+        run: git push origin $BRANCH
+
+      - name: Open and auto-merge pull request
+        run: |
+          gh pr create \
+            --base main \
+            --head $BRANCH \
+            --title "chore: release" \
+            --body "Automated version bump by lerna. Merge to update \`main\` with the release commits and tags."
+          gh pr merge $BRANCH --merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
