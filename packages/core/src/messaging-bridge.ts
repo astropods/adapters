@@ -3,7 +3,7 @@ import {
   type AgentResponse,
   type Message,
   type ConversationStream,
-} from "@astromode-ai/astro-messaging";
+} from "@astropods/messaging";
 
 import type { AgentAdapter, ServeOptions, StreamHooks } from "./types";
 
