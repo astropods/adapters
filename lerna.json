@@ -6,7 +6,8 @@
   "message": "chore: publish",
   "conventionalCommits": true,
   "changelogPreset": {
-    "name": "conventional-changelog-conventionalcommits"
+    "name": "conventional-changelog-conventionalcommits",
+    "preMajor": false
   },
   "ignoreChanges": [
     "**/__tests__/**",
