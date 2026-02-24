@@ -8,7 +8,7 @@ import {
 } from "@mastra/core/test-utils/llm-mock";
 import type { LanguageModelV2StreamPart } from "@ai-sdk/provider-v5";
 import type { StatusUpdate } from "@astromode-ai/astro-messaging";
-import type { StreamOptions } from "../types";
+import type { StreamOptions } from "@astromode-ai/adapter-core";
 import { MastraAdapter } from "./adapter";
 
 // --- Helpers ---

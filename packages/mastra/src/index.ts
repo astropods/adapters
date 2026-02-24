@@ -1,6 +1,6 @@
 import type { Agent } from "@mastra/core/agent";
-import { serve as serveAdapter } from "../serve";
-import type { ServeOptions } from "../types";
+import { serve as serveAdapter } from "@astromode-ai/adapter-core";
+import type { ServeOptions } from "@astromode-ai/adapter-core";
 import { MastraAdapter } from "./adapter";
 
 export { MastraAdapter } from "./adapter";
@@ -10,7 +10,7 @@ export { MastraAdapter } from "./adapter";
  *
  * ```typescript
  * import { Agent } from '@mastra/core/agent';
- * import { serve } from '@astromode-ai/adapters/mastra';
+ * import { serve } from '@astromode-ai/adapter-mastra';
  *
  * const agent = new Agent({
  *   name: 'My Agent',

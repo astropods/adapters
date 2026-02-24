@@ -2,7 +2,7 @@ import type { Agent } from "@mastra/core/agent";
 import type {
   AgentConfig as MessagingAgentConfig,
 } from "@astromode-ai/astro-messaging";
-import type { AgentAdapter, StreamHooks, StreamOptions } from "../types";
+import type { AgentAdapter, StreamHooks, StreamOptions } from "@astromode-ai/adapter-core";
 
 /**
  * Adapts a Mastra Agent to the Astro messaging protocol.

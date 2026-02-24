@@ -1,13 +1,13 @@
 # Creating a New Adapter
 
-This guide explains how to build an adapter that connects any agent framework to Astro's messaging infrastructure. The Mastra adapter (`src/mastra/adapter.ts`) is the reference implementation.
+This guide explains how to build an adapter that connects any agent framework to Astro's messaging infrastructure. The Mastra adapter (`@astromode-ai/adapter-mastra`) is the reference implementation.
 
 ## The AgentAdapter interface
 
-Every adapter implements `AgentAdapter` from `@astromode-ai/adapters`:
+Every adapter implements `AgentAdapter` from `@astromode-ai/adapter-core`:
 
 ```typescript
-import type { AgentAdapter, StreamHooks, StreamOptions } from "@astromode-ai/adapters";
+import type { AgentAdapter, StreamHooks, StreamOptions } from "@astromode-ai/adapter-core";
 import type { AgentConfig } from "@astromode-ai/astro-messaging";
 
 interface AgentAdapter {
@@ -56,22 +56,26 @@ Use these for memory/context management if your framework supports it.
 
 ## Step-by-step: building a LangChain adapter
 
-Here's a walkthrough using LangChain as an example.
+Here's a walkthrough using LangChain as an example. Each new adapter lives in its own package under `packages/` in the adapters monorepo.
 
-### 1. Create the adapter file
+### 1. Create the adapter package
 
 ```
-src/
+packages/
   langchain/
-    adapter.ts
-    index.ts
+    package.json      (name: @astromode-ai/adapter-langchain)
+    tsconfig.json
+    moon.yml
+    src/
+      index.ts
+      adapter.ts
 ```
 
 ### 2. Implement AgentAdapter
 
 ```typescript
-// src/langchain/adapter.ts
-import type { AgentAdapter, StreamHooks, StreamOptions } from "../types";
+// packages/langchain/src/adapter.ts
+import type { AgentAdapter, StreamHooks, StreamOptions } from "@astromode-ai/adapter-core";
 import type { AgentConfig } from "@astromode-ai/astro-messaging";
 
 // Import your framework
@@ -122,10 +126,10 @@ export class LangChainAdapter implements AgentAdapter {
 ### 3. Create the convenience serve function
 
 ```typescript
-// src/langchain/index.ts
+// packages/langchain/src/index.ts
 import type { AgentExecutor } from "langchain/agents";
-import { serve as serveAdapter } from "../serve";
-import type { ServeOptions } from "../types";
+import { serve as serveAdapter } from "@astromode-ai/adapter-core";
+import type { ServeOptions } from "@astromode-ai/adapter-core";
 import { LangChainAdapter } from "./adapter";
 
 export { LangChainAdapter } from "./adapter";
@@ -140,24 +144,14 @@ export function serve(
 }
 ```
 
-### 4. Add the subpath export
-
-In `package.json`, add an export entry:
+### 4. Set up package.json
 
 ```json
 {
-  "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./mastra": { "types": "./dist/mastra/index.d.ts", "import": "./dist/mastra/index.js" },
-    "./langchain": { "types": "./dist/langchain/index.d.ts", "import": "./dist/langchain/index.js" }
-  }
-}
-```
-
-Add the framework as a peer dependency:
-
-```json
-{
+  "name": "@astromode-ai/adapter-langchain",
+  "dependencies": {
+    "@astromode-ai/adapter-core": "workspace:*"
+  },
   "peerDependencies": {
     "langchain": ">=0.1.0"
   },
@@ -171,7 +165,7 @@ Add the framework as a peer dependency:
 
 ```typescript
 import { AgentExecutor } from "langchain/agents";
-import { serve } from "@astromode-ai/adapters/langchain";
+import { serve } from "@astromode-ai/adapter-langchain";
 
 const executor = AgentExecutor.fromAgentAndTools({ ... });
 
