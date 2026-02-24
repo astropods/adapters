@@ -5,7 +5,9 @@
   "version": "independent",
   "message": "chore: publish",
   "conventionalCommits": true,
-  "changelogPreset": "conventional-changelog-conventionalcommits",
+  "changelogPreset": {
+    "name": "conventional-changelog-conventionalcommits"
+  },
   "ignoreChanges": [
     "**/__tests__/**",
     "**/tests/**",
