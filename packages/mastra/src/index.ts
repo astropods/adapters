@@ -1,6 +1,6 @@
 import type { Agent } from "@mastra/core/agent";
-import { serve as serveAdapter } from "@astromode-ai/adapter-core";
-import type { ServeOptions } from "@astromode-ai/adapter-core";
+import { serve as serveAdapter } from "@astropods/adapter-core";
+import type { ServeOptions } from "@astropods/adapter-core";
 import { MastraAdapter } from "./adapter";
 
 export { MastraAdapter } from "./adapter";

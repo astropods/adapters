@@ -1,7 +1,7 @@
 import type {
   AgentConfig as MessagingAgentConfig,
   StatusUpdate,
-} from "@astromode-ai/astro-messaging";
+} from "@astropods/messaging";
 
 /** Lifecycle hooks called by an adapter as the agent streams a response. */
 export interface StreamHooks {
