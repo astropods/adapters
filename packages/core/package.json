@@ -1,6 +1,6 @@
 {
   "name": "@astropods/adapter-core",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -31,8 +31,8 @@
     "@astropods/messaging": "latest"
   },
   "devDependencies": {
+    "@astropods/messaging": "latest",
     "@types/bun": "^1.3.5",
-    "typescript": "^5.3.0",
-    "@astropods/messaging": "latest"
+    "typescript": "^5.3.0"
   }
 }
