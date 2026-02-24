@@ -7,8 +7,8 @@ import {
   simulateReadableStream,
 } from "@mastra/core/test-utils/llm-mock";
 import type { LanguageModelV2StreamPart } from "@ai-sdk/provider-v5";
-import type { StatusUpdate } from "@astromode-ai/astro-messaging";
-import type { StreamOptions } from "@astromode-ai/adapter-core";
+import type { StatusUpdate } from "@astropods/messaging";
+import type { StreamOptions } from "@astropods/adapter-core";
 import { MastraAdapter } from "./adapter";
 
 // --- Helpers ---

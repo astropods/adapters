@@ -6,7 +6,7 @@ import type {
   ContentChunk,
   Message,
   StatusUpdate,
-} from "@astromode-ai/astro-messaging";
+} from "@astropods/messaging";
 
 // --- Mock state ---
 
@@ -26,7 +26,7 @@ let mockConstructorAddr: string | null = null;
 
 // --- Mock messaging SDK ---
 
-mock.module("@astromode-ai/astro-messaging", () => ({
+mock.module("@astropods/messaging", () => ({
   MessagingClient: class MockMessagingClient {
     constructor(addr: string) {
       mockConstructorAddr = addr;
