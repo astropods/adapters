@@ -1,0 +1,9 @@
+tasks:
+  build:
+    command: "bun install && bun x lerna run build"
+    inputs:
+      - "packages/**/*"
+      - "package.json"
+    outputs:
+      - "packages/core/dist"
+      - "packages/mastra/dist"
