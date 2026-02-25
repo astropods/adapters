@@ -7,8 +7,8 @@ This guide explains how to build an adapter that connects any agent framework to
 Every adapter implements `AgentAdapter` from `@astromode-ai/adapter-core`:
 
 ```typescript
-import type { AgentAdapter, StreamHooks, StreamOptions } from "@astromode-ai/adapter-core";
-import type { AgentConfig } from "@astromode-ai/astro-messaging";
+import type { AgentAdapter, StreamHooks, StreamOptions } from "@astropods/adapter-core";
+import type { AgentConfig } from "@astropods/messaging";
 
 interface AgentAdapter {
   /** Display name for the agent, used in logs and registration. */
@@ -75,8 +75,8 @@ packages/
 
 ```typescript
 // packages/langchain/src/adapter.ts
-import type { AgentAdapter, StreamHooks, StreamOptions } from "@astromode-ai/adapter-core";
-import type { AgentConfig } from "@astromode-ai/astro-messaging";
+import type { AgentAdapter, StreamHooks, StreamOptions } from "@astropods/adapter-core";
+import type { AgentConfig } from "@astropods/messaging";
 
 // Import your framework
 import type { AgentExecutor } from "langchain/agents";
