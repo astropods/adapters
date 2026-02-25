@@ -1,5 +1,6 @@
 {
   "name": "@astropods/adapter-core",
+  "license": "Apache-2.0",
   "version": "0.0.8",
   "type": "module",
   "main": "./dist/index.js",
