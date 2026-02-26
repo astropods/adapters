@@ -1,4 +1,5 @@
 {
+  "name": "@astropods/adapters",
   "private": true,
   "workspaces": [
     "packages/*"
