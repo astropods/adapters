@@ -1,14 +1,14 @@
 # Creating a New Adapter
 
-This guide explains how to build an adapter that connects any agent framework to Astro's messaging infrastructure. The Mastra adapter (`@astromode-ai/adapter-mastra`) is the reference implementation.
+This guide explains how to build an adapter that connects any agent framework to Astro's messaging infrastructure. The Mastra adapter (`@astropods/adapter-mastra`) is the reference implementation.
 
 ## The AgentAdapter interface
 
-Every adapter implements `AgentAdapter` from `@astromode-ai/adapter-core`:
+Every adapter implements `AgentAdapter` from `@astropods/adapter-core`:
 
 ```typescript
-import type { AgentAdapter, StreamHooks, StreamOptions } from "@astromode-ai/adapter-core";
-import type { AgentConfig } from "@astromode-ai/astro-messaging";
+import type { AgentAdapter, StreamHooks, StreamOptions } from "@astropods/adapter-core";
+import type { AgentConfig } from "@astropods/astro-messaging";
 
 interface AgentAdapter {
   /** Display name for the agent, used in logs and registration. */
@@ -63,7 +63,7 @@ Here's a walkthrough using LangChain as an example. Each new adapter lives in it
 ```
 packages/
   langchain/
-    package.json      (name: @astromode-ai/adapter-langchain)
+    package.json      (name: @astropods/adapter-langchain)
     tsconfig.json
     moon.yml
     src/
@@ -75,8 +75,8 @@ packages/
 
 ```typescript
 // packages/langchain/src/adapter.ts
-import type { AgentAdapter, StreamHooks, StreamOptions } from "@astromode-ai/adapter-core";
-import type { AgentConfig } from "@astromode-ai/astro-messaging";
+import type { AgentAdapter, StreamHooks, StreamOptions } from "@astropods/adapter-core";
+import type { AgentConfig } from "@astropods/astro-messaging";
 
 // Import your framework
 import type { AgentExecutor } from "langchain/agents";
@@ -128,8 +128,8 @@ export class LangChainAdapter implements AgentAdapter {
 ```typescript
 // packages/langchain/src/index.ts
 import type { AgentExecutor } from "langchain/agents";
-import { serve as serveAdapter } from "@astromode-ai/adapter-core";
-import type { ServeOptions } from "@astromode-ai/adapter-core";
+import { serve as serveAdapter } from "@astropods/adapter-core";
+import type { ServeOptions } from "@astropods/adapter-core";
 import { LangChainAdapter } from "./adapter";
 
 export { LangChainAdapter } from "./adapter";
@@ -148,9 +148,9 @@ export function serve(
 
 ```json
 {
-  "name": "@astromode-ai/adapter-langchain",
+  "name": "@astropods/adapter-langchain",
   "dependencies": {
-    "@astromode-ai/adapter-core": "workspace:*"
+    "@astropods/adapter-core": "workspace:*"
   },
   "peerDependencies": {
     "langchain": ">=0.1.0"
@@ -165,7 +165,7 @@ export function serve(
 
 ```typescript
 import { AgentExecutor } from "langchain/agents";
-import { serve } from "@astromode-ai/adapter-langchain";
+import { serve } from "@astropods/adapter-langchain";
 
 const executor = AgentExecutor.fromAgentAndTools({ ... });
 
