@@ -5,14 +5,14 @@ Connect a [Mastra](https://mastra.ai) agent to Astro's messaging infrastructure 
 ## Install
 
 ```bash
-bun add @mastra/core @astromode-ai/adapter-mastra
+bun add @mastra/core @astropods/adapter-mastra
 ```
 
 ## Quick start
 
 ```typescript
 import { Agent } from "@mastra/core/agent";
-import { serve } from "@astromode-ai/adapter-mastra";
+import { serve } from "@astropods/adapter-mastra";
 
 const agent = new Agent({
   name: "My Agent",
@@ -41,7 +41,7 @@ Mastra tools work out of the box. The adapter automatically surfaces them in the
 import { Agent } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import { serve } from "@astromode-ai/adapter-mastra";
+import { serve } from "@astropods/adapter-mastra";
 
 const weatherTool = createTool({
   id: "weather",
@@ -105,12 +105,12 @@ Under the hood, `serve(agent)` does the following:
 
 ## Using MastraAdapter directly
 
-If you need more control, use `MastraAdapter` with the generic `serve()` from `@astromode-ai/adapter-core`:
+If you need more control, use `MastraAdapter` with the generic `serve()` from `@astropods/adapter-core`:
 
 ```typescript
 import { Agent } from "@mastra/core/agent";
-import { MastraAdapter } from "@astromode-ai/adapter-mastra";
-import { serve } from "@astromode-ai/adapter-core";
+import { MastraAdapter } from "@astropods/adapter-mastra";
+import { serve } from "@astropods/adapter-core";
 
 const agent = new Agent({ name: "My Agent", model: "openai/gpt-4o", instructions: "..." });
 const adapter = new MastraAdapter(agent);
