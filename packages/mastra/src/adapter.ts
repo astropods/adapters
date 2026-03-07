@@ -87,20 +87,26 @@ export class MastraAdapter implements AgentAdapter {
   ): Promise<void> {
     const voice = this.agent.voice;
     if (!voice) {
+      console.error("[MastraAdapter] streamAudio called but agent has no voice provider");
       hooks.onError(new Error("Agent has no voice provider configured"));
       return;
     }
+
+    console.log(`[MastraAdapter] streamAudio: encoding=${audio.config.encoding} filetype=${audio.filetype} conversation=${options.conversationId}`);
 
     // STT: transcribe audio to text
     hooks.onStatusUpdate({ status: "PROCESSING", customMessage: "Transcribing audio" });
 
     let transcript: string;
     try {
+      console.log("[MastraAdapter] Calling voice.listen() for STT...");
       const result = await voice.listen(audio.stream, {
         filetype: audio.filetype,
       });
       transcript = typeof result === "string" ? result : String(result ?? "");
+      console.log(`[MastraAdapter] STT result: "${transcript.substring(0, 100)}${transcript.length > 100 ? "..." : ""}"`);
     } catch (error) {
+      console.error("[MastraAdapter] STT failed:", error);
       hooks.onError(
         error instanceof Error ? error : new Error(String(error))
       );
@@ -108,11 +114,13 @@ export class MastraAdapter implements AgentAdapter {
     }
 
     if (!transcript.trim()) {
+      console.warn("[MastraAdapter] STT returned empty transcript");
       hooks.onError(new Error("Could not transcribe audio"));
       return;
     }
 
     // Generate a text response using the transcript as the prompt
+    console.log(`[MastraAdapter] Generating response for transcript...`);
     await this.stream(transcript, hooks, options);
 
     // TTS: convert the accumulated text response to audio (if voice supports speak)
