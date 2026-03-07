@@ -2,7 +2,7 @@ import type { Agent } from "@mastra/core/agent";
 import type {
   AgentConfig as MessagingAgentConfig,
 } from "@astropods/messaging";
-import type { AgentAdapter, StreamHooks, StreamOptions } from "@astropods/adapter-core";
+import type { AgentAdapter, AudioInput, StreamHooks, StreamOptions } from "@astropods/adapter-core";
 
 /**
  * Adapts a Mastra Agent to the Astro messaging protocol.
@@ -76,6 +76,70 @@ export class MastraAdapter implements AgentAdapter {
               : new Error(String(chunk.payload.error))
           );
           break;
+      }
+    }
+  }
+
+  async streamAudio(
+    audio: AudioInput,
+    hooks: StreamHooks,
+    options: StreamOptions
+  ): Promise<void> {
+    const voice = this.agent.voice;
+    if (!voice) {
+      hooks.onError(new Error("Agent has no voice provider configured"));
+      return;
+    }
+
+    // STT: transcribe audio to text
+    hooks.onStatusUpdate({ status: "PROCESSING", customMessage: "Transcribing audio" });
+
+    let transcript: string;
+    try {
+      const result = await voice.listen(audio.stream, {
+        filetype: audio.filetype,
+      });
+      transcript = typeof result === "string" ? result : String(result ?? "");
+    } catch (error) {
+      hooks.onError(
+        error instanceof Error ? error : new Error(String(error))
+      );
+      return;
+    }
+
+    if (!transcript.trim()) {
+      hooks.onError(new Error("Could not transcribe audio"));
+      return;
+    }
+
+    // Generate a text response using the transcript as the prompt
+    await this.stream(transcript, hooks, options);
+
+    // TTS: convert the accumulated text response to audio (if voice supports speak)
+    if (voice.speak) {
+      try {
+        hooks.onStatusUpdate({ status: "GENERATING", customMessage: "Generating audio" });
+
+        // Re-generate a concise response for TTS (reuse the same prompt)
+        const { text } = await this.agent.generate(transcript, {
+          memory: {
+            thread: options.conversationId,
+            resource: options.userId,
+          },
+        });
+
+        const audioStream = await voice.speak(text);
+        if (audioStream) {
+          const reader = (audioStream as unknown as ReadableStream<Uint8Array>).getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            hooks.onAudioChunk(value);
+          }
+          hooks.onAudioEnd();
+        }
+      } catch {
+        // TTS is best-effort — the text response was already sent
       }
     }
   }
