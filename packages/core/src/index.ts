@@ -1,5 +1,6 @@
 export type {
   AgentAdapter,
+  AudioInput,
   StreamHooks,
   StreamOptions,
   ServeOptions,

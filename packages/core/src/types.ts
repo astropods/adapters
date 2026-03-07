@@ -1,5 +1,6 @@
 import type {
   AgentConfig as MessagingAgentConfig,
+  AudioStreamConfig,
   StatusUpdate,
 } from "@astropods/messaging";
 
@@ -9,12 +10,26 @@ export interface StreamHooks {
   onStatusUpdate(status: StatusUpdate): void;
   onError(error: Error): void;
   onFinish(): void;
+  /** Send a chunk of TTS audio back to the client. */
+  onAudioChunk(data: Uint8Array): void;
+  /** Signal end of the current audio response segment. */
+  onAudioEnd(): void;
 }
 
 /** Per-request context passed to the adapter's stream method. */
 export interface StreamOptions {
   conversationId: string;
   userId: string;
+}
+
+/** Audio input delivered to an adapter for processing. */
+export interface AudioInput {
+  /** ReadableStream of raw audio bytes. */
+  stream: ReadableStream<Uint8Array>;
+  /** Encoding metadata from the audio session setup. */
+  config: AudioStreamConfig;
+  /** Mastra-compatible filetype string derived from config.encoding. */
+  filetype: string;
 }
 
 /**
@@ -29,6 +44,16 @@ export interface AgentAdapter {
   /** Stream a response for the given prompt, invoking hooks as the agent progresses. */
   stream(
     prompt: string,
+    hooks: StreamHooks,
+    options: StreamOptions
+  ): Promise<void>;
+
+  /**
+   * Handle audio input — transcribe and respond.
+   * Optional: adapters that don't support voice can omit this.
+   */
+  streamAudio?(
+    audio: AudioInput,
     hooks: StreamHooks,
     options: StreamOptions
   ): Promise<void>;

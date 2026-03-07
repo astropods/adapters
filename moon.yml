@@ -7,3 +7,7 @@ tasks:
     outputs:
       - "packages/core/dist"
       - "packages/mastra/dist"
+  "install-local":
+    command: "bash -c 'BUN_CONFIG_REGISTRY=http://localhost:4873 bun install'"
+  "publish-local":
+    command: "bash -c 'BUN_CONFIG_REGISTRY=http://localhost:4873 bun install && bun x lerna run build && bash ../../scripts/publish-local.sh packages/core packages/mastra'"
