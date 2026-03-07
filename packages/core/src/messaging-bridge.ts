@@ -21,6 +21,9 @@ export class MessagingBridge {
   private stream: ConversationStream | null = null;
   private shutdownHandler: (() => void) | null = null;
 
+  // Pending audio message waiting for audio stream data
+  private pendingAudioMessage: Message | null = null;
+
   constructor(adapter: AgentAdapter, options?: ServeOptions) {
     this.adapter = adapter;
     this.serverAddress =
@@ -79,14 +82,23 @@ export class MessagingBridge {
       const username =
         message.user?.username || message.user?.id || "Anonymous";
 
-      // Check for audio attachment (batch upload path)
-      const audioAttachment = message.attachments?.find(
-        (a) => a.type === "AUDIO"
-      );
+      // Check if this is an audio message (content "[audio]" or AUDIO attachment)
+      const isAudioMessage =
+        message.content === "[audio]" ||
+        message.attachments?.some((a) => a.type === "AUDIO");
 
-      if (audioAttachment && this.adapter.streamAudio) {
-        console.log(`${username}: [audio message]`);
-        this.handleAudioAttachment(message, audioAttachment);
+      if (isAudioMessage && this.adapter.streamAudio) {
+        const attachmentTypes = (message.attachments ?? []).map((a) => a.type).join(", ");
+        console.log(`${username}: [audio message] conversation=${message.conversationId} attachments=[${attachmentTypes}]`);
+        console.log(`  Waiting for audio stream data...`);
+        // Stash the message — audio bytes will arrive via audioConfig/audioChunk events
+        this.pendingAudioMessage = message;
+      } else if (isAudioMessage && !this.adapter.streamAudio) {
+        console.log(`${username}: [audio message] (adapter does not implement streamAudio, skipping)`);
+        const hooks = this.buildHooks(message.conversationId);
+        this.stream!.sendContentChunk(message.conversationId, { type: "START", content: "" });
+        hooks.onChunk("Sorry, I don't support audio input. Please send a text message.");
+        hooks.onFinish();
       } else {
         console.log(`${username}: ${message.content}`);
         this.handleMessage(message);
@@ -98,16 +110,23 @@ export class MessagingBridge {
       let pendingAudioConfig: AudioStreamConfig | null = null;
 
       this.stream.on("audioConfig", (config: AudioStreamConfig) => {
+        console.log(`[audio] Received audioConfig: encoding=${config.encoding} sampleRate=${config.sampleRate} channels=${config.channels} conversation=${config.conversationId}`);
         pendingAudioConfig = config;
       });
 
       this.stream.on("audioChunk", () => {
-        // Audio chunks are consumed via audioAsReadable() below — this
-        // listener just triggers stream creation on the first chunk.
-        if (!pendingAudioConfig || !this.stream) return;
+        // Audio chunks are consumed via audioAsReadable() — this
+        // listener triggers stream creation on the first chunk.
+        if (!pendingAudioConfig) {
+          console.warn("[audio] Received audioChunk but no audioConfig yet, ignoring");
+          return;
+        }
+        if (!this.stream) return;
 
         const config = pendingAudioConfig;
         pendingAudioConfig = null;
+
+        console.log(`[audio] First chunk received, creating audio stream`);
 
         const audioReadable = this.stream.audioAsReadable();
         const audioInput: AudioInput = {
@@ -116,9 +135,15 @@ export class MessagingBridge {
           filetype: audioEncodingToFiletype(config.encoding),
         };
 
-        const conversationId = config.conversationId;
-        console.log(`[audio stream] conversation=${conversationId} encoding=${config.encoding}`);
-        this.handleAudio(audioInput, conversationId);
+        // Use the pending audio message for context, or fall back to config
+        const message = this.pendingAudioMessage;
+        this.pendingAudioMessage = null;
+
+        const conversationId = message?.conversationId ?? config.conversationId;
+        const userId = message?.user?.id ?? "anonymous";
+
+        console.log(`[audio] Dispatching to streamAudio: conversation=${conversationId} encoding=${config.encoding} filetype=${audioInput.filetype} userId=${userId}`);
+        this.handleAudio(audioInput, conversationId, userId);
       });
     }
 
@@ -206,65 +231,11 @@ export class MessagingBridge {
       });
   }
 
-  private handleAudioAttachment(
-    message: Message,
-    attachment: { url?: string; mimeType?: string }
+  private handleAudio(
+    audioInput: AudioInput,
+    conversationId: string,
+    userId: string
   ): void {
-    if (!this.stream || !this.adapter.streamAudio) return;
-
-    const { conversationId } = message;
-    const stream = this.stream;
-
-    // Extract audio metadata from platform data
-    const pd = message.platformContext?.platformData ?? {};
-    const encoding = (pd["audio_encoding"] ?? "WEBM_OPUS").toUpperCase();
-    const sampleRate = parseInt(pd["audio_sample_rate"] ?? "48000", 10);
-    const channels = parseInt(pd["audio_channels"] ?? "1", 10);
-
-    const config: AudioStreamConfig = {
-      encoding: encoding as AudioStreamConfig["encoding"],
-      sampleRate,
-      channels,
-      language: pd["audio_language"],
-      conversationId,
-      source: pd["audio_source"],
-    };
-
-    // Fetch the audio data from the attachment URL and wrap as ReadableStream
-    if (!attachment.url) {
-      console.error("Audio attachment has no URL");
-      return;
-    }
-
-    stream.sendContentChunk(conversationId, { type: "START", content: "" });
-
-    const hooks = this.buildHooks(conversationId);
-
-    fetch(attachment.url)
-      .then((res) => {
-        if (!res.ok || !res.body) {
-          throw new Error(`Failed to fetch audio: ${res.status}`);
-        }
-
-        const audioInput: AudioInput = {
-          stream: res.body,
-          config,
-          filetype: audioEncodingToFiletype(config.encoding),
-        };
-
-        return this.adapter.streamAudio!(audioInput, hooks, {
-          conversationId,
-          userId: message.user?.id ?? "anonymous",
-        });
-      })
-      .catch((error) => {
-        hooks.onError(
-          error instanceof Error ? error : new Error(String(error))
-        );
-      });
-  }
-
-  private handleAudio(audioInput: AudioInput, conversationId: string): void {
     if (!this.stream || !this.adapter.streamAudio) return;
 
     const stream = this.stream;
@@ -276,7 +247,7 @@ export class MessagingBridge {
     this.adapter
       .streamAudio(audioInput, hooks, {
         conversationId,
-        userId: "anonymous",
+        userId,
       })
       .catch((error) => {
         hooks.onError(
