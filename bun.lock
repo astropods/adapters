@@ -64,7 +64,7 @@
 
     "@astropods/adapter-mastra": ["@astropods/adapter-mastra@workspace:packages/mastra"],
 
-    "@astropods/messaging": ["@astropods/messaging@0.0.2", "http://localhost:4873/@astropods/messaging/-/messaging-0.0.2.tgz", { "dependencies": { "@grpc/grpc-js": "^1.9.0", "@grpc/proto-loader": "^0.7.10" } }, "sha512-nBm38/fkUh/O+6RvudiR3zJl4S1SQRo+bcJeXk3pBUtvw1Ez85wLwMzCztSIzs1+9dxKNCWykLVoCajHFWEfTA=="],
+    "@astropods/messaging": ["@astropods/messaging@0.0.3", "http://localhost:4873/@astropods/messaging/-/messaging-0.0.3.tgz", { "dependencies": { "@grpc/grpc-js": "^1.9.0", "@grpc/proto-loader": "^0.7.10" } }, "sha512-8ogB70APrMwTffxM2gkN9/a6S5iQixUdUeCcKILhaliW335NUqPsJpxwGlQi9X6KuDCW5YQ8Q4aP2xlW1mrFYQ=="],
 
     "@babel/code-frame": ["@babel/code-frame@7.29.0", "http://localhost:4873/@babel/code-frame/-/code-frame-7.29.0.tgz", { "dependencies": { "@babel/helper-validator-identifier": "^7.28.5", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw=="],
 
