@@ -10,6 +10,8 @@ export interface StreamHooks {
   onStatusUpdate(status: StatusUpdate): void;
   onError(error: Error): void;
   onFinish(): void;
+  /** Send the transcribed text of the user's audio input to update the placeholder. */
+  onTranscript(text: string): void;
   /** Send a chunk of TTS audio back to the client. */
   onAudioChunk(data: Uint8Array): void;
   /** Signal end of the current audio response segment. */
