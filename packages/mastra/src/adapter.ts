@@ -105,6 +105,9 @@ export class MastraAdapter implements AgentAdapter {
       });
       transcript = typeof result === "string" ? result : String(result ?? "");
       console.log(`[MastraAdapter] STT result: "${transcript.substring(0, 100)}${transcript.length > 100 ? "..." : ""}"`);
+
+      // Send transcript back to update the placeholder user message
+      hooks.onTranscript(transcript);
     } catch (error) {
       console.error("[MastraAdapter] STT failed:", error);
       hooks.onError(
