@@ -107,27 +107,12 @@ export class MessagingBridge {
 
     // Listen for streaming audio (WebSocket/Twilio path)
     if (this.adapter.streamAudio) {
-      let pendingAudioConfig: AudioStreamConfig | null = null;
-
       this.stream.on("audioConfig", (config: AudioStreamConfig) => {
-        console.log(`[audio] Received audioConfig: encoding=${config.encoding} sampleRate=${config.sampleRate} channels=${config.channels} conversation=${config.conversationId}`);
-        pendingAudioConfig = config;
-      });
-
-      this.stream.on("audioChunk", () => {
-        // Audio chunks are consumed via audioAsReadable() — this
-        // listener triggers stream creation on the first chunk.
-        if (!pendingAudioConfig) {
-          console.warn("[audio] Received audioChunk but no audioConfig yet, ignoring");
-          return;
-        }
         if (!this.stream) return;
+        console.log(`[audio] Received audioConfig: encoding=${config.encoding} sampleRate=${config.sampleRate} channels=${config.channels} conversation=${config.conversationId}`);
 
-        const config = pendingAudioConfig;
-        pendingAudioConfig = null;
-
-        console.log(`[audio] First chunk received, creating audio stream`);
-
+        // Set up the readable stream immediately, before any audioChunk events fire.
+        // audioAsReadable() listens for audioChunk events and pipes them into the stream.
         const audioReadable = this.stream.audioAsReadable();
         const audioInput: AudioInput = {
           stream: audioReadable,
@@ -135,7 +120,6 @@ export class MessagingBridge {
           filetype: audioEncodingToFiletype(config.encoding),
         };
 
-        // Use the pending audio message for context, or fall back to config
         const message = this.pendingAudioMessage;
         this.pendingAudioMessage = null;
 
