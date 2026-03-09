@@ -1,5 +1,5 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
-import type { AgentAdapter, AudioInput, StreamHooks, StreamOptions } from "./types";
+import type { AgentAdapter, StreamHooks, StreamOptions } from "./types";
 import type {
   AgentConfig,
   AgentResponse,
@@ -602,6 +602,59 @@ describe("MessagingBridge", () => {
         conversationId: "conv-audio",
         userId: "user-5",
       });
+    });
+
+    test("handles concurrent audio messages from different conversations", async () => {
+      const dispatched: Array<{ conversationId: string; userId: string }> = [];
+      const adapter = createMockAdapter({
+        streamAudio: async (_audio, hooks, options) => {
+          dispatched.push({ conversationId: options.conversationId, userId: options.userId });
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      // Two users send audio concurrently
+      mockResponseHandlers[0]({
+        conversationId: "conv-A",
+        incomingMessage: {
+          conversationId: "conv-A",
+          content: "[audio]",
+          platform: "twilio",
+          user: { id: "user-A", username: "Alice" },
+        },
+      });
+      mockResponseHandlers[0]({
+        conversationId: "conv-B",
+        incomingMessage: {
+          conversationId: "conv-B",
+          content: "[audio]",
+          platform: "twilio",
+          user: { id: "user-B", username: "Bob" },
+        },
+      });
+
+      // audioConfig events arrive for both
+      mockAudioConfigHandlers[0]({
+        encoding: "MULAW",
+        sampleRate: 8000,
+        channels: 1,
+        conversationId: "conv-A",
+      });
+      mockAudioConfigHandlers[0]({
+        encoding: "MULAW",
+        sampleRate: 8000,
+        channels: 1,
+        conversationId: "conv-B",
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(dispatched).toHaveLength(2);
+      expect(dispatched).toContainEqual({ conversationId: "conv-A", userId: "user-A" });
+      expect(dispatched).toContainEqual({ conversationId: "conv-B", userId: "user-B" });
     });
 
     test("replies with error when adapter does not support audio", async () => {
