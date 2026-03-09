@@ -21,8 +21,8 @@ export class MessagingBridge {
   private stream: ConversationStream | null = null;
   private shutdownHandler: (() => void) | null = null;
 
-  // Pending audio message waiting for audio stream data
-  private pendingAudioMessage: Message | null = null;
+  // Pending audio messages keyed by conversationId, waiting for audio stream data
+  private pendingAudioMessages = new Map<string, Message>();
 
   constructor(adapter: AgentAdapter, options?: ServeOptions) {
     this.adapter = adapter;
@@ -93,7 +93,7 @@ export class MessagingBridge {
       if (isAudioMessage && this.adapter.streamAudio) {
         console.log(`[bridge] Audio message received, waiting for audio stream data...`);
         // Stash the message — audio bytes will arrive via audioConfig/audioChunk events
-        this.pendingAudioMessage = message;
+        this.pendingAudioMessages.set(message.conversationId, message);
       } else if (isAudioMessage && !this.adapter.streamAudio) {
         console.log(`[bridge] Audio message received but adapter does not implement streamAudio, skipping`);
         const hooks = this.buildHooks(message.conversationId);
@@ -120,8 +120,8 @@ export class MessagingBridge {
           filetype: audioEncodingToFiletype(config.encoding),
         };
 
-        const message = this.pendingAudioMessage;
-        this.pendingAudioMessage = null;
+        const message = this.pendingAudioMessages.get(config.conversationId) ?? null;
+        this.pendingAudioMessages.delete(config.conversationId);
 
         if (!message) {
           console.warn(`[bridge] audioConfig arrived before matching [audio] message — using fallback conversationId=${config.conversationId} userId=anonymous`);
