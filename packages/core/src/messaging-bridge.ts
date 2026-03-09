@@ -123,6 +123,10 @@ export class MessagingBridge {
         const message = this.pendingAudioMessage;
         this.pendingAudioMessage = null;
 
+        if (!message) {
+          console.warn(`[bridge] audioConfig arrived before matching [audio] message — using fallback conversationId=${config.conversationId} userId=anonymous`);
+        }
+
         const conversationId = message?.conversationId ?? config.conversationId;
         const userId = message?.user?.id ?? "anonymous";
 

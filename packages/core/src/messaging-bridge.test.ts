@@ -1,8 +1,9 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
-import type { AgentAdapter, StreamHooks, StreamOptions } from "./types";
+import type { AgentAdapter, AudioInput, StreamHooks, StreamOptions } from "./types";
 import type {
   AgentConfig,
   AgentResponse,
+  AudioStreamConfig,
   ContentChunk,
   Message,
   StatusUpdate,
@@ -22,11 +23,16 @@ let mockSendAgentResponseCalls: AgentResponse[] = [];
 let mockResponseHandlers: Array<(response: AgentResponse) => void> = [];
 let mockErrorHandlers: Array<(error: Error) => void> = [];
 let mockEndHandlers: Array<() => void> = [];
+let mockAudioConfigHandlers: Array<(config: AudioStreamConfig) => void> = [];
 let mockConstructorAddr: string | null = null;
+let mockSendTranscriptCalls: Array<{ conversationId: string; text: string }> = [];
+let mockSendAudioChunkCalls: Array<{ data: Uint8Array; done: boolean }> = [];
+let mockEndAudioCalled = false;
 
 // --- Mock messaging SDK ---
 
 mock.module("@astropods/messaging", () => ({
+  audioEncodingToFiletype: (encoding: string) => encoding === "MULAW" ? "wav" : encoding.toLowerCase(),
   MessagingClient: class MockMessagingClient {
     constructor(addr: string) {
       mockConstructorAddr = addr;
@@ -55,10 +61,23 @@ mock.module("@astropods/messaging", () => ({
         sendAgentResponse(response: AgentResponse) {
           mockSendAgentResponseCalls.push(response);
         },
+        sendTranscript(conversationId: string, text: string) {
+          mockSendTranscriptCalls.push({ conversationId, text });
+        },
+        sendAudioChunk(chunk: { data: Uint8Array; done: boolean }) {
+          mockSendAudioChunkCalls.push(chunk);
+        },
+        endAudio() {
+          mockEndAudioCalled = true;
+        },
+        audioAsReadable() {
+          return new ReadableStream<Uint8Array>();
+        },
         on(event: string, handler: any) {
           if (event === "response") mockResponseHandlers.push(handler);
           if (event === "error") mockErrorHandlers.push(handler);
           if (event === "end") mockEndHandlers.push(handler);
+          if (event === "audioConfig") mockAudioConfigHandlers.push(handler);
         },
         end() {
           mockStreamEndCalled = true;
@@ -111,7 +130,11 @@ function resetMockState() {
   mockResponseHandlers = [];
   mockErrorHandlers = [];
   mockEndHandlers = [];
+  mockAudioConfigHandlers = [];
   mockConstructorAddr = null;
+  mockSendTranscriptCalls = [];
+  mockSendAudioChunkCalls = [];
+  mockEndAudioCalled = false;
 }
 
 // --- Tests ---
@@ -506,6 +529,103 @@ describe("MessagingBridge", () => {
       expect(mockSendStatusUpdateCalls[1].status).toEqual({ status: "GENERATING" });
       const lastChunk = mockSendContentChunkCalls[mockSendContentChunkCalls.length - 1];
       expect(lastChunk.chunk.type).toBe("END");
+    });
+  });
+
+  describe("audio handling", () => {
+    test("warns when audioConfig arrives without a pending audio message", async () => {
+      const warnSpy = mock(() => {});
+      const origWarn = console.warn;
+      console.warn = warnSpy;
+
+      const adapter = createMockAdapter({
+        streamAudio: async (_audio, hooks) => {
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      // Fire audioConfig WITHOUT a preceding [audio] message
+      mockAudioConfigHandlers[0]({
+        encoding: "MULAW",
+        sampleRate: 8000,
+        channels: 1,
+        conversationId: "conv-fallback",
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(warnSpy).toHaveBeenCalled();
+      const warnMsg = (warnSpy as any).mock.calls[0][0];
+      expect(warnMsg).toContain("audioConfig arrived before matching [audio] message");
+      expect(warnMsg).toContain("conv-fallback");
+
+      console.warn = origWarn;
+    });
+
+    test("dispatches audio to adapter.streamAudio with correct conversationId from pending message", async () => {
+      let capturedOptions: StreamOptions | null = null;
+      const adapter = createMockAdapter({
+        streamAudio: async (_audio, hooks, options) => {
+          capturedOptions = options;
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      // Send [audio] message first
+      mockResponseHandlers[0]({
+        conversationId: "conv-audio",
+        incomingMessage: {
+          conversationId: "conv-audio",
+          content: "[audio]",
+          platform: "twilio",
+          user: { id: "user-5", username: "Eve" },
+        },
+      });
+
+      // Then audioConfig
+      mockAudioConfigHandlers[0]({
+        encoding: "MULAW",
+        sampleRate: 8000,
+        channels: 1,
+        conversationId: "conv-audio",
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(capturedOptions).toEqual({
+        conversationId: "conv-audio",
+        userId: "user-5",
+      });
+    });
+
+    test("replies with error when adapter does not support audio", async () => {
+      // Adapter without streamAudio
+      const adapter = createMockAdapter();
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      mockResponseHandlers[0]({
+        conversationId: "conv-no-audio",
+        incomingMessage: {
+          conversationId: "conv-no-audio",
+          content: "[audio]",
+          platform: "twilio",
+          user: { id: "user-1" },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const deltas = mockSendContentChunkCalls.filter((c) => c.chunk.type === "DELTA");
+      expect(deltas).toHaveLength(1);
+      expect(deltas[0].chunk.content).toContain("don't support audio");
     });
   });
 
