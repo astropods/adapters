@@ -149,8 +149,9 @@ export class MastraAdapter implements AgentAdapter {
           }
           hooks.onAudioEnd();
         }
-      } catch {
+      } catch (error) {
         // TTS is best-effort — the text response was already sent
+        console.warn("[MastraAdapter] TTS failed (text response already sent):", error);
       }
     }
   }
