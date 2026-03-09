@@ -533,39 +533,7 @@ describe("MessagingBridge", () => {
   });
 
   describe("audio handling", () => {
-    test("warns when audioConfig arrives without a pending audio message", async () => {
-      const warnSpy = mock(() => {});
-      const origWarn = console.warn;
-      console.warn = warnSpy;
-
-      const adapter = createMockAdapter({
-        streamAudio: async (_audio, hooks) => {
-          hooks.onFinish();
-        },
-      });
-      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
-
-      await bridge.start();
-
-      // Fire audioConfig WITHOUT a preceding [audio] message
-      mockAudioConfigHandlers[0]({
-        encoding: "MULAW",
-        sampleRate: 8000,
-        channels: 1,
-        conversationId: "conv-fallback",
-      });
-
-      await new Promise((r) => setTimeout(r, 10));
-
-      expect(warnSpy).toHaveBeenCalled();
-      const warnMsg = (warnSpy as any).mock.calls[0][0];
-      expect(warnMsg).toContain("audioConfig arrived before matching [audio] message");
-      expect(warnMsg).toContain("conv-fallback");
-
-      console.warn = origWarn;
-    });
-
-    test("dispatches audio to adapter.streamAudio with correct conversationId from pending message", async () => {
+    test("dispatches audioConfig directly to streamAudio with conversationId and userId", async () => {
       let capturedOptions: StreamOptions | null = null;
       const adapter = createMockAdapter({
         streamAudio: async (_audio, hooks, options) => {
@@ -577,18 +545,34 @@ describe("MessagingBridge", () => {
 
       await bridge.start();
 
-      // Send [audio] message first
-      mockResponseHandlers[0]({
+      mockAudioConfigHandlers[0]({
+        encoding: "MULAW",
+        sampleRate: 8000,
+        channels: 1,
         conversationId: "conv-audio",
-        incomingMessage: {
-          conversationId: "conv-audio",
-          content: "[audio]",
-          platform: "twilio",
-          user: { id: "user-5", username: "Eve" },
-        },
+        userId: "user-42",
       });
 
-      // Then audioConfig
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(capturedOptions).toEqual({
+        conversationId: "conv-audio",
+        userId: "user-42",
+      });
+    });
+
+    test("defaults userId to anonymous when audioConfig omits it", async () => {
+      let capturedOptions: StreamOptions | null = null;
+      const adapter = createMockAdapter({
+        streamAudio: async (_audio, hooks, options) => {
+          capturedOptions = options;
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
       mockAudioConfigHandlers[0]({
         encoding: "MULAW",
         sampleRate: 8000,
@@ -600,65 +584,39 @@ describe("MessagingBridge", () => {
 
       expect(capturedOptions).toEqual({
         conversationId: "conv-audio",
-        userId: "user-5",
+        userId: "anonymous",
       });
     });
 
-    test("handles concurrent audio messages from different conversations", async () => {
-      const dispatched: Array<{ conversationId: string; userId: string }> = [];
+    test("ignores [audio] text messages when adapter supports audio", async () => {
+      const streamFn = mock(async () => {});
       const adapter = createMockAdapter({
-        streamAudio: async (_audio, hooks, options) => {
-          dispatched.push({ conversationId: options.conversationId, userId: options.userId });
-          hooks.onFinish();
-        },
+        stream: streamFn,
+        streamAudio: async (_audio, hooks) => { hooks.onFinish(); },
       });
       const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
 
       await bridge.start();
 
-      // Two users send audio concurrently
       mockResponseHandlers[0]({
-        conversationId: "conv-A",
+        conversationId: "conv-1",
         incomingMessage: {
-          conversationId: "conv-A",
+          conversationId: "conv-1",
           content: "[audio]",
           platform: "twilio",
-          user: { id: "user-A", username: "Alice" },
+          user: { id: "user-1" },
         },
-      });
-      mockResponseHandlers[0]({
-        conversationId: "conv-B",
-        incomingMessage: {
-          conversationId: "conv-B",
-          content: "[audio]",
-          platform: "twilio",
-          user: { id: "user-B", username: "Bob" },
-        },
-      });
-
-      // audioConfig events arrive for both
-      mockAudioConfigHandlers[0]({
-        encoding: "MULAW",
-        sampleRate: 8000,
-        channels: 1,
-        conversationId: "conv-A",
-      });
-      mockAudioConfigHandlers[0]({
-        encoding: "MULAW",
-        sampleRate: 8000,
-        channels: 1,
-        conversationId: "conv-B",
       });
 
       await new Promise((r) => setTimeout(r, 10));
 
-      expect(dispatched).toHaveLength(2);
-      expect(dispatched).toContainEqual({ conversationId: "conv-A", userId: "user-A" });
-      expect(dispatched).toContainEqual({ conversationId: "conv-B", userId: "user-B" });
+      // Should not call stream() — the [audio] message is ignored
+      expect(streamFn).not.toHaveBeenCalled();
+      // Should not send any content chunks
+      expect(mockSendContentChunkCalls).toHaveLength(0);
     });
 
     test("replies with error when adapter does not support audio", async () => {
-      // Adapter without streamAudio
       const adapter = createMockAdapter();
       const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
 
