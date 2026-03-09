@@ -7,3 +7,10 @@ export type {
 
 export { serve } from "./serve";
 export { MessagingBridge } from "./messaging-bridge";
+export {
+  loadGuardrails,
+  GuardrailsClient,
+  type GuardrailConfig,
+  type GuardrailCheckResponse,
+  type GuardrailScopeResult,
+} from "./guardrails";

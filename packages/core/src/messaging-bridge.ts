@@ -6,6 +6,7 @@ import {
 } from "@astropods/messaging";
 
 import type { AgentAdapter, ServeOptions, StreamHooks } from "./types";
+import { loadGuardrails, type GuardrailsClient } from "./guardrails";
 
 const DEFAULT_SERVER_ADDR = "localhost:9090";
 const MAX_RETRIES = 10;
@@ -18,6 +19,7 @@ export class MessagingBridge {
   private client: MessagingClient | null = null;
   private stream: ConversationStream | null = null;
   private shutdownHandler: (() => void) | null = null;
+  private guardrails: GuardrailsClient;
 
   constructor(adapter: AgentAdapter, options?: ServeOptions) {
     this.adapter = adapter;
@@ -25,6 +27,7 @@ export class MessagingBridge {
       options?.serverAddress ||
       process.env.GRPC_SERVER_ADDR ||
       DEFAULT_SERVER_ADDR;
+    this.guardrails = loadGuardrails();
   }
 
   private async connectWithRetry(): Promise<void> {
@@ -141,16 +144,43 @@ export class MessagingBridge {
       },
     };
 
-    this.adapter
-      .stream(message.content, hooks, {
-        conversationId,
-        userId: message.user?.id ?? "anonymous",
-      })
-      .catch((error) => {
-        hooks.onError(
-          error instanceof Error ? error : new Error(String(error))
-        );
+    this.processWithGuardrails(message.content, hooks, {
+      conversationId,
+      userId: message.user?.id ?? "anonymous",
+    }).catch((error) => {
+      hooks.onError(
+        error instanceof Error ? error : new Error(String(error))
+      );
+    });
+  }
+
+  private async processWithGuardrails(
+    content: string,
+    hooks: StreamHooks,
+    options: { conversationId: string; userId: string }
+  ): Promise<void> {
+    if (this.guardrails.hasScope("input")) {
+      const inputCheck = await this.guardrails.checkScope("input", content, {
+        agent: this.adapter.name,
+        conversationId: options.conversationId,
+        userId: options.userId,
       });
+
+      if (!inputCheck.passed) {
+        console.log(
+          `[guardrails] Blocked by "${inputCheck.failedGuardrail}": ${inputCheck.reason}`
+        );
+        hooks.onChunk(
+          inputCheck.reason
+            ? `I can't process that request. (${inputCheck.reason})`
+            : "I can't process that request."
+        );
+        hooks.onFinish();
+        return;
+      }
+    }
+
+    await this.adapter.stream(content, hooks, options);
   }
 
   stop(): void {
