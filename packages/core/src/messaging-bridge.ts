@@ -14,6 +14,10 @@ const MAX_RETRIES = 10;
 const INITIAL_DELAY_MS = 500;
 const MAX_DELAY_MS = 15000;
 
+function debug(...args: unknown[]) {
+  if (process.env.DEBUG) console.debug(...args);
+}
+
 export class MessagingBridge {
   private adapter: AgentAdapter;
   private serverAddress: string;
@@ -88,14 +92,14 @@ export class MessagingBridge {
         message.attachments?.some((a) => a.type === "AUDIO");
 
       const attachmentTypes = (message.attachments ?? []).map((a) => a.type).join(", ");
-      console.log(`[bridge] Incoming message: user=${username} conversation=${message.conversationId} content=${JSON.stringify(message.content)} attachments=[${attachmentTypes}] isAudio=${isAudioMessage} hasStreamAudio=${!!this.adapter.streamAudio}`);
+      debug(`[bridge] Incoming message: user=${username} conversation=${message.conversationId} content=${JSON.stringify(message.content)} attachments=[${attachmentTypes}] isAudio=${isAudioMessage} hasStreamAudio=${!!this.adapter.streamAudio}`);
 
       if (isAudioMessage && this.adapter.streamAudio) {
-        console.log(`[bridge] Audio message received, waiting for audio stream data...`);
+        debug(`[bridge] Audio message received, waiting for audio stream data...`);
         // Stash the message — audio bytes will arrive via audioConfig/audioChunk events
         this.pendingAudioMessages.set(message.conversationId, message);
       } else if (isAudioMessage && !this.adapter.streamAudio) {
-        console.log(`[bridge] Audio message received but adapter does not implement streamAudio, skipping`);
+        debug(`[bridge] Audio message received but adapter does not implement streamAudio, skipping`);
         const hooks = this.buildHooks(message.conversationId);
         this.stream!.sendContentChunk(message.conversationId, { type: "START", content: "" });
         hooks.onChunk("Sorry, I don't support audio input. Please send a text message.");
@@ -109,7 +113,7 @@ export class MessagingBridge {
     if (this.adapter.streamAudio) {
       this.stream.on("audioConfig", (config: AudioStreamConfig) => {
         if (!this.stream) return;
-        console.log(`[audio] Received audioConfig: encoding=${config.encoding} sampleRate=${config.sampleRate} channels=${config.channels} conversation=${config.conversationId}`);
+        debug(`[audio] Received audioConfig: encoding=${config.encoding} sampleRate=${config.sampleRate} channels=${config.channels} conversation=${config.conversationId}`);
 
         // Set up the readable stream immediately, before any audioChunk events fire.
         // audioAsReadable() listens for audioChunk events and pipes them into the stream.
@@ -130,7 +134,7 @@ export class MessagingBridge {
         const conversationId = message?.conversationId ?? config.conversationId;
         const userId = message?.user?.id ?? "anonymous";
 
-        console.log(`[audio] Dispatching to streamAudio: conversation=${conversationId} encoding=${config.encoding} filetype=${audioInput.filetype} userId=${userId}`);
+        debug(`[audio] Dispatching to streamAudio: conversation=${conversationId} encoding=${config.encoding} filetype=${audioInput.filetype} userId=${userId}`);
         this.handleAudio(audioInput, conversationId, userId);
       });
     }
@@ -185,10 +189,10 @@ export class MessagingBridge {
       },
       onFinish: () => {
         stream.sendContentChunk(conversationId, { type: "END", content: "" });
-        console.log(`[bridge] Response complete: conversation=${conversationId}`);
+        debug(`[bridge] Response complete: conversation=${conversationId}`);
       },
       onTranscript: (text: string) => {
-        console.log(`[bridge] Sending transcript: conversation=${conversationId} text=${JSON.stringify(text)}`);
+        debug(`[bridge] Sending transcript: conversation=${conversationId} text=${JSON.stringify(text)}`);
         stream.sendTranscript(conversationId, text);
       },
       onAudioChunk: (data: Uint8Array) => {
@@ -232,7 +236,7 @@ export class MessagingBridge {
 
     const stream = this.stream;
 
-    console.log(`[bridge] Starting audio response: conversation=${conversationId} userId=${userId} encoding=${audioInput.config.encoding} filetype=${audioInput.filetype}`);
+    debug(`[bridge] Starting audio response: conversation=${conversationId} userId=${userId} encoding=${audioInput.config.encoding} filetype=${audioInput.filetype}`);
     stream.sendContentChunk(conversationId, { type: "START", content: "" });
 
     const hooks = this.buildHooks(conversationId);
@@ -243,7 +247,7 @@ export class MessagingBridge {
         userId,
       })
       .then(() => {
-        console.log(`[bridge] streamAudio resolved: conversation=${conversationId}`);
+        debug(`[bridge] streamAudio resolved: conversation=${conversationId}`);
       })
       .catch((error) => {
         console.error(`[bridge] streamAudio error: conversation=${conversationId}`, error);
