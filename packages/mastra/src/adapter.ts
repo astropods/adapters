@@ -4,6 +4,10 @@ import type {
 } from "@astropods/messaging";
 import type { AgentAdapter, AudioInput, StreamHooks, StreamOptions } from "@astropods/adapter-core";
 
+function debug(...args: unknown[]) {
+  if (process.env.DEBUG) console.debug(...args);
+}
+
 /**
  * Adapts a Mastra Agent to the Astro messaging protocol.
  *
@@ -92,19 +96,19 @@ export class MastraAdapter implements AgentAdapter {
       return;
     }
 
-    console.log(`[MastraAdapter] streamAudio: encoding=${audio.config.encoding} filetype=${audio.filetype} conversation=${options.conversationId}`);
+    debug(`[MastraAdapter] streamAudio: encoding=${audio.config.encoding} filetype=${audio.filetype} conversation=${options.conversationId}`);
 
     // STT: transcribe audio to text
     hooks.onStatusUpdate({ status: "PROCESSING", customMessage: "Transcribing audio" });
 
     let transcript: string;
     try {
-      console.log("[MastraAdapter] Calling voice.listen() for STT...");
+      debug("[MastraAdapter] Calling voice.listen() for STT...");
       const result = await voice.listen(audio.stream, {
         filetype: audio.filetype,
       });
       transcript = typeof result === "string" ? result : String(result ?? "");
-      console.log(`[MastraAdapter] STT result: "${transcript.substring(0, 100)}${transcript.length > 100 ? "..." : ""}"`);
+      debug(`[MastraAdapter] STT result: "${transcript.substring(0, 100)}${transcript.length > 100 ? "..." : ""}"`);
 
       // Send transcript back to update the placeholder user message
       hooks.onTranscript(transcript);
@@ -123,7 +127,7 @@ export class MastraAdapter implements AgentAdapter {
     }
 
     // Generate a text response using the transcript as the prompt
-    console.log(`[MastraAdapter] Generating response for transcript...`);
+    debug(`[MastraAdapter] Generating response for transcript...`);
     await this.stream(transcript, hooks, options);
 
     // TTS: convert the accumulated text response to audio (if voice supports speak)

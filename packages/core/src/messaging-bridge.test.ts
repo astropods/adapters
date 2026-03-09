@@ -682,6 +682,88 @@ describe("MessagingBridge", () => {
     });
   });
 
+  describe("debug logging", () => {
+    test("suppresses diagnostic logs when DEBUG is not set", async () => {
+      const debugSpy = mock(() => {});
+      const origDebug = console.debug;
+      const origEnv = process.env.DEBUG;
+      delete process.env.DEBUG;
+      console.debug = debugSpy;
+
+      try {
+        const adapter = createMockAdapter({
+          stream: async (_prompt, hooks) => {
+            hooks.onFinish();
+          },
+        });
+        const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+        await bridge.start();
+
+        mockResponseHandlers[0]({
+          conversationId: "conv-1",
+          incomingMessage: {
+            conversationId: "conv-1",
+            content: "hello",
+            platform: "slack",
+            user: { id: "user-1" },
+          },
+        });
+
+        await new Promise((r) => setTimeout(r, 10));
+
+        // No debug calls should have been made
+        expect(debugSpy).not.toHaveBeenCalled();
+      } finally {
+        console.debug = origDebug;
+        if (origEnv !== undefined) process.env.DEBUG = origEnv;
+      }
+    });
+
+    test("emits diagnostic logs when DEBUG is set", async () => {
+      const debugSpy = mock(() => {});
+      const origDebug = console.debug;
+      const origEnv = process.env.DEBUG;
+      process.env.DEBUG = "1";
+      console.debug = debugSpy;
+
+      try {
+        const adapter = createMockAdapter({
+          stream: async (_prompt, hooks) => {
+            hooks.onFinish();
+          },
+        });
+        const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+        await bridge.start();
+
+        mockResponseHandlers[0]({
+          conversationId: "conv-1",
+          incomingMessage: {
+            conversationId: "conv-1",
+            content: "hello",
+            platform: "slack",
+            user: { id: "user-1" },
+          },
+        });
+
+        await new Promise((r) => setTimeout(r, 10));
+
+        expect(debugSpy).toHaveBeenCalled();
+        const calls = (debugSpy as any).mock.calls;
+        const bridgeLog = calls.find((args: any[]) =>
+          typeof args[0] === "string" && args[0].includes("[bridge]")
+        );
+        expect(bridgeLog).toBeDefined();
+      } finally {
+        console.debug = origDebug;
+        if (origEnv !== undefined) {
+          process.env.DEBUG = origEnv;
+        } else {
+          delete process.env.DEBUG;
+        }
+      }
+    });
+  });
+
   describe("stop", () => {
     test("ends the stream and closes the client", async () => {
       const adapter = createMockAdapter();
