@@ -242,6 +242,158 @@ describe("MastraAdapter", () => {
       expect(hooks.errors[0].message).toContain("no voice provider");
     });
 
+    test("passes accumulated text to TTS instead of making a second LLM call", async () => {
+      const parts = textParts(["Hello", " world"]);
+      let speakInput: string | null = null;
+      let streamCallCount = 0;
+
+      const model = new MastraLanguageModelV2Mock({
+        provider: "test",
+        modelId: "test-model",
+        doStream: async () => {
+          streamCallCount++;
+          return { stream: streamFromParts(parts) };
+        },
+      });
+
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model,
+        instructions: "test",
+      });
+
+      const audioChunk = new Uint8Array([1, 2, 3]);
+      Object.defineProperty(agent, "voice", {
+        value: {
+          listen: async () => "transcribed text",
+          speak: async (text: string) => {
+            speakInput = text;
+            return new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(audioChunk);
+                controller.close();
+              },
+            });
+          },
+        },
+        configurable: true,
+      });
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+
+      const audioInput = {
+        stream: new ReadableStream<Uint8Array>(),
+        config: { encoding: "MULAW", sampleRate: 8000, channels: 1, conversationId: "c1" },
+        filetype: "wav",
+      };
+
+      await adapter.streamAudio!(audioInput as any, hooks, defaultOptions);
+
+      // Only one LLM call (stream), not two (stream + generate)
+      expect(streamCallCount).toBe(1);
+      // TTS received the accumulated streamed text
+      expect(speakInput).toBe("Hello world");
+      // Text was still streamed to the client
+      expect(hooks.chunks).toEqual(["Hello", " world"]);
+      // Audio chunks were forwarded
+      expect(hooks.audioChunks).toHaveLength(1);
+      expect(hooks.audioEndCount).toBe(1);
+    });
+
+    test("defers onFinish until after TTS completes", async () => {
+      const parts = textParts(["Reply"]);
+      const callOrder: string[] = [];
+
+      const model = new MastraLanguageModelV2Mock({
+        provider: "test",
+        modelId: "test-model",
+        doStream: async () => ({ stream: streamFromParts(parts) }),
+      });
+
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model,
+        instructions: "test",
+      });
+
+      Object.defineProperty(agent, "voice", {
+        value: {
+          listen: async () => "transcribed text",
+          speak: async () => {
+            callOrder.push("speak");
+            return new ReadableStream<Uint8Array>({
+              start(controller) { controller.close(); },
+            });
+          },
+        },
+        configurable: true,
+      });
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const origOnFinish = hooks.onFinish.bind(hooks);
+      hooks.onFinish = () => {
+        callOrder.push("onFinish");
+        origOnFinish();
+      };
+
+      const audioInput = {
+        stream: new ReadableStream<Uint8Array>(),
+        config: { encoding: "MULAW", sampleRate: 8000, channels: 1, conversationId: "c1" },
+        filetype: "wav",
+      };
+
+      await adapter.streamAudio!(audioInput as any, hooks, defaultOptions);
+
+      // onFinish should come after speak
+      expect(callOrder).toEqual(["speak", "onFinish"]);
+      expect(hooks.finishCount).toBe(1);
+    });
+
+    test("calls onFinish immediately when TTS is not available", async () => {
+      const parts = textParts(["Reply"]);
+
+      const model = new MastraLanguageModelV2Mock({
+        provider: "test",
+        modelId: "test-model",
+        doStream: async () => ({ stream: streamFromParts(parts) }),
+      });
+
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model,
+        instructions: "test",
+      });
+
+      // Voice with listen but no speak
+      Object.defineProperty(agent, "voice", {
+        value: {
+          listen: async () => "transcribed text",
+        },
+        configurable: true,
+      });
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+
+      const audioInput = {
+        stream: new ReadableStream<Uint8Array>(),
+        config: { encoding: "MULAW", sampleRate: 8000, channels: 1, conversationId: "c1" },
+        filetype: "wav",
+      };
+
+      await adapter.streamAudio!(audioInput as any, hooks, defaultOptions);
+
+      // onFinish fires via stream() directly, no TTS
+      expect(hooks.finishCount).toBe(1);
+      expect(hooks.chunks).toEqual(["Reply"]);
+      expect(hooks.audioChunks).toHaveLength(0);
+    });
+
     test("logs TTS failure as warning instead of swallowing silently", async () => {
       const warnSpy = mock(() => {});
       const origWarn = console.warn;
@@ -250,17 +402,10 @@ describe("MastraAdapter", () => {
       try {
         const parts = textParts(["Response text"]);
 
-        // doGenerate needs to return the full V2 shape for agent.generate()
         const model = new MastraLanguageModelV2Mock({
           provider: "test",
           modelId: "test-model",
           doStream: async () => ({ stream: streamFromParts(parts) }),
-          doGenerate: async () => ({
-            content: [{ type: "text" as const, text: "Response text" }],
-            finishReason: "stop" as const,
-            usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
-            warnings: [],
-          }),
         });
 
         const agent = new Agent({
@@ -270,7 +415,6 @@ describe("MastraAdapter", () => {
           instructions: "test",
         });
 
-        // Monkey-patch voice onto the agent (readonly, so use defineProperty)
         Object.defineProperty(agent, "voice", {
           value: {
             listen: async () => "transcribed text",
@@ -296,6 +440,8 @@ describe("MastraAdapter", () => {
           typeof args[0] === "string" && args[0].includes("TTS failed")
         );
         expect(ttsWarn).toBeDefined();
+        // onFinish should still fire even when TTS fails
+        expect(hooks.finishCount).toBe(1);
       } finally {
         console.warn = origWarn;
       }

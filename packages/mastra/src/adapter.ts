@@ -126,24 +126,34 @@ export class MastraAdapter implements AgentAdapter {
       return;
     }
 
-    // Generate a text response using the transcript as the prompt
+    // Generate a text response using the transcript as the prompt.
+    // When TTS is available, intercept chunks to accumulate text and defer
+    // onFinish until after TTS completes. Without TTS, pass hooks through directly.
     debug(`[MastraAdapter] Generating response for transcript...`);
-    await this.stream(transcript, hooks, options);
 
-    // TTS: convert the accumulated text response to audio (if voice supports speak)
-    if (voice.speak) {
+    const hasTTS = !!voice.speak;
+    let accumulatedText = "";
+
+    const streamHooks: StreamHooks = hasTTS
+      ? {
+          ...hooks,
+          onChunk: (text: string) => {
+            accumulatedText += text;
+            hooks.onChunk(text);
+          },
+          onFinish: () => {
+            // Deferred — will be called after TTS completes (or fails)
+          },
+        }
+      : hooks;
+
+    await this.stream(transcript, streamHooks, options);
+
+    if (hasTTS) {
       try {
         hooks.onStatusUpdate({ status: "GENERATING", customMessage: "Generating audio" });
 
-        // Re-generate a concise response for TTS (reuse the same prompt)
-        const { text } = await this.agent.generate(transcript, {
-          memory: {
-            thread: options.conversationId,
-            resource: options.userId,
-          },
-        });
-
-        const audioStream = await voice.speak(text);
+        const audioStream = await voice.speak!(accumulatedText);
         if (audioStream) {
           const reader = (audioStream as unknown as ReadableStream<Uint8Array>).getReader();
           while (true) {
@@ -157,6 +167,7 @@ export class MastraAdapter implements AgentAdapter {
         // TTS is best-effort — the text response was already sent
         console.warn("[MastraAdapter] TTS failed (text response already sent):", error);
       }
+      hooks.onFinish();
     }
   }
 
