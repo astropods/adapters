@@ -20,9 +20,6 @@ dev = [
   "langchain-core>=0.3",
 ]
 
-[project.urls]
-Repository = "https://github.com/postman-eng/astro"
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/astropods_adapter_langchain"]
 
