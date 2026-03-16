@@ -21,16 +21,33 @@ def stream_options():
     return StreamOptions(conversation_id="conv-123", user_id="user-456")
 
 
-def make_event(kind: str, **data) -> dict:
-    return {"event": kind, "data": data, "name": data.pop("name", "")}
+def make_msg(content, tool_calls=None, name=None):
+    msg = MagicMock()
+    msg.content = content
+    msg.tool_calls = tool_calls or []
+    if name is not None:
+        msg.name = name
+    return msg
 
 
-def make_executor_with_events(events: list):
+def make_model_update(content: str) -> dict:
+    return {"model": {"messages": [make_msg(content)]}}
+
+
+def make_tool_call_update(tool_name: str) -> dict:
+    return {"model": {"messages": [make_msg("", tool_calls=[{"name": tool_name}])]}}
+
+
+def make_tool_result_update(tool_name: str) -> dict:
+    return {"tools": {"messages": [make_msg("result", name=tool_name)]}}
+
+
+def make_executor_with_updates(updates: list):
     executor = MagicMock()
 
-    async def astream_events(*args, **kwargs):
-        for e in events:
-            yield e
+    async def astream(*args, **kwargs):
+        for u in updates:
+            yield u
 
-    executor.astream_events = astream_events
+    executor.astream = astream
     return executor

@@ -1,18 +1,13 @@
 import pytest
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 from astropods_adapter_langchain import LangChainAdapter
-from conftest import make_event, make_executor_with_events
-
-
-def make_chunk_event(content: str) -> dict:
-    chunk = MagicMock()
-    chunk.content = content
-    return {"event": "on_chat_model_stream", "data": {"chunk": chunk}, "name": ""}
-
-
-def make_tool_event(kind: str, tool_name: str) -> dict:
-    return {"event": kind, "data": {}, "name": tool_name}
+from conftest import (
+    make_executor_with_updates,
+    make_model_update,
+    make_tool_call_update,
+    make_tool_result_update,
+)
 
 
 class TestLangChainAdapterName:
@@ -29,28 +24,18 @@ class TestLangChainAdapterName:
 
 class TestLangChainAdapterStream:
     @pytest.mark.asyncio
-    async def test_on_chat_model_stream_calls_on_chunk(self, hooks, stream_options):
-        events = [
-            make_chunk_event("Hello"),
-            make_chunk_event(", "),
-            make_chunk_event("world"),
-        ]
-        executor = make_executor_with_events(events)
+    async def test_model_update_calls_on_chunk(self, hooks, stream_options):
+        executor = make_executor_with_updates([make_model_update("Hello world")])
         adapter = LangChainAdapter(executor)
 
         await adapter.stream("hi", hooks, stream_options)
 
-        assert hooks.on_chunk.call_count == 3
-        hooks.on_chunk.assert_any_call("Hello")
-        hooks.on_chunk.assert_any_call(", ")
-        hooks.on_chunk.assert_any_call("world")
+        hooks.on_chunk.assert_called_once_with("Hello world")
+        hooks.on_finish.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_empty_chunk_content_is_skipped(self, hooks, stream_options):
-        chunk = MagicMock()
-        chunk.content = ""
-        events = [{"event": "on_chat_model_stream", "data": {"chunk": chunk}, "name": ""}]
-        executor = make_executor_with_events(events)
+    async def test_empty_content_is_skipped(self, hooks, stream_options):
+        executor = make_executor_with_updates([make_model_update("")])
         adapter = LangChainAdapter(executor)
 
         await adapter.stream("hi", hooks, stream_options)
@@ -59,9 +44,33 @@ class TestLangChainAdapterStream:
         hooks.on_finish.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_on_tool_start_calls_on_status_update_processing(self, hooks, stream_options):
-        events = [make_tool_event("on_tool_start", "search_tool")]
-        executor = make_executor_with_events(events)
+    async def test_list_content_extracts_text_blocks(self, hooks, stream_options):
+        from unittest.mock import MagicMock
+        msg = MagicMock()
+        msg.content = [{"type": "text", "text": "Hello"}, {"type": "text", "text": " world"}]
+        msg.tool_calls = []
+        executor = make_executor_with_updates([{"model": {"messages": [msg]}}])
+        adapter = LangChainAdapter(executor)
+
+        await adapter.stream("hi", hooks, stream_options)
+
+        hooks.on_chunk.assert_called_once_with("Hello world")
+
+    @pytest.mark.asyncio
+    async def test_list_content_skips_non_text_blocks(self, hooks, stream_options):
+        msg = MagicMock()
+        msg.content = [{"type": "tool_use", "id": "123"}, {"type": "text", "text": "answer"}]
+        msg.tool_calls = []
+        executor = make_executor_with_updates([{"model": {"messages": [msg]}}])
+        adapter = LangChainAdapter(executor)
+
+        await adapter.stream("hi", hooks, stream_options)
+
+        hooks.on_chunk.assert_called_once_with("answer")
+
+    @pytest.mark.asyncio
+    async def test_tool_call_sends_processing_status(self, hooks, stream_options):
+        executor = make_executor_with_updates([make_tool_call_update("search_tool")])
         adapter = LangChainAdapter(executor)
 
         await adapter.stream("hi", hooks, stream_options)
@@ -70,11 +79,11 @@ class TestLangChainAdapterStream:
             "status": "PROCESSING",
             "custom_message": "Running search_tool",
         })
+        hooks.on_chunk.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_on_tool_end_calls_on_status_update_analyzing(self, hooks, stream_options):
-        events = [make_tool_event("on_tool_end", "search_tool")]
-        executor = make_executor_with_events(events)
+    async def test_tool_result_sends_analyzing_status(self, hooks, stream_options):
+        executor = make_executor_with_updates([make_tool_result_update("search_tool")])
         adapter = LangChainAdapter(executor)
 
         await adapter.stream("hi", hooks, stream_options)
@@ -85,9 +94,25 @@ class TestLangChainAdapterStream:
         })
 
     @pytest.mark.asyncio
-    async def test_on_finish_called_after_stream_completes(self, hooks, stream_options):
-        events = [make_chunk_event("response")]
-        executor = make_executor_with_events(events)
+    async def test_full_tool_use_cycle(self, hooks, stream_options):
+        updates = [
+            make_tool_call_update("calculator"),
+            make_tool_result_update("calculator"),
+            make_model_update("The answer is 42"),
+        ]
+        executor = make_executor_with_updates(updates)
+        adapter = LangChainAdapter(executor)
+
+        await adapter.stream("hi", hooks, stream_options)
+
+        hooks.on_status_update.assert_any_call({"status": "PROCESSING", "custom_message": "Running calculator"})
+        hooks.on_status_update.assert_any_call({"status": "ANALYZING", "custom_message": "Finished calculator"})
+        hooks.on_chunk.assert_called_once_with("The answer is 42")
+        hooks.on_finish.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_on_finish_called_after_stream(self, hooks, stream_options):
+        executor = make_executor_with_updates([make_model_update("response")])
         adapter = LangChainAdapter(executor)
 
         await adapter.stream("hi", hooks, stream_options)
@@ -98,11 +123,11 @@ class TestLangChainAdapterStream:
     async def test_exception_calls_on_error_not_on_finish(self, hooks, stream_options):
         executor = MagicMock()
 
-        async def astream_events(*args, **kwargs):
+        async def astream(*args, **kwargs):
             raise RuntimeError("LLM failed")
             yield  # make it an async generator
 
-        executor.astream_events = astream_events
+        executor.astream = astream
         adapter = LangChainAdapter(executor)
 
         await adapter.stream("hi", hooks, stream_options)
@@ -112,13 +137,12 @@ class TestLangChainAdapterStream:
         hooks.on_finish.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_unknown_events_are_ignored(self, hooks, stream_options):
-        events = [
-            {"event": "on_llm_start", "data": {}, "name": ""},
-            {"event": "on_chain_end", "data": {}, "name": ""},
-            make_chunk_event("answer"),
+    async def test_unknown_keys_are_ignored(self, hooks, stream_options):
+        updates = [
+            {"__start__": {"messages": []}},
+            make_model_update("answer"),
         ]
-        executor = make_executor_with_events(events)
+        executor = make_executor_with_updates(updates)
         adapter = LangChainAdapter(executor)
 
         await adapter.stream("hi", hooks, stream_options)

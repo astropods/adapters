@@ -4,6 +4,8 @@ import logging
 import os
 from typing import Any, Optional
 
+from langchain_core.messages import HumanMessage
+
 from astropods_adapter_core.types import StreamHooks, StreamOptions
 
 logger = logging.getLogger(__name__)
@@ -14,11 +16,30 @@ def _debug(*args: object) -> None:
         logger.debug(*args)
 
 
-class LangChainAdapter:
-    """Adapts a LangChain AgentExecutor to the Astro messaging protocol.
+def _text_from_content(content: Any) -> str:
+    """Extract plain text from a LangChain message content field.
 
-    Translates LangChain's astream_events into the StreamHooks lifecycle
-    that the MessagingBridge expects.
+    Handles both string content (OpenAI-style) and list content blocks
+    (Anthropic-style: [{"type": "text", "text": "..."}]).
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return ""
+
+
+class LangChainAdapter:
+    """Adapts a LangGraph create_agent executor to the Astro messaging protocol.
+
+    Uses astream(stream_mode="updates") to receive state updates from the graph.
+    The "model" update contains the AI response; the "tools" update contains
+    tool results. Note: responses arrive as complete messages (not token-by-token)
+    because create_agent uses ainvoke internally with trace=False.
     """
 
     def __init__(
@@ -37,31 +58,34 @@ class LangChainAdapter:
         self, prompt: str, hooks: StreamHooks, options: StreamOptions
     ) -> None:
         try:
-            async for event in self._executor.astream_events(
-                {"input": prompt}, version="v2"
+            async for chunk in self._executor.astream(
+                {"messages": [HumanMessage(content=prompt)]},
+                stream_mode="updates",
             ):
-                kind = event["event"]
+                if "model" in chunk:
+                    for msg in chunk["model"].get("messages", []):
+                        tool_calls = getattr(msg, "tool_calls", None) or []
+                        if tool_calls:
+                            for tc in tool_calls:
+                                tool_name = tc.get("name", "tool") if isinstance(tc, dict) else getattr(tc, "name", "tool")
+                                _debug("[LangChainAdapter] tool call: %s", tool_name)
+                                hooks.on_status_update({
+                                    "status": "PROCESSING",
+                                    "custom_message": f"Running {tool_name}",
+                                })
+                        else:
+                            text = _text_from_content(msg.content)
+                            if text:
+                                hooks.on_chunk(text)
 
-                if kind == "on_chat_model_stream":
-                    chunk = event["data"].get("chunk")
-                    if chunk and hasattr(chunk, "content") and chunk.content:
-                        hooks.on_chunk(chunk.content)
-
-                elif kind == "on_tool_start":
-                    tool_name = event.get("name", "tool")
-                    _debug("[LangChainAdapter] tool start: %s", tool_name)
-                    hooks.on_status_update({
-                        "status": "PROCESSING",
-                        "custom_message": f"Running {tool_name}",
-                    })
-
-                elif kind == "on_tool_end":
-                    tool_name = event.get("name", "tool")
-                    _debug("[LangChainAdapter] tool end: %s", tool_name)
-                    hooks.on_status_update({
-                        "status": "ANALYZING",
-                        "custom_message": f"Finished {tool_name}",
-                    })
+                elif "tools" in chunk:
+                    for msg in chunk["tools"].get("messages", []):
+                        tool_name = getattr(msg, "name", "tool")
+                        _debug("[LangChainAdapter] tool result: %s", tool_name)
+                        hooks.on_status_update({
+                            "status": "ANALYZING",
+                            "custom_message": f"Finished {tool_name}",
+                        })
 
             hooks.on_finish()
 
