@@ -12,6 +12,7 @@ import grpc.aio
 from astropods_messaging import (
     AgentMessagingStub,
     AgentConfig,
+    AgentToolConfig,
     AgentResponse,
     ContentChunk,
     ConversationRequest,
@@ -186,9 +187,18 @@ class MessagingBridge:
 
         # Send agent config for playground display
         config_dict = self._adapter.get_config()
+        tool_configs = [
+            AgentToolConfig(
+                name=t.get("name", ""),
+                title=t.get("name", ""),
+                description=t.get("description", ""),
+                type=t.get("type", "other"),
+            )
+            for t in config_dict.get("tools", [])
+        ]
         agent_config = AgentConfig(
             system_prompt=config_dict.get("system_prompt", ""),
-            tools=[],
+            tools=tool_configs,
         )
         await self._write_queue.put(ConversationRequest(agent_config=agent_config))
         logger.info("Agent config sent")
