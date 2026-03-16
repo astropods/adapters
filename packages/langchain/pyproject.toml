@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "astropods-adapter-langchain"
 version = "0.1.0"
-description = "LangChain AgentExecutor adapter for the Astro messaging service"
+description = "LangChain AgentExecutor adapter for the Astropods messaging service"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = [
