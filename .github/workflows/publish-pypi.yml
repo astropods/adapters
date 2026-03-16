@@ -1,0 +1,76 @@
+name: Publish PyPI packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    strategy:
+      matrix:
+        package:
+          - dir: packages/core-py
+            name: astropods-adapter-core
+          - dir: packages/langchain
+            name: astropods-adapter-langchain
+
+    steps:
+      - name: Generate app token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Read version
+        run: |
+          VERSION=$(grep '^version' ${{ matrix.package.dir }}/pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Install build dependencies
+        run: pip install build
+
+      - name: Build
+        run: python -m build
+        working-directory: ${{ matrix.package.dir }}
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-asyncio ".[dev]"
+        working-directory: ${{ matrix.package.dir }}
+
+      - name: Test
+        run: pytest
+        working-directory: ${{ matrix.package.dir }}
+
+      - name: Check if version is already published
+        id: check-published
+        run: |
+          if pip index versions ${{ matrix.package.name }} 2>/dev/null | grep -q "${{ env.VERSION }}"; then
+            echo "published=true" >> $GITHUB_OUTPUT
+            echo "::notice::${{ matrix.package.name }} v${{ env.VERSION }} is already published on PyPI"
+          else
+            echo "published=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Publish
+        if: steps.check-published.outputs.published == 'false'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: ${{ matrix.package.dir }}/dist/
+          password: ${{ secrets.PYPI_API_TOKEN }}
