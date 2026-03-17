@@ -1,4 +1,4 @@
-name: Publish PyPI package (langchain)
+name: Publish PyPI package (core)
 
 on:
   release:
@@ -25,7 +25,7 @@ jobs:
 
       - name: Read version
         run: |
-          VERSION=$(grep '^version' packages/langchain/pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          VERSION=$(grep '^version' packages/core-py/pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Install build dependencies
@@ -33,22 +33,22 @@ jobs:
 
       - name: Build
         run: python -m build
-        working-directory: packages/langchain
+        working-directory: packages/core-py
 
       - name: Install test dependencies
         run: pip install pytest pytest-asyncio ".[dev]"
-        working-directory: packages/langchain
+        working-directory: packages/core-py
 
       - name: Test
         run: pytest
-        working-directory: packages/langchain
+        working-directory: packages/core-py
 
       - name: Check if version is already published
         id: check-published
         run: |
-          if pip index versions astropods-adapter-langchain 2>/dev/null | grep -q "${{ env.VERSION }}"; then
+          if pip index versions astropods-adapter-core 2>/dev/null | grep -q "${{ env.VERSION }}"; then
             echo "published=true" >> $GITHUB_OUTPUT
-            echo "::notice::astropods-adapter-langchain v${{ env.VERSION }} is already published on PyPI"
+            echo "::notice::astropods-adapter-core v${{ env.VERSION }} is already published on PyPI"
           else
             echo "published=false" >> $GITHUB_OUTPUT
           fi
@@ -57,4 +57,4 @@ jobs:
         if: steps.check-published.outputs.published == 'false'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: packages/langchain/dist/
+          packages-dir: packages/core-py/dist/
