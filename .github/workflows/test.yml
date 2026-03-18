@@ -26,3 +26,30 @@ jobs:
 
       - name: Test
         run: bunx lerna run test
+
+  test-python:
+    name: Test Python packages
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package:
+          - name: astropods-adapter-core
+            path: packages/core-py
+          - name: astropods-adapter-langchain
+            path: packages/langchain
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install package and dev dependencies
+        working-directory: ${{ matrix.package.path }}
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        working-directory: ${{ matrix.package.path }}
+        run: pytest
