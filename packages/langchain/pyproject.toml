@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "astropods-adapter-langchain"
+version = "0.1.0"
+description = "LangChain AgentExecutor adapter for the Astropods messaging service"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = [
+  "astropods-adapter-core>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "langchain>=0.3",
+  "langchain-core>=0.3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/astropods_adapter_langchain"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

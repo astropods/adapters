@@ -1,0 +1,60 @@
+name: Publish PyPI package (langchain)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Read version
+        run: |
+          VERSION=$(grep '^version' packages/langchain/pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Install build dependencies
+        run: pip install build
+
+      - name: Build
+        run: python -m build
+        working-directory: packages/langchain
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-asyncio ".[dev]"
+        working-directory: packages/langchain
+
+      - name: Test
+        run: pytest
+        working-directory: packages/langchain
+
+      - name: Check if version is already published
+        id: check-published
+        run: |
+          if pip index versions astropods-adapter-langchain 2>/dev/null | grep -q "${{ env.VERSION }}"; then
+            echo "published=true" >> $GITHUB_OUTPUT
+            echo "::notice::astropods-adapter-langchain v${{ env.VERSION }} is already published on PyPI"
+          else
+            echo "published=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Publish
+        if: steps.check-published.outputs.published == 'false'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/langchain/dist/
