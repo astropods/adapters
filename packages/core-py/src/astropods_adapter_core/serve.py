@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from typing import Optional
 
@@ -13,6 +14,12 @@ def serve(adapter: AgentAdapter, options: Optional[ServeOptions] = None) -> None
 
     Blocks until the process receives SIGINT or SIGTERM.
     """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        stream=sys.stdout,
+        force=True,
+    )
     bridge = MessagingBridge(adapter, options)
     try:
         asyncio.run(bridge.start())
