@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.2.0](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.1.0...@astropods/adapter-mastra@0.2.0) (2026-03-19)
+
+
+### Features
+
+* auto-configure OTEL tracing in mastra adapter ([08d59a8](https://github.com/astropods/adapters/commit/08d59a86f09bfb1ca62fd41b4a78bb22a11146ef))
+
+
+
 ## 0.1.0 (2026-03-09)
 
 
