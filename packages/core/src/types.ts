@@ -16,6 +16,8 @@ export interface StreamHooks {
   onAudioChunk(data: Uint8Array): void;
   /** Signal end of the current audio response segment. */
   onAudioEnd(): void;
+  /** Forward a structured action (tool result) to the client for execution. */
+  onAction?(actionName: string, payload: unknown): void;
 }
 
 /** Per-request context passed to the adapter's stream method. */
