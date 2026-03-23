@@ -1,5 +1,9 @@
 import pytest
 from unittest.mock import MagicMock
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry import trace as otel_trace
 
 from astropods_adapter_langchain import LangChainAdapter
 from conftest import (
@@ -149,6 +153,42 @@ class TestLangChainAdapterStream:
 
         hooks.on_chunk.assert_called_once_with("answer")
         hooks.on_finish.assert_called_once()
+
+
+class TestLangChainAdapterSessionContext:
+    @pytest.mark.asyncio
+    async def test_astream_receives_thread_id_from_conversation_id(self, hooks, stream_options):
+        executor = make_executor_with_updates([make_model_update("hi")])
+        adapter = LangChainAdapter(executor)
+
+        await adapter.stream("hello", hooks, stream_options)
+
+        assert executor.last_astream_kwargs.get("config") == {
+            "configurable": {"thread_id": "conv-123"}
+        }
+
+    @pytest.mark.asyncio
+    async def test_span_sets_langfuse_user_and_session(self, hooks, stream_options):
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        import astropods_adapter_langchain.adapter as adapter_module
+        original_tracer = adapter_module._tracer
+        adapter_module._tracer = provider.get_tracer("test")
+
+        try:
+            executor = make_executor_with_updates([make_model_update("hi")])
+            adapter = LangChainAdapter(executor)
+            await adapter.stream("hello", hooks, stream_options)
+        finally:
+            adapter_module._tracer = original_tracer
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+        attrs = spans[0].attributes
+        assert attrs.get("langfuse.user.id") == "user-456"
+        assert attrs.get("langfuse.session.id") == "conv-123"
 
 
 class TestLangChainAdapterGetConfig:
