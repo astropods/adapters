@@ -60,7 +60,7 @@ class LangChainAdapter:
     async def stream(
         self, prompt: str, hooks: StreamHooks, options: StreamOptions
     ) -> None:
-        with _tracer.start_as_current_span("langchain.agent") as span:
+        with _tracer.start_as_current_span(self.name) as span:
             span.set_attribute("langfuse.user.id", options.user_id)
             span.set_attribute("langfuse.session.id", options.conversation_id)
             await self._stream(prompt, hooks, options)

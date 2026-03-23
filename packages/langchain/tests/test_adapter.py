@@ -186,6 +186,7 @@ class TestLangChainAdapterSessionContext:
 
         spans = exporter.get_finished_spans()
         assert len(spans) == 1
+        assert spans[0].name == "LangChain Agent"
         attrs = spans[0].attributes
         assert attrs.get("langfuse.user.id") == "user-456"
         assert attrs.get("langfuse.session.id") == "conv-123"
