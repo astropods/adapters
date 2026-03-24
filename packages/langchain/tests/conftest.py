@@ -44,8 +44,10 @@ def make_tool_result_update(tool_name: str) -> dict:
 
 def make_executor_with_updates(updates: list):
     executor = MagicMock()
+    executor.last_astream_kwargs = {}
 
     async def astream(*args, **kwargs):
+        executor.last_astream_kwargs = kwargs
         for u in updates:
             yield u
 

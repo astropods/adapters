@@ -5,8 +5,11 @@ import os
 from typing import Any, Optional
 
 from langchain_core.messages import HumanMessage
+from opentelemetry import trace as otel_trace
 
 from astropods_adapter_core.types import StreamHooks, StreamOptions
+
+_tracer = otel_trace.get_tracer(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +60,18 @@ class LangChainAdapter:
     async def stream(
         self, prompt: str, hooks: StreamHooks, options: StreamOptions
     ) -> None:
+        with _tracer.start_as_current_span(self.name) as span:
+            span.set_attribute("langfuse.user.id", options.user_id)
+            span.set_attribute("langfuse.session.id", options.conversation_id)
+            await self._stream(prompt, hooks, options)
+
+    async def _stream(
+        self, prompt: str, hooks: StreamHooks, options: StreamOptions
+    ) -> None:
         try:
             async for chunk in self._executor.astream(
                 {"messages": [HumanMessage(content=prompt)]},
+                config={"configurable": {"thread_id": options.conversation_id}},
                 stream_mode="updates",
             ):
                 if "model" in chunk:
