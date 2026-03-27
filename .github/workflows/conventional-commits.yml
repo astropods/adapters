@@ -18,7 +18,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check conventional commits
-        uses: wagoid/commitlint-github-action@v6
+      - uses: actions/setup-node@v4
         with:
-          configFile: .commitlintrc.json
+          node-version: '20'
+
+      - name: Install commitlint
+        run: npm install --no-save @commitlint/cli @commitlint/config-conventional
+
+      - name: Check conventional commits
+        run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --config .commitlintrc.json
