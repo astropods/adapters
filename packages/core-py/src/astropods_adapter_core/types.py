@@ -1,6 +1,6 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Optional, Protocol, runtime_checkable
+from dataclasses import dataclass, field
+from typing import Any, Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -39,6 +39,27 @@ class StreamHooks(Protocol):
     def on_audio_end(self) -> None:
         """Signal the end of the current audio response segment."""
         ...
+
+
+@runtime_checkable
+class VoiceProvider(Protocol):
+    """Interface for a voice provider that handles STT and optionally TTS.
+
+    Implement ``listen`` to transcribe audio. Optionally implement ``speak``
+    to synthesize audio responses.
+    """
+
+    async def listen(self, data: bytes, config: Any) -> str:
+        """Transcribe raw audio bytes to text."""
+        ...
+
+
+@dataclass
+class AudioInput:
+    """Audio data and configuration passed to an adapter's stream_audio method."""
+
+    data: bytes
+    config: Any  # AudioStreamConfig proto from astropods_messaging
 
 
 @dataclass

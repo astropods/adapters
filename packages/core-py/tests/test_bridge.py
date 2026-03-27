@@ -9,7 +9,7 @@ from astropods_adapter_core.bridge import (
     DEFAULT_SERVER_ADDR,
 )
 from astropods_adapter_core.types import ServeOptions, StreamOptions
-from astropods_messaging import ContentChunk, StatusUpdate, ErrorResponse
+from astropods_messaging import AudioChunk, ContentChunk, StatusUpdate, ErrorResponse, Transcript
 
 
 # --- _StreamHooksImpl tests ---
@@ -88,11 +88,36 @@ class TestStreamHooksImpl:
         items = self._dequeue_all()
         assert len(items) == 1  # only the END
 
-    def test_audio_hooks_are_noop(self):
-        self.hooks.on_transcript("text")
-        self.hooks.on_audio_chunk(b"data")
+    def test_on_transcript_enqueues_transcript(self):
+        self.hooks.on_transcript("hello there")
+        items = self._dequeue_all()
+        assert len(items) == 1
+        response = items[0].agent_response
+        assert response.transcript.text == "hello there"
+        assert response.conversation_id == "conv-123"
+
+    def test_on_audio_chunk_enqueues_audio_chunk(self):
+        self.hooks.on_audio_chunk(b"\x00\x01\x02")
+        items = self._dequeue_all()
+        assert len(items) == 1
+        response = items[0].agent_response
+        assert response.audio_chunk.data == b"\x00\x01\x02"
+        assert response.audio_chunk.done is False
+
+    def test_on_audio_end_enqueues_done_chunk(self):
         self.hooks.on_audio_end()
-        assert self.queue.empty()
+        items = self._dequeue_all()
+        assert len(items) == 1
+        response = items[0].agent_response
+        assert response.audio_chunk.done is True
+
+    def test_audio_hooks_ignored_after_finish(self):
+        self.hooks.on_finish()
+        self.hooks.on_transcript("late")
+        self.hooks.on_audio_chunk(b"late")
+        self.hooks.on_audio_end()
+        items = self._dequeue_all()
+        assert len(items) == 1  # only the END chunk
 
 
 # --- MessagingBridge constructor tests ---
