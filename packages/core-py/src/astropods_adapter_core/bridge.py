@@ -14,16 +14,19 @@ from astropods_messaging import (
     AgentConfig,
     AgentToolConfig,
     AgentResponse,
+    AudioChunk,
+    AudioStreamConfig,
     ContentChunk,
     ConversationRequest,
     ErrorResponse,
     HealthCheckRequest,
     Message,
     StatusUpdate,
+    Transcript,
     User,
 )
 
-from .types import AgentAdapter, ServeOptions, StreamHooks, StreamOptions
+from .types import AgentAdapter, AudioInput, ServeOptions, StreamHooks, StreamOptions
 
 logger = logging.getLogger(__name__)
 
@@ -109,13 +112,31 @@ class _StreamHooksImpl:
         _debug("[bridge] Response complete: conversation=%s", self._conversation_id)
 
     def on_transcript(self, text: str) -> None:
-        pass  # Audio not supported in Phase 1
+        if self._finished:
+            return
+        response = AgentResponse(
+            conversation_id=self._conversation_id,
+            transcript=Transcript(text=text),
+        )
+        self._enqueue(ConversationRequest(agent_response=response))
 
     def on_audio_chunk(self, data: bytes) -> None:
-        pass  # Audio not supported in Phase 1
+        if self._finished:
+            return
+        response = AgentResponse(
+            conversation_id=self._conversation_id,
+            audio_chunk=AudioChunk(data=data, done=False),
+        )
+        self._enqueue(ConversationRequest(agent_response=response))
 
     def on_audio_end(self) -> None:
-        pass  # Audio not supported in Phase 1
+        if self._finished:
+            return
+        response = AgentResponse(
+            conversation_id=self._conversation_id,
+            audio_chunk=AudioChunk(done=True),
+        )
+        self._enqueue(ConversationRequest(agent_response=response))
 
 
 class MessagingBridge:
@@ -134,6 +155,10 @@ class MessagingBridge:
         self._stub: Optional[AgentMessagingStub] = None
         self._write_queue: asyncio.Queue = asyncio.Queue()
         self._stop_event: asyncio.Event = asyncio.Event()
+        # Audio accumulation state: keyed by conversation_id
+        self._audio_configs: dict = {}
+        self._audio_chunks: dict = {}
+        self._current_audio_conv_id: Optional[str] = None
 
     async def _connect_with_retry(self) -> None:
         for attempt in range(1, MAX_RETRIES + 1):
@@ -222,6 +247,34 @@ class MessagingBridge:
         try:
             async for response in stream:
                 payload = response.WhichOneof("payload")
+
+                if payload == "audio_config":
+                    config = response.audio_config
+                    self._current_audio_conv_id = config.conversation_id
+                    self._audio_configs[config.conversation_id] = config
+                    self._audio_chunks[config.conversation_id] = []
+                    continue
+
+                if payload == "audio_chunk":
+                    chunk = response.audio_chunk
+                    if self._current_audio_conv_id:
+                        if chunk.data:
+                            self._audio_chunks[self._current_audio_conv_id].append(chunk.data)
+                        if chunk.done:
+                            conv_id = self._current_audio_conv_id
+                            config = self._audio_configs.pop(conv_id, None)
+                            chunks = self._audio_chunks.pop(conv_id, [])
+                            self._current_audio_conv_id = None
+                            if config and hasattr(self._adapter, "stream_audio"):
+                                audio_input = AudioInput(
+                                    data=b"".join(chunks),
+                                    config=config,
+                                )
+                                asyncio.create_task(
+                                    self._handle_audio(conv_id, audio_input, config)
+                                )
+                    continue
+
                 if payload != "incoming_message":
                     continue
 
@@ -233,8 +286,7 @@ class MessagingBridge:
                         for a in message.attachments
                     )
                 )
-                if is_audio:
-                    # Audio not supported in Phase 1 — reply with error message
+                if is_audio and not hasattr(self._adapter, "stream_audio"):
                     hooks = _StreamHooksImpl(message.conversation_id, self._write_queue)
                     start_chunk = ContentChunk(
                         type=ContentChunk.ChunkType.Value("START"), content=""
@@ -253,7 +305,8 @@ class MessagingBridge:
                     hooks.on_finish()
                     continue
 
-                asyncio.create_task(self._handle_message(message))
+                if not is_audio:
+                    asyncio.create_task(self._handle_message(message))
         except grpc.aio.AioRpcError as e:
             if not self._stop_event.is_set():
                 logger.error("Stream error: %s", e)
@@ -288,6 +341,34 @@ class MessagingBridge:
 
         try:
             await self._adapter.stream(message.content, hooks, options)
+        except Exception as error:
+            hooks.on_error(
+                error if isinstance(error, Exception) else Exception(str(error))
+            )
+
+    async def _handle_audio(
+        self, conversation_id: str, audio_input: AudioInput, config: AudioStreamConfig
+    ) -> None:
+        start_chunk = ContentChunk(
+            type=ContentChunk.ChunkType.Value("START"), content=""
+        )
+        await self._write_queue.put(
+            ConversationRequest(
+                agent_response=AgentResponse(
+                    conversation_id=conversation_id,
+                    content=start_chunk,
+                )
+            )
+        )
+
+        hooks = _StreamHooksImpl(conversation_id, self._write_queue)
+        options = StreamOptions(
+            conversation_id=conversation_id,
+            user_id=config.user_id or "anonymous",
+        )
+
+        try:
+            await self._adapter.stream_audio(audio_input, hooks, options)
         except Exception as error:
             hooks.on_error(
                 error if isinstance(error, Exception) else Exception(str(error))

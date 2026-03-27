@@ -1,9 +1,10 @@
-from .types import AgentAdapter, StreamHooks, StreamOptions, ServeOptions
+from .types import AgentAdapter, AudioInput, StreamHooks, StreamOptions, ServeOptions
 from .bridge import MessagingBridge
 from .serve import serve
 
 __all__ = [
     "AgentAdapter",
+    "AudioInput",
     "StreamHooks",
     "StreamOptions",
     "ServeOptions",
