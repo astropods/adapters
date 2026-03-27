@@ -155,7 +155,6 @@ class TestLangChainAdapterStream:
         hooks.on_finish.assert_called_once()
 
 
-
 class TestLangChainAdapterSessionContext:
     @pytest.mark.asyncio
     async def test_astream_receives_thread_id_from_conversation_id(self, hooks, stream_options):
@@ -191,81 +190,6 @@ class TestLangChainAdapterSessionContext:
         attrs = spans[0].attributes
         assert attrs.get("langfuse.user.id") == "user-456"
         assert attrs.get("langfuse.session.id") == "conv-123"
-
-class TestLangChainAdapterStreamAudio:
-    @pytest.mark.asyncio
-    async def test_no_voice_sends_error_message(self, hooks, stream_options):
-        executor = MagicMock()
-        adapter = LangChainAdapter(executor)
-
-        from astropods_adapter_core.types import AudioInput
-        audio_input = AudioInput(data=b"audio", config=MagicMock())
-
-        await adapter.stream_audio(audio_input, hooks, stream_options)
-
-        hooks.on_chunk.assert_called_once()
-        assert "audio" in hooks.on_chunk.call_args[0][0].lower()
-        hooks.on_finish.assert_called_once()
-        hooks.on_error.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_voice_transcribes_and_streams_text(self, hooks, stream_options):
-        executor = make_executor_with_updates([make_model_update("Sure thing!")])
-
-        class FakeVoice:
-            async def listen(self, data, config):
-                return "what time is it"
-
-        adapter = LangChainAdapter(executor, voice=FakeVoice())
-        from astropods_adapter_core.types import AudioInput
-        audio_input = AudioInput(data=b"audio", config=MagicMock())
-
-        await adapter.stream_audio(audio_input, hooks, stream_options)
-
-        hooks.on_transcript.assert_called_once_with("what time is it")
-        hooks.on_chunk.assert_called_once_with("Sure thing!")
-        hooks.on_finish.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_voice_with_speak_synthesizes_audio_after_text(self, hooks, stream_options):
-        executor = make_executor_with_updates([make_model_update("It is noon.")])
-
-        class FakeVoice:
-            async def listen(self, data, config):
-                return "what time is it"
-
-            async def speak(self, text):
-                yield b"audio-chunk-1"
-                yield b"audio-chunk-2"
-
-        adapter = LangChainAdapter(executor, voice=FakeVoice())
-        from astropods_adapter_core.types import AudioInput
-        audio_input = AudioInput(data=b"audio", config=MagicMock())
-
-        await adapter.stream_audio(audio_input, hooks, stream_options)
-
-        hooks.on_transcript.assert_called_once_with("what time is it")
-        hooks.on_chunk.assert_called_once_with("It is noon.")
-        hooks.on_audio_chunk.assert_any_call(b"audio-chunk-1")
-        hooks.on_audio_chunk.assert_any_call(b"audio-chunk-2")
-        hooks.on_audio_end.assert_called_once()
-        hooks.on_finish.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_listen_exception_calls_on_error(self, hooks, stream_options):
-        class FailingVoice:
-            async def listen(self, data, config):
-                raise RuntimeError("STT failed")
-
-        adapter = LangChainAdapter(MagicMock(), voice=FailingVoice())
-        from astropods_adapter_core.types import AudioInput
-        audio_input = AudioInput(data=b"audio", config=MagicMock())
-
-        await adapter.stream_audio(audio_input, hooks, stream_options)
-
-        hooks.on_error.assert_called_once()
-        assert isinstance(hooks.on_error.call_args[0][0], RuntimeError)
-        hooks.on_finish.assert_not_called()
 
 
 class TestLangChainAdapterGetConfig:

@@ -7,7 +7,7 @@ from typing import Any, Optional
 from langchain_core.messages import HumanMessage
 from opentelemetry import trace as otel_trace
 
-from astropods_adapter_core.types import AudioInput, StreamHooks, StreamOptions, VoiceProvider
+from astropods_adapter_core.types import StreamHooks, StreamOptions
 
 _tracer = otel_trace.get_tracer(__name__)
 
@@ -51,13 +51,11 @@ class LangChainAdapter:
         name: str = "LangChain Agent",
         system_prompt: str = "",
         tools: Optional[list] = None,
-        voice: Optional[VoiceProvider] = None,
     ) -> None:
         self.name = name
         self._executor = executor
         self._system_prompt = system_prompt
         self._tools = tools or []
-        self._voice = voice
 
     async def stream(
         self, prompt: str, hooks: StreamHooks, options: StreamOptions
@@ -101,73 +99,6 @@ class LangChainAdapter:
                             "custom_message": f"Finished {tool_name}",
                         })
 
-            hooks.on_finish()
-
-        except Exception as e:
-            hooks.on_error(e)
-
-    async def stream_audio(
-        self, audio_input: AudioInput, hooks: StreamHooks, options: StreamOptions
-    ) -> None:
-        """Handle an audio request: STT → agent → optional TTS.
-
-        Requires voice to be set on the adapter. If voice is not configured,
-        falls back to a text error response. If the voice provider implements
-        speak(), the agent's text response is synthesized to audio after streaming.
-        """
-        if self._voice is None:
-            hooks.on_chunk("Sorry, I don't support audio input. Please send a text message.")
-            hooks.on_finish()
-            return
-
-        try:
-            transcript = await self._voice.listen(audio_input.data, audio_input.config)
-            hooks.on_transcript(transcript)
-
-            has_tts = hasattr(self._voice, "speak") and callable(getattr(self._voice, "speak"))
-
-            if not has_tts:
-                await self.stream(transcript, hooks, options)
-                return
-
-            # With TTS: accumulate text while streaming, then synthesize audio.
-            text_chunks: list[str] = []
-            error_occurred = False
-
-            class _AccumulatingHooks:
-                def on_chunk(self_, text: str) -> None:
-                    text_chunks.append(text)
-                    hooks.on_chunk(text)
-
-                def on_status_update(self_, status: dict) -> None:
-                    hooks.on_status_update(status)
-
-                def on_error(self_, error: Exception) -> None:
-                    nonlocal error_occurred
-                    error_occurred = True
-                    hooks.on_error(error)
-
-                def on_finish(self_) -> None:
-                    pass  # deferred until after TTS
-
-                def on_transcript(self_, text: str) -> None:
-                    hooks.on_transcript(text)
-
-                def on_audio_chunk(self_, data: bytes) -> None:
-                    hooks.on_audio_chunk(data)
-
-                def on_audio_end(self_) -> None:
-                    hooks.on_audio_end()
-
-            await self.stream(transcript, _AccumulatingHooks(), options)
-
-            if error_occurred:
-                return
-
-            full_text = "".join(text_chunks)
-            async for audio_chunk in self._voice.speak(full_text):  # type: ignore[attr-defined]
-                hooks.on_audio_chunk(audio_chunk)
-            hooks.on_audio_end()
             hooks.on_finish()
 
         except Exception as e:
