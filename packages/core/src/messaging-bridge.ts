@@ -184,6 +184,16 @@ export class MessagingBridge {
       onAudioEnd: () => {
         stream.endAudio();
       },
+      onAction: (actionName: string, payload: unknown) => {
+        debug(`[bridge] Sending action: conversation=${conversationId} action=${actionName}`);
+        stream.sendAgentResponse({
+          conversationId,
+          action: {
+            actionName,
+            payloadJson: JSON.stringify(payload),
+          },
+        });
+      },
     };
   }
 

@@ -8,6 +8,8 @@ function debug(...args: unknown[]) {
   if (process.env.DEBUG) console.debug(...args);
 }
 
+const ACTION_TOOLS = new Set(["scaffold_project"]);
+
 /**
  * Adapts a Mastra Agent to the Astro messaging protocol.
  *
@@ -66,6 +68,14 @@ export class MastraAdapter implements AgentAdapter {
             status: "ANALYZING",
             customMessage: `Finished ${toolName}`,
           });
+          break;
+        }
+
+        case "tool-call": {
+          const tcToolName = (chunk.payload as { toolName?: string }).toolName;
+          if (tcToolName && ACTION_TOOLS.has(tcToolName) && hooks.onAction) {
+            hooks.onAction(tcToolName, (chunk.payload as { args?: unknown }).args);
+          }
           break;
         }
 
