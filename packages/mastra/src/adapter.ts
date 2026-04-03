@@ -69,9 +69,12 @@ export class MastraAdapter implements AgentAdapter {
           break;
         }
 
-        case "finish":
+        case "finish": {
+          const traceId = (stream as unknown as { traceId?: string }).traceId;
+          if (traceId) hooks.onTraceId?.(traceId);
           hooks.onFinish();
           break;
+        }
 
         case "error":
           hooks.onError(
