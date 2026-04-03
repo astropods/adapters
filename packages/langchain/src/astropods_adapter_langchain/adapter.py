@@ -37,12 +37,14 @@ def _text_from_content(content: Any) -> str:
 
 
 class LangChainAdapter:
-    """Adapts a LangGraph create_agent executor to the Astro messaging protocol.
+    """Adapts a LangGraph/LangChain agent executor to the Astro messaging protocol.
 
     Uses astream(stream_mode="updates") to receive state updates from the graph.
-    The "model" update contains the AI response; the "tools" update contains
-    tool results. Note: responses arrive as complete messages (not token-by-token)
-    because create_agent uses ainvoke internally with trace=False.
+    Handles both node naming conventions:
+      - "model"  — langchain.agents.create_agent (LangChain ≥ 0.3)
+      - "agent"  — langgraph.prebuilt.create_react_agent (LangGraph < 1.0)
+    The "tools" update contains tool results in both cases.
+    Note: responses arrive as complete messages (not token-by-token).
     """
 
     def __init__(
@@ -76,8 +78,10 @@ class LangChainAdapter:
                 config={"configurable": {"thread_id": options.conversation_id}},
                 stream_mode="updates",
             ):
-                if "model" in chunk:
-                    for msg in chunk["model"].get("messages", []):
+                # "model" = langchain.agents.create_agent; "agent" = langgraph.prebuilt.create_react_agent
+                model_key = next((k for k in ("model", "agent") if k in chunk), None)
+                if model_key:
+                    for msg in chunk[model_key].get("messages", []):
                         tool_calls = getattr(msg, "tool_calls", None) or []
                         if tool_calls:
                             for tc in tool_calls:
