@@ -9,6 +9,7 @@ from astropods_adapter_langchain import LangChainAdapter
 from conftest import (
     make_executor_with_updates,
     make_model_update,
+    make_msg,
     make_tool_call_update,
     make_tool_result_update,
 )
@@ -139,6 +140,28 @@ class TestLangChainAdapterStream:
         hooks.on_error.assert_called_once()
         assert isinstance(hooks.on_error.call_args[0][0], RuntimeError)
         hooks.on_finish.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_agent_node_name_calls_on_chunk(self, hooks, stream_options):
+        """langgraph.prebuilt.create_react_agent emits 'agent' instead of 'model'."""
+        executor = make_executor_with_updates([{"agent": {"messages": [make_msg("Hello from langgraph")]}}])
+        adapter = LangChainAdapter(executor)
+
+        await adapter.stream("hi", hooks, stream_options)
+
+        hooks.on_chunk.assert_called_once_with("Hello from langgraph")
+        hooks.on_finish.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_agent_node_name_tool_call_sends_processing_status(self, hooks, stream_options):
+        """Tool calls emitted under 'agent' node are handled correctly."""
+        executor = make_executor_with_updates([{"agent": {"messages": [make_msg("", tool_calls=[{"name": "search_tool"}])]}}])
+        adapter = LangChainAdapter(executor)
+
+        await adapter.stream("hi", hooks, stream_options)
+
+        hooks.on_status_update.assert_any_call({"status": "PROCESSING", "custom_message": "Running search_tool"})
+        hooks.on_chunk.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_unknown_keys_are_ignored(self, hooks, stream_options):
