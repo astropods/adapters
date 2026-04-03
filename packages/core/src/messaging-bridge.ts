@@ -170,6 +170,10 @@ export class MessagingBridge {
           error: { code: "AGENT_ERROR", message: error.message },
         });
       },
+      onTraceId: (traceId: string) => {
+        stream.sendAgentResponse({ conversationId, traceId });
+        debug(`[bridge] Trace ID sent: conversation=${conversationId} traceId=${traceId}`);
+      },
       onFinish: () => {
         stream.sendContentChunk(conversationId, { type: "END", content: "" });
         debug(`[bridge] Response complete: conversation=${conversationId}`);
