@@ -10,6 +10,7 @@ def hooks():
     h.on_status_update = MagicMock()
     h.on_error = MagicMock()
     h.on_finish = MagicMock()
+    h.on_trace_id = MagicMock()
     h.on_transcript = MagicMock()
     h.on_audio_chunk = MagicMock()
     h.on_audio_end = MagicMock()

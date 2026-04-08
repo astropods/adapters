@@ -111,6 +111,15 @@ class _StreamHooksImpl:
         self._enqueue(ConversationRequest(agent_response=response))
         _debug("[bridge] Response complete: conversation=%s", self._conversation_id)
 
+    def on_trace_id(self, trace_id: str) -> None:
+        if self._finished:
+            return
+        if 'trace_id' not in AgentResponse.DESCRIPTOR.fields_by_name:
+            return  # requires astropods-messaging >= 0.0.6
+        response = AgentResponse(conversation_id=self._conversation_id, trace_id=trace_id)
+        self._enqueue(ConversationRequest(agent_response=response))
+        _debug("[bridge] Trace ID sent: conversation=%s traceId=%s", self._conversation_id, trace_id)
+
     def on_transcript(self, text: str) -> None:
         if self._finished:
             return
