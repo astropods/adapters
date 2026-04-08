@@ -2,9 +2,9 @@
 
 Astro is a platform-agnostic deployment platform for AI agents — it doesn't care which framework or model you use. Adapters are the bridge between your agent and the Astro runtime: they implement a thin interface that lets Astro handle messaging, streaming, voice, and observability without requiring any changes to your agent code. You keep your framework; Astro handles the infrastructure.
 
-- **CLI [docs](https://docs.astropods.ai)**
-- **Read our [blog](https://blog.astropods.ai)**
-- **Join the [waitlist](https://blog.astropods.ai/waitlist)**
+- **CLI [docs](https://docs.astropods.com)**
+- **Read our [blog](https://blog.astropods.com)**
+- **Join the [waitlist](https://blog.astropods.com/waitlist)**
 
 ## Packages
 
