@@ -2,6 +2,7 @@ import os
 from unittest.mock import MagicMock, patch, call
 
 import pytest
+from opentelemetry.instrumentation.langchain import LangchainInstrumentor
 
 from astropods_adapter_langchain.observability import setup_observability
 
@@ -81,3 +82,14 @@ class TestSetupObservabilityWithEndpoint:
                 captured = capsys.readouterr()
                 assert "OTEL tracing enabled" in captured.out
                 assert "/v1/traces" in captured.out
+
+    def test_langchain_instrumentor_is_compatible(self):
+        """Calls LangchainInstrumentor().instrument() for real to catch dependency
+        incompatibilities (e.g. wrapt API changes) that mocks hide."""
+        with patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318"}):
+            with patch("astropods_adapter_langchain.observability.TracerProvider"), \
+                 patch("astropods_adapter_langchain.observability.OTLPSpanExporter"), \
+                 patch("astropods_adapter_langchain.observability.BatchSpanProcessor"), \
+                 patch("astropods_adapter_langchain.observability.trace"):
+                setup_observability()
+                LangchainInstrumentor().uninstrument()
