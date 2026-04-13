@@ -10,6 +10,8 @@ export interface StreamHooks {
   onStatusUpdate(status: StatusUpdate): void;
   onError(error: Error): void;
   onFinish(): void;
+  /** Called with the observability trace ID once available (before onFinish). */
+  onTraceId?(traceId: string): void;
   /** Send the transcribed text of the user's audio input to update the placeholder. */
   onTranscript(text: string): void;
   /** Send a chunk of TTS audio back to the client. */

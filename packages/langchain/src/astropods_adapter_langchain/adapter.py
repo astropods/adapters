@@ -67,10 +67,12 @@ class LangChainAdapter:
         with _tracer.start_as_current_span(self.name) as span:
             span.set_attribute("langfuse.user.id", options.user_id)
             span.set_attribute("langfuse.session.id", options.conversation_id)
-            await self._stream(prompt, hooks, options)
+            span_ctx = span.get_span_context()
+            trace_id = format(span_ctx.trace_id, '032x') if span_ctx.is_valid else ""
+            await self._stream(prompt, hooks, options, trace_id)
 
     async def _stream(
-        self, prompt: str, hooks: StreamHooks, options: StreamOptions
+        self, prompt: str, hooks: StreamHooks, options: StreamOptions, trace_id: str = ""
     ) -> None:
         try:
             async for chunk in self._executor.astream(
@@ -105,6 +107,8 @@ class LangChainAdapter:
                             "custom_message": f"Finished {tool_name}",
                         })
 
+            if trace_id:
+                hooks.on_trace_id(trace_id)
             hooks.on_finish()
 
         except Exception as e:
@@ -150,6 +154,9 @@ class LangChainAdapter:
                     nonlocal error_occurred
                     error_occurred = True
                     hooks.on_error(error)
+
+                def on_trace_id(self_, trace_id: str) -> None:
+                    hooks.on_trace_id(trace_id)
 
                 def on_finish(self_) -> None:
                     pass  # deferred until after TTS

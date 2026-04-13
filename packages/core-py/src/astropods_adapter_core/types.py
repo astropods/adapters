@@ -36,6 +36,13 @@ class StreamHooks(Protocol):
         """Send a chunk of TTS audio back to the client."""
         ...
 
+    def on_trace_id(self, trace_id: str) -> None:
+        """Called with the observability trace ID once available (before on_finish).
+        Implementations should forward this to the messaging layer so the platform
+        adapter can associate user feedback with the correct Langfuse trace.
+        """
+        ...
+
     def on_audio_end(self) -> None:
         """Signal the end of the current audio response segment."""
         ...

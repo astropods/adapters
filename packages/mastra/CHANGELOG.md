@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.2.1] (2026-04-05)
+
+### Features
+
+* propagate Langfuse trace ID via `onTraceId` hook so platform adapters can link user feedback to the correct trace
+
+
 ## [0.2.0](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.1.0...@astropods/adapter-mastra@0.2.0) (2026-03-19)
 
 
