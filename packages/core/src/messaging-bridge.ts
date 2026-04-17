@@ -8,15 +8,12 @@ import {
 } from "@astropods/messaging";
 
 import type { AgentAdapter, AudioInput, ServeOptions, StreamHooks } from "./types";
+import { logger } from "./logger";
 
 const DEFAULT_SERVER_ADDR = "localhost:9090";
 const MAX_RETRIES = 10;
 const INITIAL_DELAY_MS = 500;
 const MAX_DELAY_MS = 15000;
-
-function debug(...args: unknown[]) {
-  if (process.env.DEBUG) console.debug(...args);
-}
 
 export class MessagingBridge {
   private adapter: AgentAdapter;
@@ -39,7 +36,7 @@ export class MessagingBridge {
         this.client = new MessagingClient(this.serverAddress);
         await this.client.connect();
         const health = await this.client.healthCheck();
-        console.log(`Connected to messaging service (health: ${health.status})`);
+        logger.info(`Connected to messaging service (health: ${health.status})`);
         return;
       } catch (error) {
         if (this.client) {
@@ -50,7 +47,7 @@ export class MessagingBridge {
           throw error;
         }
         const delay = Math.min(INITIAL_DELAY_MS * 2 ** (attempt - 1), MAX_DELAY_MS);
-        console.log(
+        logger.info(
           `Waiting for messaging service (attempt ${attempt}/${MAX_RETRIES}, retry in ${delay}ms)...`
         );
         await new Promise((resolve) => setTimeout(resolve, delay));
@@ -63,8 +60,8 @@ export class MessagingBridge {
     const agentName = this.adapter.name;
     const agentId = agentName.toLowerCase().replace(/\s+/g, "-");
 
-    console.log(`Starting ${agentName}...`);
-    console.log(`  gRPC Server: ${this.serverAddress}`);
+    logger.info(`Starting ${agentName}...`);
+    logger.info(`  gRPC Server: ${this.serverAddress}`);
 
     await this.connectWithRetry();
 
@@ -73,7 +70,7 @@ export class MessagingBridge {
 
     // Send agent config for playground display
     this.stream.sendAgentConfig(config);
-    console.log("Agent config sent");
+    logger.info("Agent config sent");
 
     // Listen for incoming messages
     this.stream.on("response", (response: AgentResponse) => {
@@ -107,7 +104,7 @@ export class MessagingBridge {
     if (this.adapter.streamAudio) {
       this.stream.on("audioConfig", (config: AudioStreamConfig) => {
         if (!this.stream) return;
-        debug(`[audio] Received audioConfig: encoding=${config.encoding} sampleRate=${config.sampleRate} channels=${config.channels} conversation=${config.conversationId}`);
+        logger.debug(`[audio] Received audioConfig: encoding=${config.encoding} sampleRate=${config.sampleRate} channels=${config.channels} conversation=${config.conversationId}`);
 
         // Set up the readable stream immediately, before any audioChunk events fire.
         // audioAsReadable() listens for audioChunk events and pipes them into the stream.
@@ -123,11 +120,11 @@ export class MessagingBridge {
     }
 
     this.stream.on("error", (error: Error) => {
-      console.error("Stream error:", error);
+      logger.error({ err: error }, "Stream error");
     });
 
     this.stream.on("end", () => {
-      console.log("Stream ended");
+      logger.info("Stream ended");
     });
 
     // Register the agent
@@ -138,11 +135,11 @@ export class MessagingBridge {
       user: { id: agentId, username: agentName },
     });
 
-    console.log(`${agentName} is ready and listening for messages`);
+    logger.info(`${agentName} is ready and listening for messages`);
 
     // Graceful shutdown (store reference so stop() can remove the listeners)
     this.shutdownHandler = () => {
-      console.log("Shutting down...");
+      logger.info("Shutting down...");
       this.stop();
       process.exit(0);
     };
@@ -164,7 +161,7 @@ export class MessagingBridge {
         stream.sendStatusUpdate(conversationId, status);
       },
       onError: (error: Error) => {
-        console.error("Agent error:", error);
+        logger.error({ err: error }, "Agent error");
         stream.sendAgentResponse({
           conversationId,
           error: { code: "AGENT_ERROR", message: error.message },
@@ -172,10 +169,10 @@ export class MessagingBridge {
       },
       onFinish: () => {
         stream.sendContentChunk(conversationId, { type: "END", content: "" });
-        debug(`[bridge] Response complete: conversation=${conversationId}`);
+        logger.debug(`[bridge] Response complete: conversation=${conversationId}`);
       },
       onTranscript: (text: string) => {
-        debug(`[bridge] Sending transcript: conversation=${conversationId} text=${JSON.stringify(text)}`);
+        logger.debug(`[bridge] Sending transcript: conversation=${conversationId} text=${JSON.stringify(text)}`);
         stream.sendTranscript(conversationId, text);
       },
       onAudioChunk: (data: Uint8Array) => {
@@ -215,7 +212,7 @@ export class MessagingBridge {
 
     const stream = this.stream;
 
-    debug(`[bridge] Starting audio response: conversation=${conversationId} encoding=${audioInput.config.encoding} filetype=${audioInput.filetype}`);
+    logger.debug(`[bridge] Starting audio response: conversation=${conversationId} encoding=${audioInput.config.encoding} filetype=${audioInput.filetype}`);
     stream.sendContentChunk(conversationId, { type: "START", content: "" });
 
     const hooks = this.buildHooks(conversationId);
@@ -226,10 +223,10 @@ export class MessagingBridge {
         userId: userId ?? "anonymous",
       })
       .then(() => {
-        debug(`[bridge] streamAudio resolved: conversation=${conversationId}`);
+        logger.debug(`[bridge] streamAudio resolved: conversation=${conversationId}`);
       })
       .catch((error) => {
-        console.error(`[bridge] streamAudio error: conversation=${conversationId}`, error);
+        logger.error({ err: error }, `[bridge] streamAudio error: conversation=${conversationId}`);
         hooks.onError(
           error instanceof Error ? error : new Error(String(error))
         );

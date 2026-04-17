@@ -2,6 +2,7 @@ import type { Agent } from "@mastra/core/agent";
 import { Mastra } from "@mastra/core/mastra";
 import { Observability, SamplingStrategyType } from "@mastra/observability";
 import { OtelExporter } from "@mastra/otel-exporter";
+import { logger } from "@astropods/adapter-core";
 
 /**
  * If OTEL_EXPORTER_OTLP_ENDPOINT is set, ensure the agent is registered with
@@ -52,7 +53,7 @@ export function setupObservability(agent: Agent): void {
       const otelInstance = observability.getDefaultInstance();
       if (otelInstance) {
         existingMastra.observability.registerInstance("astropods-otel", otelInstance);
-        console.log(`OTEL tracing enabled → ${tracesUrl}`);
+        logger.info(`OTEL tracing enabled → ${tracesUrl}`);
       }
       return;
     }

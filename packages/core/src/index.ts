@@ -8,3 +8,4 @@ export type {
 
 export { serve } from "./serve";
 export { MessagingBridge } from "./messaging-bridge";
+export { logger } from "./logger";
