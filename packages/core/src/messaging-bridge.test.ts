@@ -101,6 +101,17 @@ mock.module("@astropods/messaging", () => ({
   },
 }));
 
+let mockLoggerDebugCalls: string[] = [];
+
+mock.module("./logger", () => ({
+  logger: {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: (msg: string) => { mockLoggerDebugCalls.push(msg); },
+  },
+}));
+
 const { MessagingBridge } = await import("./messaging-bridge");
 
 // --- Helpers ---
@@ -135,6 +146,7 @@ function resetMockState() {
   mockSendTranscriptCalls = [];
   mockSendAudioChunkCalls = [];
   mockEndAudioCalled = false;
+  mockLoggerDebugCalls = [];
 }
 
 // --- Tests ---
@@ -642,11 +654,8 @@ describe("MessagingBridge", () => {
 
   describe("debug logging", () => {
     test("suppresses diagnostic logs when DEBUG is not set", async () => {
-      const debugSpy = mock(() => {});
-      const origDebug = console.debug;
       const origEnv = process.env.DEBUG;
       delete process.env.DEBUG;
-      console.debug = debugSpy;
 
       try {
         const adapter = createMockAdapter({
@@ -669,20 +678,15 @@ describe("MessagingBridge", () => {
 
         await new Promise((r) => setTimeout(r, 10));
 
-        // No debug calls should have been made
-        expect(debugSpy).not.toHaveBeenCalled();
+        expect(mockLoggerDebugCalls).toHaveLength(0);
       } finally {
-        console.debug = origDebug;
         if (origEnv !== undefined) process.env.DEBUG = origEnv;
       }
     });
 
     test("emits diagnostic logs when DEBUG is set", async () => {
-      const debugSpy = mock(() => {});
-      const origDebug = console.debug;
       const origEnv = process.env.DEBUG;
       process.env.DEBUG = "1";
-      console.debug = debugSpy;
 
       try {
         const adapter = createMockAdapter({
@@ -705,14 +709,9 @@ describe("MessagingBridge", () => {
 
         await new Promise((r) => setTimeout(r, 10));
 
-        expect(debugSpy).toHaveBeenCalled();
-        const calls = (debugSpy as any).mock.calls;
-        const bridgeLog = calls.find((args: any[]) =>
-          typeof args[0] === "string" && args[0].includes("[bridge]")
-        );
+        const bridgeLog = mockLoggerDebugCalls.find((msg) => msg.includes("[bridge]"));
         expect(bridgeLog).toBeDefined();
       } finally {
-        console.debug = origDebug;
         if (origEnv !== undefined) {
           process.env.DEBUG = origEnv;
         } else {
