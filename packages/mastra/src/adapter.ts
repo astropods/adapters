@@ -3,10 +3,7 @@ import type {
   AgentConfig as MessagingAgentConfig,
 } from "@astropods/messaging";
 import type { AgentAdapter, AudioInput, StreamHooks, StreamOptions } from "@astropods/adapter-core";
-
-function debug(...args: unknown[]) {
-  if (process.env.DEBUG) console.debug(...args);
-}
+import { logger } from "@astropods/adapter-core";
 
 /**
  * Adapts a Mastra Agent to the Astro messaging protocol.
@@ -91,29 +88,29 @@ export class MastraAdapter implements AgentAdapter {
   ): Promise<void> {
     const voice = this.agent.voice;
     if (!voice) {
-      console.error("[MastraAdapter] streamAudio called but agent has no voice provider");
+      logger.error("[MastraAdapter] streamAudio called but agent has no voice provider");
       hooks.onError(new Error("Agent has no voice provider configured"));
       return;
     }
 
-    debug(`[MastraAdapter] streamAudio: encoding=${audio.config.encoding} filetype=${audio.filetype} conversation=${options.conversationId}`);
+    logger.debug(`[MastraAdapter] streamAudio: encoding=${audio.config.encoding} filetype=${audio.filetype} conversation=${options.conversationId}`);
 
     // STT: transcribe audio to text
     hooks.onStatusUpdate({ status: "PROCESSING", customMessage: "Transcribing audio" });
 
     let transcript: string;
     try {
-      debug("[MastraAdapter] Calling voice.listen() for STT...");
+      logger.debug("[MastraAdapter] Calling voice.listen() for STT...");
       const result = await voice.listen(audio.stream, {
         filetype: audio.filetype,
       });
       transcript = typeof result === "string" ? result : String(result ?? "");
-      debug(`[MastraAdapter] STT result: "${transcript.substring(0, 100)}${transcript.length > 100 ? "..." : ""}"`);
+      logger.debug(`[MastraAdapter] STT result: "${transcript.substring(0, 100)}${transcript.length > 100 ? "..." : ""}"`);
 
       // Send transcript back to update the placeholder user message
       hooks.onTranscript(transcript);
     } catch (error) {
-      console.error("[MastraAdapter] STT failed:", error);
+      logger.error({ err: error }, "[MastraAdapter] STT failed");
       hooks.onError(
         error instanceof Error ? error : new Error(String(error))
       );
@@ -121,7 +118,7 @@ export class MastraAdapter implements AgentAdapter {
     }
 
     if (!transcript.trim()) {
-      console.warn("[MastraAdapter] STT returned empty transcript");
+      logger.warn("[MastraAdapter] STT returned empty transcript");
       hooks.onError(new Error("Could not transcribe audio"));
       return;
     }
@@ -129,7 +126,7 @@ export class MastraAdapter implements AgentAdapter {
     // Generate a text response using the transcript as the prompt.
     // When TTS is available, intercept chunks to accumulate text and defer
     // onFinish until after TTS completes. Without TTS, pass hooks through directly.
-    debug(`[MastraAdapter] Generating response for transcript...`);
+    logger.debug(`[MastraAdapter] Generating response for transcript...`);
 
     const hasTTS = !!voice.speak;
     let accumulatedText = "";
@@ -165,7 +162,7 @@ export class MastraAdapter implements AgentAdapter {
         }
       } catch (error) {
         // TTS is best-effort — the text response was already sent
-        console.warn("[MastraAdapter] TTS failed (text response already sent):", error);
+        logger.warn({ err: error }, "[MastraAdapter] TTS failed (text response already sent)");
       }
       hooks.onFinish();
     }
