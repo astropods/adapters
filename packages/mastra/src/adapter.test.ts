@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from "bun:test";
+import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { Agent } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
@@ -9,6 +9,17 @@ import {
 import type { LanguageModelV2StreamPart } from "@ai-sdk/provider-v5";
 import type { StatusUpdate } from "@astropods/messaging";
 import type { StreamOptions } from "@astropods/adapter-core";
+let mockLoggerWarnCalls: any[][] = [];
+
+mock.module("@astropods/adapter-core", () => ({
+  logger: {
+    info: () => {},
+    debug: () => {},
+    error: () => {},
+    warn: (...args: any[]) => { mockLoggerWarnCalls.push(args); },
+  },
+}));
+
 import { MastraAdapter } from "./adapter";
 
 // --- Helpers ---
@@ -395,56 +406,49 @@ describe("MastraAdapter", () => {
     });
 
     test("logs TTS failure as warning instead of swallowing silently", async () => {
-      const warnSpy = mock(() => {});
-      const origWarn = console.warn;
-      console.warn = warnSpy;
+      mockLoggerWarnCalls = [];
 
-      try {
-        const parts = textParts(["Response text"]);
+      const parts = textParts(["Response text"]);
 
-        const model = new MastraLanguageModelV2Mock({
-          provider: "test",
-          modelId: "test-model",
-          doStream: async () => ({ stream: streamFromParts(parts) }),
-        });
+      const model = new MastraLanguageModelV2Mock({
+        provider: "test",
+        modelId: "test-model",
+        doStream: async () => ({ stream: streamFromParts(parts) }),
+      });
 
-        const agent = new Agent({
-          id: "test",
-          name: "Test",
-          model,
-          instructions: "test",
-        });
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model,
+        instructions: "test",
+      });
 
-        Object.defineProperty(agent, "voice", {
-          value: {
-            listen: async () => "transcribed text",
-            speak: async () => { throw new Error("TTS service unavailable"); },
-          },
-          configurable: true,
-        });
+      Object.defineProperty(agent, "voice", {
+        value: {
+          listen: async () => "transcribed text",
+          speak: async () => { throw new Error("TTS service unavailable"); },
+        },
+        configurable: true,
+      });
 
-        const adapter = new MastraAdapter(agent);
-        const hooks = createHooks();
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
 
-        const audioInput = {
-          stream: new ReadableStream<Uint8Array>(),
-          config: { encoding: "MULAW", sampleRate: 8000, channels: 1, conversationId: "c1" },
-          filetype: "wav",
-        };
+      const audioInput = {
+        stream: new ReadableStream<Uint8Array>(),
+        config: { encoding: "MULAW", sampleRate: 8000, channels: 1, conversationId: "c1" },
+        filetype: "wav",
+      };
 
-        await adapter.streamAudio!(audioInput as any, hooks, defaultOptions);
+      await adapter.streamAudio!(audioInput as any, hooks, defaultOptions);
 
-        // TTS error should be logged, not swallowed
-        const warnCalls = (warnSpy as any).mock.calls;
-        const ttsWarn = warnCalls.find((args: any[]) =>
-          typeof args[0] === "string" && args[0].includes("TTS failed")
-        );
-        expect(ttsWarn).toBeDefined();
-        // onFinish should still fire even when TTS fails
-        expect(hooks.finishCount).toBe(1);
-      } finally {
-        console.warn = origWarn;
-      }
+      // TTS error should be logged, not swallowed
+      const ttsWarn = mockLoggerWarnCalls.find((args) =>
+        typeof args[1] === "string" && args[1].includes("TTS failed")
+      );
+      expect(ttsWarn).toBeDefined();
+      // onFinish should still fire even when TTS fails
+      expect(hooks.finishCount).toBe(1);
     });
   });
 
