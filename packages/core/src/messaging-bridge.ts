@@ -10,6 +10,23 @@ import {
 import type { AgentAdapter, AudioInput, ServeOptions, StreamHooks } from "./types";
 import { logger } from "./logger";
 
+/** When the messaging service omitted `[slack_meta]` but PlatformContext has Slack IDs, synthesize the same JSON line adapters use so agents see stable location context. */
+function ensureSlackMetaInContent(message: Message): string {
+  const content = message.content ?? "";
+  if (message.platform !== "slack") return content;
+  if (content.includes("[slack_meta]")) return content;
+  const pc = message.platformContext;
+  if (!pc?.channelId || !pc?.messageId) return content;
+  const meta: Record<string, string> = {
+    channel_id: pc.channelId,
+    message_ts: pc.messageId,
+  };
+  if (pc.threadId && pc.threadId !== pc.messageId) {
+    meta.thread_ts = pc.threadId;
+  }
+  return `[slack_meta] ${JSON.stringify(meta)}\n${content}`;
+}
+
 const DEFAULT_SERVER_ADDR = "localhost:9090";
 const MAX_RETRIES = 10;
 const INITIAL_DELAY_MS = 500;
@@ -199,8 +216,10 @@ export class MessagingBridge {
 
     const hooks = this.buildHooks(conversationId);
 
+    const prompt = ensureSlackMetaInContent(message);
+
     this.adapter
-      .stream(message.content, hooks, {
+      .stream(prompt, hooks, {
         conversationId,
         userId: message.user?.id ?? "anonymous",
       })

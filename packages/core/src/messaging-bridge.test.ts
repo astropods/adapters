@@ -291,6 +291,74 @@ describe("MessagingBridge", () => {
       });
     });
 
+    test("prepends synthetic [slack_meta] when Slack message lacks it but platformContext has channel + messageId", async () => {
+      let receivedPrompt = "";
+      const adapter = createMockAdapter({
+        stream: async (prompt, hooks) => {
+          receivedPrompt = prompt;
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      mockResponseHandlers[0]({
+        conversationId: "conv-1",
+        incomingMessage: {
+          conversationId: "conv-1",
+          content: "hello",
+          platform: "slack",
+          platformContext: {
+            channelId: "C111",
+            messageId: "123.456",
+            threadId: "100.000",
+          },
+          user: { id: "U1" },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(receivedPrompt.startsWith("[slack_meta] ")).toBe(true);
+      expect(receivedPrompt).toContain('"channel_id":"C111"');
+      expect(receivedPrompt).toContain('"message_ts":"123.456"');
+      expect(receivedPrompt).toContain('"thread_ts":"100.000"');
+      expect(receivedPrompt.endsWith("hello")).toBe(true);
+    });
+
+    test("does not double-prepend [slack_meta] when already present", async () => {
+      let receivedPrompt = "";
+      const adapter = createMockAdapter({
+        stream: async (prompt, hooks) => {
+          receivedPrompt = prompt;
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      const original = '[slack_meta] {"channel_id":"C1"}\nhello';
+      mockResponseHandlers[0]({
+        conversationId: "conv-1",
+        incomingMessage: {
+          conversationId: "conv-1",
+          content: original,
+          platform: "slack",
+          platformContext: {
+            channelId: "C111",
+            messageId: "123.456",
+          },
+          user: { id: "U1" },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(receivedPrompt).toBe(original);
+    });
+
     test("sends DELTA chunks for each onChunk call", async () => {
       const adapter = createMockAdapter({
         stream: async (_prompt, hooks) => {
