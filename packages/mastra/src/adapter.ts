@@ -28,6 +28,12 @@ export class MastraAdapter implements AgentAdapter {
         thread: options.conversationId,
         resource: options.userId,
       },
+      tracingOptions: {
+        metadata: {
+          "langfuse.user.id": options.userId,
+          "langfuse.session.id": options.conversationId,
+        },
+      },
     });
 
     // Track tool names by call ID so we can reference them when the call ends
