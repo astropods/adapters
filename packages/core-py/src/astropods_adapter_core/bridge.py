@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import signal
-from typing import Optional
+from typing import List, Optional
 
 import grpc
 import grpc.aio
@@ -24,6 +25,14 @@ from astropods_messaging import (
     StatusUpdate,
     Transcript,
     User,
+)
+
+# CardAttachment / ResponseAttachment are not re-exported from the top-level
+# astropods_messaging package, so we import them directly from the generated
+# protobuf module.
+from astropods_messaging.astro.messaging.v1.response_pb2 import (
+    CardAttachment,
+    ResponseAttachment,
 )
 
 from .types import AgentAdapter, AudioInput, ServeOptions, StreamHooks, StreamOptions
@@ -48,6 +57,8 @@ class _StreamHooksImpl:
         self._conversation_id = conversation_id
         self._write_queue = write_queue
         self._finished = False
+        # Card attachments queued by on_card; flushed on END chunk.
+        self._pending_attachments: List[ResponseAttachment] = []
 
     def _enqueue(self, request: ConversationRequest) -> None:
         self._write_queue.put_nowait(request)
@@ -64,6 +75,38 @@ class _StreamHooksImpl:
             content=chunk,
         )
         self._enqueue(ConversationRequest(agent_response=response))
+
+    def on_card(self, blocks_json: str) -> None:
+        """Queue a platform-native card to be flushed on the END chunk.
+
+        Cards are NOT emitted on DELTA chunks because the platform server
+        only processes ``ContentChunk.attachments`` on END (see
+        astro/messaging adapter handleContentChunk). Queuing here and
+        flushing on on_finish guarantees the attachments are delivered
+        exactly once, atomically with the response terminator.
+        """
+        if self._finished:
+            return
+        if not blocks_json:
+            logger.warning("on_card called with empty blocks_json; dropping")
+            return
+        # Validate the payload is parseable JSON. The platform's PostBlocks
+        # also validates that the JSON is an array, so we surface that
+        # contract here for fast feedback during development. We do NOT
+        # require the array shape — different platforms (Teams, Discord)
+        # may use object payloads.
+        try:
+            json.loads(blocks_json)
+        except (ValueError, TypeError) as exc:
+            logger.warning(
+                "on_card received invalid JSON; dropping card: %s", exc
+            )
+            return
+        self._pending_attachments.append(
+            ResponseAttachment(
+                card=CardAttachment(platform_card_json=blocks_json)
+            )
+        )
 
     def on_status_update(self, status: dict) -> None:
         if self._finished:
@@ -100,16 +143,26 @@ class _StreamHooksImpl:
         if self._finished:
             return
         self._finished = True
+        # Drain any pending card attachments onto the END chunk. The platform
+        # server processes content.Attachments only on END; emitting cards on
+        # DELTA chunks would silently drop them.
+        attachments = self._pending_attachments
+        self._pending_attachments = []
         chunk = ContentChunk(
             type=ContentChunk.ChunkType.Value("END"),
             content="",
+            attachments=attachments,
         )
         response = AgentResponse(
             conversation_id=self._conversation_id,
             content=chunk,
         )
         self._enqueue(ConversationRequest(agent_response=response))
-        _debug("[bridge] Response complete: conversation=%s", self._conversation_id)
+        _debug(
+            "[bridge] Response complete: conversation=%s, cards=%d",
+            self._conversation_id,
+            len(attachments),
+        )
 
     def on_transcript(self, text: str) -> None:
         if self._finished:
@@ -337,6 +390,7 @@ class MessagingBridge:
         options = StreamOptions(
             conversation_id=conversation_id,
             user_id=message.user.id if message.user else "anonymous",
+            platform=message.platform or "",
         )
 
         try:

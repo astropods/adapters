@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, call
@@ -119,6 +120,79 @@ class TestStreamHooksImpl:
         items = self._dequeue_all()
         assert len(items) == 1  # only the END chunk
 
+    # --- on_card tests ---
+
+    def test_on_card_queues_but_does_not_emit_immediately(self):
+        blocks = json.dumps([{"type": "section", "text": {"type": "mrkdwn", "text": "hi"}}])
+        self.hooks.on_card(blocks)
+        items = self._dequeue_all()
+        assert items == []  # nothing on the wire until on_finish
+
+    def test_on_card_attachments_flushed_on_finish(self):
+        blocks_a = json.dumps([{"type": "section", "text": {"type": "mrkdwn", "text": "a"}}])
+        blocks_b = json.dumps([{"type": "section", "text": {"type": "mrkdwn", "text": "b"}}])
+        self.hooks.on_chunk("preamble")
+        self.hooks.on_card(blocks_a)
+        self.hooks.on_card(blocks_b)
+        self.hooks.on_finish()
+
+        items = self._dequeue_all()
+        # DELTA + END
+        assert len(items) == 2
+        end_chunk = items[1].agent_response.content
+        assert end_chunk.type == ContentChunk.ChunkType.Value("END")
+        assert len(end_chunk.attachments) == 2
+        assert end_chunk.attachments[0].card.platform_card_json == blocks_a
+        assert end_chunk.attachments[1].card.platform_card_json == blocks_b
+
+    def test_on_card_no_attachments_no_emission_on_delta(self):
+        """Cards must NOT ride on DELTA chunks — server only processes attachments on END."""
+        blocks = json.dumps([{"type": "section", "text": {"type": "mrkdwn", "text": "hi"}}])
+        self.hooks.on_card(blocks)
+        self.hooks.on_chunk("delta-text")
+        items = self._dequeue_all()
+        # Only the DELTA from on_chunk, with no attachments attached to it.
+        assert len(items) == 1
+        delta = items[0].agent_response.content
+        assert delta.type == ContentChunk.ChunkType.Value("DELTA")
+        assert len(delta.attachments) == 0
+
+    def test_on_card_invalid_json_is_dropped(self):
+        self.hooks.on_card("not-json-at-all")
+        self.hooks.on_finish()
+        items = self._dequeue_all()
+        assert len(items) == 1
+        end_chunk = items[0].agent_response.content
+        assert end_chunk.type == ContentChunk.ChunkType.Value("END")
+        assert len(end_chunk.attachments) == 0
+
+    def test_on_card_empty_string_is_dropped(self):
+        self.hooks.on_card("")
+        self.hooks.on_finish()
+        items = self._dequeue_all()
+        assert len(items) == 1
+        end_chunk = items[0].agent_response.content
+        assert len(end_chunk.attachments) == 0
+
+    def test_on_card_ignored_after_finish(self):
+        self.hooks.on_finish()
+        blocks = json.dumps([{"type": "section"}])
+        self.hooks.on_card(blocks)
+        # on_finish is idempotent and the late card should NOT cause a second END.
+        items = self._dequeue_all()
+        assert len(items) == 1  # only the original END
+        assert len(items[0].agent_response.content.attachments) == 0
+
+    def test_on_card_object_payload_accepted(self):
+        """Non-array JSON (e.g. Teams Adaptive Card) is accepted — platform validates."""
+        payload = json.dumps({"type": "AdaptiveCard", "body": []})
+        self.hooks.on_card(payload)
+        self.hooks.on_finish()
+        items = self._dequeue_all()
+        end_chunk = items[0].agent_response.content
+        assert len(end_chunk.attachments) == 1
+        assert end_chunk.attachments[0].card.platform_card_json == payload
+
 
 # --- MessagingBridge constructor tests ---
 
@@ -194,3 +268,74 @@ class TestAgentIdDerivation:
         registration = self._get_registration_message(sent)
         if registration:
             assert registration.user.id == "my-test-agent"
+
+
+# --- StreamOptions.platform plumbing ---
+
+class TestPlatformPlumbing:
+    """Ensure Message.platform is forwarded to the adapter via StreamOptions
+    so adapters can gate platform-specific rendering (e.g. Slack-only cards)."""
+
+    def test_stream_options_has_platform_default(self):
+        """Default empty string when bridge doesn't set it (back-compat)."""
+        opts = StreamOptions(conversation_id="c1", user_id="u1")
+        assert opts.platform == ""
+
+    def test_stream_options_accepts_platform(self):
+        opts = StreamOptions(conversation_id="c1", user_id="u1", platform="slack")
+        assert opts.platform == "slack"
+
+    @pytest.mark.asyncio
+    async def test_handle_message_plumbs_platform(self):
+        """_handle_message must construct StreamOptions with message.platform."""
+        from astropods_messaging import Message, User
+
+        adapter = MagicMock()
+        adapter.name = "test-agent"
+        captured_options = {}
+
+        async def capture_stream(prompt, hooks, options):
+            captured_options["platform"] = options.platform
+            captured_options["user_id"] = options.user_id
+            captured_options["conversation_id"] = options.conversation_id
+
+        adapter.stream = AsyncMock(side_effect=capture_stream)
+
+        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+
+        message = Message(
+            conversation_id="conv-xyz",
+            platform="slack",
+            content="hello from slack",
+            user=User(id="U123", username="alice"),
+        )
+
+        await bridge._handle_message(message)
+
+        assert captured_options["platform"] == "slack"
+        assert captured_options["user_id"] == "U123"
+        assert captured_options["conversation_id"] == "conv-xyz"
+
+    @pytest.mark.asyncio
+    async def test_handle_message_platform_empty_when_not_set(self):
+        """Message with no platform field surfaces as empty string, not None."""
+        from astropods_messaging import Message, User
+
+        adapter = MagicMock()
+        adapter.name = "test-agent"
+        captured = {}
+
+        async def capture_stream(prompt, hooks, options):
+            captured["platform"] = options.platform
+
+        adapter.stream = AsyncMock(side_effect=capture_stream)
+
+        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+        message = Message(
+            conversation_id="conv-1",
+            content="hi",
+            user=User(id="u1"),
+        )
+
+        await bridge._handle_message(message)
+        assert captured["platform"] == ""
