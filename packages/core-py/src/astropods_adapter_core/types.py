@@ -11,6 +11,31 @@ class StreamHooks(Protocol):
         """Send a text token or fragment from the LLM."""
         ...
 
+    def on_card(self, blocks_json: str) -> None:
+        """Send pre-built platform-native rich content as a card attachment.
+
+        The platform server posts this directly as a native card (Slack:
+        Block Kit via PostBlocks; Teams: Adaptive Card; Discord: Embed),
+        bypassing server-side markdown conversion and text chunking. Use
+        this when the agent has already produced platform-native rich
+        content (e.g. tables with formatted cells) that would degrade if
+        routed through the text → markdown → mrkdwn pipeline.
+
+        ``blocks_json`` must be a JSON-encoded array of platform block
+        objects. For Slack, that is an array of Block Kit blocks (see
+        https://api.slack.com/block-kit). The string is forwarded verbatim
+        to the platform; the SDK does not interpret it beyond validating
+        it is parseable JSON.
+
+        Multiple ``on_card`` calls in a single response produce multiple
+        platform messages (e.g. multiple Slack thread replies). All cards
+        queued during a response are flushed atomically on ``on_finish``
+        as attachments on the END content chunk — they are not emitted
+        on DELTA chunks, since the platform only processes attachments on
+        END.
+        """
+        ...
+
     def on_status_update(self, status: dict) -> None:
         """Send an agent state change. status must contain a 'status' key with one of:
         THINKING, SEARCHING, GENERATING, PROCESSING, ANALYZING, CUSTOM.
@@ -68,6 +93,11 @@ class StreamOptions:
 
     conversation_id: str
     user_id: str
+    # Source platform of the incoming message ("slack", "web", "discord",
+    # "teams", "grpc", etc.). Empty string when not provided by the bridge
+    # (older platform servers). Adapters can use this to gate
+    # platform-specific rendering — e.g. only emit on_card for "slack".
+    platform: str = ""
 
 
 @dataclass
