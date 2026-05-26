@@ -23,6 +23,15 @@ export class MastraAdapter implements AgentAdapter {
     hooks: StreamHooks,
     options: StreamOptions
   ): Promise<void> {
+    // An adapter call always represents a user-facing message. Empty user_id
+    // would land the trace in Insights' "Unattributed" bucket, which is
+    // reserved for jobs that have no user concept (cron, ingestion, raw SDK
+    // use). Backfill with a stable marker so these traces classify as
+    // Unauthorized — the right bucket for an identified-but-unknown user.
+    // Only the tracing metadata gets the fallback; memory.resource keeps the
+    // original (possibly empty) value so unauthenticated callers don't share
+    // a memory bucket.
+    const traceUserId = options.userId || "anonymous";
     const stream = await this.agent.stream(prompt, {
       memory: {
         thread: options.conversationId,
@@ -30,7 +39,7 @@ export class MastraAdapter implements AgentAdapter {
       },
       tracingOptions: {
         metadata: {
-          "langfuse.user.id": options.userId,
+          "langfuse.user.id": traceUserId,
           "langfuse.session.id": options.conversationId,
         },
       },
