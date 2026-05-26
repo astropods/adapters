@@ -225,6 +225,32 @@ describe("MastraAdapter", () => {
       expect(hooks.chunks).toEqual(["A", "B", "C", "D", "E"]);
       expect(hooks.finishCount).toBe(1);
     });
+
+    test("empty userId backfills tracing user_id to 'anonymous' but leaves memory.resource untouched", async () => {
+      // Unauthenticated Slack user → empty userId on the bridge. Tracing must
+      // still set a non-empty user_id so the trace classifies as Unauthorized
+      // in Insights, not Unattributed (the latter is for cron / SDK / ingestion).
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model: modelFromParts(textParts(["hi"])),
+        instructions: "test",
+      });
+      const originalStream = agent.stream.bind(agent);
+      const spy = mock((...args: Parameters<typeof originalStream>) => originalStream(...args));
+      (agent as { stream: typeof originalStream }).stream = spy as unknown as typeof originalStream;
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      await adapter.stream("hi", hooks, { conversationId: "conv-1", userId: "" });
+
+      const callOpts = spy.mock.calls[0]?.[1] as {
+        memory?: { resource?: string };
+        tracingOptions?: { metadata?: Record<string, string> };
+      };
+      expect(callOpts?.tracingOptions?.metadata?.["langfuse.user.id"]).toBe("anonymous");
+      expect(callOpts?.memory?.resource).toBe("");
+    });
   });
 
   describe("streamAudio", () => {
