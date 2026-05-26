@@ -65,12 +65,8 @@ class LangChainAdapter:
         self, prompt: str, hooks: StreamHooks, options: StreamOptions
     ) -> None:
         with _tracer.start_as_current_span(self.name) as span:
-            # An adapter call always represents a user-facing message. Empty
-            # user_id would land the trace in Insights' "Unattributed" bucket,
-            # which is reserved for jobs that have no user concept (cron,
-            # ingestion, raw SDK use). Backfill with a stable marker so these
-            # traces classify as Unauthorized — the right bucket for an
-            # identified-but-unknown user.
+            # Backfill so the trace lands in Insights' Unauthorized bucket,
+            # not Unattributed (the latter is for cron / SDK / ingestion).
             user_id = options.user_id or "anonymous"
             span.set_attribute("langfuse.user.id", user_id)
             span.set_attribute("langfuse.session.id", options.conversation_id)
