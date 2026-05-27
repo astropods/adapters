@@ -65,7 +65,10 @@ class LangChainAdapter:
         self, prompt: str, hooks: StreamHooks, options: StreamOptions
     ) -> None:
         with _tracer.start_as_current_span(self.name) as span:
-            span.set_attribute("langfuse.user.id", options.user_id)
+            # Backfill so the trace lands in Insights' Unauthorized bucket,
+            # not Unattributed (the latter is for cron / SDK / ingestion).
+            user_id = options.user_id or "anonymous"
+            span.set_attribute("langfuse.user.id", user_id)
             span.set_attribute("langfuse.session.id", options.conversation_id)
             await self._stream(prompt, hooks, options)
 

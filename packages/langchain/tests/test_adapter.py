@@ -215,6 +215,29 @@ class TestLangChainAdapterSessionContext:
         assert attrs.get("langfuse.user.id") == "user-456"
         assert attrs.get("langfuse.session.id") == "conv-123"
 
+    @pytest.mark.asyncio
+    async def test_empty_user_id_backfills_to_anonymous(self, hooks):
+        # Empty user_id (e.g. unauthenticated Slack user) must classify as
+        # Unauthorized in Insights, not Unattributed — verify the backfill.
+        from astropods_adapter_core.types import StreamOptions
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        import astropods_adapter_langchain.adapter as adapter_module
+        original_tracer = adapter_module._tracer
+        adapter_module._tracer = provider.get_tracer("test")
+
+        try:
+            executor = make_executor_with_updates([make_model_update("hi")])
+            adapter = LangChainAdapter(executor)
+            await adapter.stream("hello", hooks, StreamOptions(conversation_id="conv-1", user_id=""))
+        finally:
+            adapter_module._tracer = original_tracer
+
+        spans = exporter.get_finished_spans()
+        assert spans[0].attributes.get("langfuse.user.id") == "anonymous"
+
 class TestLangChainAdapterStreamAudio:
     @pytest.mark.asyncio
     async def test_no_voice_sends_error_message(self, hooks, stream_options):

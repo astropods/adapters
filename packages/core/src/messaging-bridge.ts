@@ -202,7 +202,8 @@ export class MessagingBridge {
     this.adapter
       .stream(message.content, hooks, {
         conversationId,
-        userId: message.user?.id ?? "anonymous",
+        // || catches empty strings too — ?? would let "" through.
+        userId: message.user?.id || "anonymous",
       })
       .catch((error) => {
         hooks.onError(
@@ -224,7 +225,8 @@ export class MessagingBridge {
     this.adapter
       .streamAudio(audioInput, hooks, {
         conversationId,
-        userId: userId ?? "anonymous",
+        // || catches empty strings too — ?? would let "" through.
+        userId: userId || "anonymous",
       })
       .then(() => {
         debug(`[bridge] streamAudio resolved: conversation=${conversationId}`);

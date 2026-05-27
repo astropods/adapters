@@ -336,7 +336,9 @@ class MessagingBridge:
         hooks = _StreamHooksImpl(conversation_id, self._write_queue)
         options = StreamOptions(
             conversation_id=conversation_id,
-            user_id=message.user.id if message.user else "anonymous",
+            # `or` catches the empty-string case too — a user object with
+            # id="" would otherwise leak through and classify as Unattributed.
+            user_id=(message.user.id if message.user else "") or "anonymous",
         )
 
         try:
