@@ -18,6 +18,7 @@ from astropods_messaging import (
     MessageReaction,
     PlatformFeedback,
     TextFeedback,
+    User,
 )
 
 
@@ -166,8 +167,7 @@ class TestFeedbackDispatch:
         fb = PlatformFeedback(
             conversation_id="conv-1",
             response_id="msg-ts-1",
-            user_id="U1",
-            user_name="alice",
+            user=User(id="U1", username="alice"),
             reaction=MessageReaction(type=MessageReaction.THUMBS_UP, added=True),
         )
         bridge._dispatch_feedback(fb)
@@ -177,6 +177,7 @@ class TestFeedbackDispatch:
         assert isinstance(event, FeedbackEvent)
         assert event.kind == "thumbs_up"
         assert event.user_id == "U1"
+        assert event.user_name == "alice"
         assert event.response_id == "msg-ts-1"
 
     def test_thumbs_down_maps_to_thumbs_down_kind(self):
@@ -229,6 +230,56 @@ class TestFeedbackDispatch:
             )
         )
         adapter.on_feedback.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_async_on_feedback_is_scheduled_and_runs(self):
+        # Async callbacks must be scheduled and actually execute — otherwise
+        # the docstring contract that "we tolerate sync and async" is a lie.
+        ran = asyncio.Event()
+
+        class A:
+            name = "a"
+
+            async def on_feedback(self, event):
+                ran.set()
+
+        bridge = self._make_bridge(A())
+        bridge._dispatch_feedback(
+            PlatformFeedback(
+                conversation_id="c",
+                reaction=MessageReaction(type=MessageReaction.THUMBS_UP),
+            )
+        )
+        # The async body runs on the next loop tick; bounded wait so a
+        # bug that drops the task surfaces as a timeout rather than a hang.
+        await asyncio.wait_for(ran.wait(), timeout=1.0)
+
+    @pytest.mark.asyncio
+    async def test_async_on_feedback_exception_is_logged(self, caplog):
+        # Regression guard for the High-severity reviewer finding: an async
+        # on_feedback that raises must hit the done_callback path and emit
+        # a structured log, NOT a noisy "Task exception was never retrieved"
+        # warning at GC time.
+        class A:
+            name = "a"
+
+            async def on_feedback(self, event):
+                raise RuntimeError("async kaboom")
+
+        bridge = self._make_bridge(A())
+        caplog.set_level("ERROR", logger="astropods_adapter_core.bridge")
+        bridge._dispatch_feedback(
+            PlatformFeedback(
+                conversation_id="c",
+                reaction=MessageReaction(type=MessageReaction.THUMBS_UP),
+            )
+        )
+        # Let the scheduled task run to completion + done_callback fire.
+        await asyncio.sleep(0.05)
+        assert any("async on_feedback raised" in rec.message for rec in caplog.records), (
+            "expected done_callback to log the exception; got: "
+            + repr([r.message for r in caplog.records])
+        )
 
 
 # --- MessagingBridge agent ID derivation ---

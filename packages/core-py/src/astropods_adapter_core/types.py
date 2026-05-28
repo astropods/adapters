@@ -90,10 +90,6 @@ class FeedbackEvent:
     - ``"stream_control"`` — stop/pause/resume/regenerate control.
     - ``"message_edit"`` / ``"message_delete"`` — user edited or deleted
       their own message in the platform UI.
-
-    ``raw`` is the underlying ``PlatformFeedback`` proto for callers that
-    need fields not surfaced on this dataclass (e.g. the emoji char on a
-    custom reaction).
     """
 
     conversation_id: str
@@ -103,7 +99,6 @@ class FeedbackEvent:
     user_name: str = ""
     text: Optional[str] = None   # populated for "text" and "reaction"
     prompt: Optional[str] = None # populated for "text"
-    raw: Any = None              # original PlatformFeedback proto
 
 
 @dataclass

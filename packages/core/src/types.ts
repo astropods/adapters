@@ -1,7 +1,6 @@
 import type {
   AgentConfig as MessagingAgentConfig,
   AudioStreamConfig,
-  PlatformFeedback,
   StatusUpdate,
 } from "@astropods/messaging";
 
@@ -47,8 +46,7 @@ export type FeedbackKind =
  *
  * `text` is populated for `"text"` (free-form modal submission) and for
  * `"reaction"` (the emoji name). `prompt` is populated for `"text"` with
- * the label shown above the textbox. `raw` is the underlying proto for
- * advanced callers.
+ * the label shown above the textbox.
  */
 export interface FeedbackEvent {
   conversationId: string;
@@ -59,7 +57,6 @@ export interface FeedbackEvent {
   userName: string;
   text?: string;
   prompt?: string;
-  raw: PlatformFeedback;
 }
 
 /** Audio input delivered to an adapter for processing. */
