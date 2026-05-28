@@ -71,6 +71,42 @@ class StreamOptions:
 
 
 @dataclass
+class FeedbackEvent:
+    """Inbound feedback from the platform (thumbs up/down, free-form comment, etc.).
+
+    Passed to ``AgentAdapter.on_feedback`` when the user interacts with a
+    feedback affordance the adapter renders alongside an agent reply.
+
+    ``kind`` is a stable string identifier so adapters don't need to import
+    proto types to switch on it. Today's values:
+
+    - ``"thumbs_up"`` / ``"thumbs_down"`` — native reaction widget click.
+    - ``"text"`` — free-form text submitted via a modal/dialog. ``text``
+      holds the body; ``prompt`` is the label that was shown above the
+      textbox (e.g. ``"What did you think of this reply?"``).
+    - ``"reaction"`` — custom emoji reaction; the emoji name is in ``text``.
+    - ``"button_click"`` — interactive button on an agent-sent card.
+    - ``"prompt_selection"`` — user clicked a suggested prompt.
+    - ``"stream_control"`` — stop/pause/resume/regenerate control.
+    - ``"message_edit"`` / ``"message_delete"`` — user edited or deleted
+      their own message in the platform UI.
+
+    ``raw`` is the underlying ``PlatformFeedback`` proto for callers that
+    need fields not surfaced on this dataclass (e.g. the emoji char on a
+    custom reaction).
+    """
+
+    conversation_id: str
+    response_id: str             # platform message ID the feedback is attached to
+    kind: str
+    user_id: str = ""
+    user_name: str = ""
+    text: Optional[str] = None   # populated for "text" and "reaction"
+    prompt: Optional[str] = None # populated for "text"
+    raw: Any = None              # original PlatformFeedback proto
+
+
+@dataclass
 class ServeOptions:
     """Options for the serve() entry point and MessagingBridge."""
 
@@ -92,3 +128,11 @@ class AgentAdapter(Protocol):
     def get_config(self) -> dict:
         """Return agent metadata for playground display (system prompt, tool list)."""
         ...
+
+    # Optional: adapters that want to receive platform feedback events
+    # (thumbs up/down, free-form comments, etc.) define this method. The
+    # bridge probes with ``hasattr`` and routes ``FeedbackEvent`` objects
+    # to it when feedback arrives. Implementations should NOT block — write
+    # to Airtable / a queue / an evals pipeline asynchronously and return.
+    #
+    # def on_feedback(self, feedback: FeedbackEvent) -> None: ...

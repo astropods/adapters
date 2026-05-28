@@ -5,9 +5,17 @@ import {
   type AudioStreamConfig,
   type Message,
   type ConversationStream,
+  type PlatformFeedback,
 } from "@astropods/messaging";
 
-import type { AgentAdapter, AudioInput, ServeOptions, StreamHooks } from "./types";
+import type {
+  AgentAdapter,
+  AudioInput,
+  FeedbackEvent,
+  FeedbackKind,
+  ServeOptions,
+  StreamHooks,
+} from "./types";
 import { logger } from "./logger";
 
 const DEFAULT_SERVER_ADDR = "localhost:9090";
@@ -78,6 +86,11 @@ export class MessagingBridge {
 
     // Listen for incoming messages
     this.stream.on("response", (response: AgentResponse) => {
+      if (response.feedback) {
+        this.dispatchFeedback(response.feedback);
+        return;
+      }
+
       if (!response.incomingMessage) return;
 
       const message = response.incomingMessage;
@@ -186,6 +199,77 @@ export class MessagingBridge {
         stream.endAudio();
       },
     };
+  }
+
+  /**
+   * Convert an incoming PlatformFeedback proto into a FeedbackEvent and pass
+   * it to the adapter's optional onFeedback callback. We do NOT await the
+   * callback so a slow Airtable write (or similar) can't stall the stream
+   * reader. Exceptions are logged and swallowed for the same reason.
+   */
+  private dispatchFeedback(fb: PlatformFeedback): void {
+    if (!this.adapter.onFeedback) return;
+
+    let kind: FeedbackKind | string = "";
+    let text: string | undefined;
+    let prompt: string | undefined;
+
+    if (fb.reaction) {
+      // Reaction enum: UNSPECIFIED=0, THUMBS_UP=1, THUMBS_DOWN=2, CUSTOM_EMOJI=3
+      switch (fb.reaction.type) {
+        case 1:
+          kind = "thumbs_up";
+          break;
+        case 2:
+          kind = "thumbs_down";
+          break;
+        case 3:
+          kind = "reaction";
+          text = fb.reaction.emoji;
+          break;
+        default:
+          kind = "reaction";
+      }
+    } else if (fb.text) {
+      kind = "text";
+      text = fb.text.text;
+      prompt = fb.text.prompt;
+    } else if (fb.buttonClick) {
+      kind = "button_click";
+    } else if (fb.promptSelection) {
+      kind = "prompt_selection";
+    } else if (fb.streamControl) {
+      kind = "stream_control";
+    } else if (fb.messageEdit) {
+      kind = "message_edit";
+    } else if (fb.messageDelete) {
+      kind = "message_delete";
+    }
+
+    const event: FeedbackEvent = {
+      conversationId: fb.conversationId,
+      // Proto fields are typed optional on the wire but the bridge always
+      // surfaces empty strings rather than undefined so callbacks can write
+      // `event.userId` straight to a row without null-checking every field.
+      responseId: fb.responseId ?? "",
+      kind,
+      userId: fb.userId ?? "",
+      userName: fb.userName ?? "",
+      text,
+      prompt,
+      raw: fb,
+    };
+
+    try {
+      const result = this.adapter.onFeedback(event);
+      if (result && typeof (result as Promise<void>).catch === "function") {
+        (result as Promise<void>).catch((err) =>
+          logger.error({ err }, "onFeedback rejected; dropping event")
+        );
+      }
+    } catch (err) {
+      logger.error({ err }, "onFeedback threw; dropping event");
+    }
   }
 
   private handleMessage(message: Message): void {
