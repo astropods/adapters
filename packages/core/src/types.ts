@@ -1,6 +1,7 @@
 import type {
   AgentConfig as MessagingAgentConfig,
   AudioStreamConfig,
+  PlatformFeedback,
   StatusUpdate,
 } from "@astropods/messaging";
 
@@ -22,6 +23,43 @@ export interface StreamHooks {
 export interface StreamOptions {
   conversationId: string;
   userId: string;
+}
+
+/**
+ * Stable string discriminator for {@link FeedbackEvent.kind} so adapters
+ * can switch on it without importing proto enums.
+ */
+export type FeedbackKind =
+  | "thumbs_up"
+  | "thumbs_down"
+  | "reaction"
+  | "text"
+  | "button_click"
+  | "prompt_selection"
+  | "stream_control"
+  | "message_edit"
+  | "message_delete";
+
+/**
+ * Inbound feedback from the platform (thumbs up/down, free-form comment,
+ * etc.). Passed to {@link AgentAdapter.onFeedback} when the user interacts
+ * with a feedback affordance the adapter renders alongside an agent reply.
+ *
+ * `text` is populated for `"text"` (free-form modal submission) and for
+ * `"reaction"` (the emoji name). `prompt` is populated for `"text"` with
+ * the label shown above the textbox. `raw` is the underlying proto for
+ * advanced callers.
+ */
+export interface FeedbackEvent {
+  conversationId: string;
+  /** Platform message ID the feedback is attached to. */
+  responseId: string;
+  kind: FeedbackKind | string;
+  userId: string;
+  userName: string;
+  text?: string;
+  prompt?: string;
+  raw: PlatformFeedback;
 }
 
 /** Audio input delivered to an adapter for processing. */
@@ -62,6 +100,15 @@ export interface AgentAdapter {
 
   /** Return agent metadata for playground display (system prompt, tool list). */
   getConfig(): MessagingAgentConfig;
+
+  /**
+   * Receive inbound platform feedback (thumbs up/down, free-form comment,
+   * button click, prompt selection, etc.). Optional — adapters that don't
+   * persist feedback can omit this. May return `void` or a Promise; the
+   * bridge does not await the result so callbacks should not block the
+   * stream reader on slow IO.
+   */
+  onFeedback?(feedback: FeedbackEvent): void | Promise<void>;
 }
 
 /** Options for the serve() entry point and MessagingBridge. */

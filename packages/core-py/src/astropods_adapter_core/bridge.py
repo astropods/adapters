@@ -26,7 +26,14 @@ from astropods_messaging import (
     User,
 )
 
-from .types import AgentAdapter, AudioInput, ServeOptions, StreamHooks, StreamOptions
+from .types import (
+    AgentAdapter,
+    AudioInput,
+    FeedbackEvent,
+    ServeOptions,
+    StreamHooks,
+    StreamOptions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +282,10 @@ class MessagingBridge:
                                 )
                     continue
 
+                if payload == "feedback":
+                    self._dispatch_feedback(response.feedback)
+                    continue
+
                 if payload != "incoming_message":
                     continue
 
@@ -316,6 +327,59 @@ class MessagingBridge:
             await writer
 
         await self._stop_event.wait()
+
+    def _dispatch_feedback(self, fb_proto) -> None:
+        """Convert an incoming PlatformFeedback proto into a FeedbackEvent and
+        hand it to the adapter's optional ``on_feedback`` callback.
+
+        Skipped silently when the adapter doesn't implement ``on_feedback`` —
+        feedback is informational and an agent that doesn't care shouldn't
+        have to define a no-op stub.
+        """
+        on_feedback = getattr(self._adapter, "on_feedback", None)
+        if on_feedback is None:
+            return
+
+        kind = fb_proto.WhichOneof("feedback") or ""
+        event_kind = kind
+        text: Optional[str] = None
+        prompt: Optional[str] = None
+        if kind == "reaction":
+            r = fb_proto.reaction
+            # The proto's ReactionType enum is { UNSPECIFIED, THUMBS_UP,
+            # THUMBS_DOWN, CUSTOM_EMOJI }. Map to stable string kinds so
+            # adapters can switch on .kind without importing protos.
+            if r.type == 1:
+                event_kind = "thumbs_up"
+            elif r.type == 2:
+                event_kind = "thumbs_down"
+            elif r.type == 3:
+                event_kind = "reaction"
+                text = r.emoji
+        elif kind == "text":
+            text = fb_proto.text.text
+            prompt = fb_proto.text.prompt
+
+        event = FeedbackEvent(
+            conversation_id=fb_proto.conversation_id,
+            response_id=fb_proto.response_id,
+            kind=event_kind,
+            user_id=fb_proto.user_id,
+            user_name=fb_proto.user_name,
+            text=text,
+            prompt=prompt,
+            raw=fb_proto,
+        )
+
+        try:
+            result = on_feedback(event)
+            # Tolerate both sync and async implementations — coroutines are
+            # scheduled so on_feedback can do network IO (Airtable, queues)
+            # without blocking the stream reader.
+            if asyncio.iscoroutine(result):
+                asyncio.create_task(result)
+        except Exception as exc:
+            logger.exception("on_feedback raised; dropping event: %s", exc)
 
     async def _handle_message(self, message: Message) -> None:
         conversation_id = message.conversation_id

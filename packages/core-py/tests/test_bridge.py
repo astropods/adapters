@@ -8,8 +8,17 @@ from astropods_adapter_core.bridge import (
     _StreamHooksImpl,
     DEFAULT_SERVER_ADDR,
 )
-from astropods_adapter_core.types import ServeOptions, StreamOptions
-from astropods_messaging import AudioChunk, ContentChunk, StatusUpdate, ErrorResponse, Transcript
+from astropods_adapter_core.types import FeedbackEvent, ServeOptions, StreamOptions
+from astropods_messaging import (
+    AudioChunk,
+    ContentChunk,
+    StatusUpdate,
+    ErrorResponse,
+    Transcript,
+    MessageReaction,
+    PlatformFeedback,
+    TextFeedback,
+)
 
 
 # --- _StreamHooksImpl tests ---
@@ -141,6 +150,85 @@ class TestMessagingBridgeConstructor:
         monkeypatch.setenv("GRPC_SERVER_ADDR", "env-host:5678")
         bridge = MessagingBridge(mock_adapter, ServeOptions(server_address="options-host:9999"))
         assert bridge._server_address == "options-host:9999"
+
+
+# --- Feedback dispatch ---
+
+class TestFeedbackDispatch:
+    def _make_bridge(self, adapter):
+        return MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+
+    def test_thumbs_up_maps_to_thumbs_up_kind(self):
+        adapter = MagicMock()
+        adapter.on_feedback = MagicMock()
+        bridge = self._make_bridge(adapter)
+
+        fb = PlatformFeedback(
+            conversation_id="conv-1",
+            response_id="msg-ts-1",
+            user_id="U1",
+            user_name="alice",
+            reaction=MessageReaction(type=MessageReaction.THUMBS_UP, added=True),
+        )
+        bridge._dispatch_feedback(fb)
+
+        adapter.on_feedback.assert_called_once()
+        event = adapter.on_feedback.call_args.args[0]
+        assert isinstance(event, FeedbackEvent)
+        assert event.kind == "thumbs_up"
+        assert event.user_id == "U1"
+        assert event.response_id == "msg-ts-1"
+
+    def test_thumbs_down_maps_to_thumbs_down_kind(self):
+        adapter = MagicMock()
+        adapter.on_feedback = MagicMock()
+        bridge = self._make_bridge(adapter)
+
+        fb = PlatformFeedback(
+            conversation_id="conv-1",
+            reaction=MessageReaction(type=MessageReaction.THUMBS_DOWN, added=True),
+        )
+        bridge._dispatch_feedback(fb)
+        event = adapter.on_feedback.call_args.args[0]
+        assert event.kind == "thumbs_down"
+
+    def test_text_feedback_surfaces_text_and_prompt(self):
+        adapter = MagicMock()
+        adapter.on_feedback = MagicMock()
+        bridge = self._make_bridge(adapter)
+
+        fb = PlatformFeedback(
+            conversation_id="conv-1",
+            text=TextFeedback(text="this was wrong", prompt="What did you think?"),
+        )
+        bridge._dispatch_feedback(fb)
+        event = adapter.on_feedback.call_args.args[0]
+        assert event.kind == "text"
+        assert event.text == "this was wrong"
+        assert event.prompt == "What did you think?"
+
+    def test_no_on_feedback_method_is_silent_noop(self):
+        # MagicMock auto-creates attributes — use a real class without the
+        # method to verify the hasattr-gated skip path.
+        class BareAdapter:
+            name = "bare"
+
+        bridge = self._make_bridge(BareAdapter())
+        # Should not raise
+        bridge._dispatch_feedback(PlatformFeedback(conversation_id="c"))
+
+    def test_on_feedback_exception_is_swallowed(self):
+        adapter = MagicMock()
+        adapter.on_feedback = MagicMock(side_effect=RuntimeError("kaboom"))
+        bridge = self._make_bridge(adapter)
+        # Should not raise
+        bridge._dispatch_feedback(
+            PlatformFeedback(
+                conversation_id="c",
+                reaction=MessageReaction(type=MessageReaction.THUMBS_UP),
+            )
+        )
+        adapter.on_feedback.assert_called_once()
 
 
 # --- MessagingBridge agent ID derivation ---
