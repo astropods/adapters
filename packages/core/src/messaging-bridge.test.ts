@@ -756,4 +756,134 @@ describe("MessagingBridge", () => {
       expect(mockCloseCalled).toBe(true);
     });
   });
+
+  describe("feedback handling", () => {
+    // Helpers — drive the bridge's response listener with a synthetic
+    // AgentResponse whose `feedback` field is populated. Mirrors how the
+    // real gRPC stream delivers feedback events server → agent.
+    function emitFeedback(fb: any) {
+      mockResponseHandlers[0]({ conversationId: fb.conversationId, feedback: fb } as any);
+    }
+
+    test("thumbs_up reaction is mapped to kind=thumbs_up and surfaces user fields", async () => {
+      let captured: any = null;
+      const adapter = createMockAdapter({
+        onFeedback: (event) => {
+          captured = event;
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      emitFeedback({
+        conversationId: "conv-1",
+        responseId: "msg-ts-1",
+        user: { id: "U1", username: "alice" },
+        reaction: { type: 1, added: true },
+      });
+
+      expect(captured).not.toBeNull();
+      expect(captured.kind).toBe("thumbs_up");
+      expect(captured.conversationId).toBe("conv-1");
+      expect(captured.responseId).toBe("msg-ts-1");
+      expect(captured.userId).toBe("U1");
+      expect(captured.userName).toBe("alice");
+    });
+
+    test("thumbs_down reaction is mapped to kind=thumbs_down", async () => {
+      let captured: any = null;
+      const adapter = createMockAdapter({
+        onFeedback: (event) => {
+          captured = event;
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      emitFeedback({
+        conversationId: "conv-1",
+        reaction: { type: 2, added: true },
+      });
+
+      expect(captured.kind).toBe("thumbs_down");
+    });
+
+    test("text feedback surfaces text and prompt", async () => {
+      let captured: any = null;
+      const adapter = createMockAdapter({
+        onFeedback: (event) => {
+          captured = event;
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      emitFeedback({
+        conversationId: "conv-1",
+        text: { text: "this was wrong", prompt: "What did you think?" },
+      });
+
+      expect(captured.kind).toBe("text");
+      expect(captured.text).toBe("this was wrong");
+      expect(captured.prompt).toBe("What did you think?");
+    });
+
+    test("adapter without onFeedback is a silent no-op", async () => {
+      // No onFeedback override — createMockAdapter omits the method
+      // entirely, mirroring the hasattr-gated path in the Python bridge.
+      const adapter = createMockAdapter();
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      // Must not throw
+      expect(() => {
+        emitFeedback({
+          conversationId: "conv-1",
+          reaction: { type: 1, added: true },
+        });
+      }).not.toThrow();
+    });
+
+    test("sync onFeedback that throws is swallowed", async () => {
+      const adapter = createMockAdapter({
+        onFeedback: () => {
+          throw new Error("sync kaboom");
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      // Must not throw — the bridge logs and continues so a buggy callback
+      // can't break the stream reader.
+      expect(() => {
+        emitFeedback({
+          conversationId: "conv-1",
+          reaction: { type: 1, added: true },
+        });
+      }).not.toThrow();
+    });
+
+    test("async onFeedback rejection is caught via .catch handler", async () => {
+      let resolved = false;
+      const adapter = createMockAdapter({
+        onFeedback: async () => {
+          throw new Error("async kaboom");
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      emitFeedback({
+        conversationId: "conv-1",
+        reaction: { type: 1, added: true },
+      });
+
+      // Let the microtask queue drain so the rejection's .catch fires.
+      await new Promise((r) => setTimeout(r, 0));
+      resolved = true;
+      // If the rejection had escaped Bun would have flagged an unhandled
+      // promise rejection by now; reaching this point passes the test.
+      expect(resolved).toBe(true);
+    });
+  });
 });

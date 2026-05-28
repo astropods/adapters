@@ -19,6 +19,7 @@ from astropods_messaging import (
     ContentChunk,
     ConversationRequest,
     ErrorResponse,
+    MessageReaction,
     HealthCheckRequest,
     Message,
     StatusUpdate,
@@ -46,6 +47,23 @@ MAX_DELAY_MS = 15000
 def _debug(*args: object) -> None:
     if os.environ.get("DEBUG"):
         logger.debug(*args)
+
+
+def _log_feedback_task_exception(task: "asyncio.Task[object]") -> None:
+    """done_callback for scheduled async on_feedback tasks.
+
+    Without this, an exception raised inside an async on_feedback would only
+    surface as Python's noisy 'Task exception was never retrieved' warning
+    at GC time. Reading the exception here both honours the documented
+    'log and drop' contract and silences the warning.
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(
+            "async on_feedback raised; dropping event: %s", exc, exc_info=exc
+        )
 
 
 class _StreamHooksImpl:
@@ -340,20 +358,27 @@ class MessagingBridge:
         if on_feedback is None:
             return
 
+        # WhichOneof("feedback") returns the snake_case proto field name of
+        # the populated variant: "reaction", "text", "button_click",
+        # "prompt_selection", "stream_control", "message_edit",
+        # "message_delete". These intentionally match the documented
+        # FeedbackKind strings, so for the variants we don't unpack
+        # specially we let kind fall through to the proto field name.
+        # Touching this requires keeping the FeedbackKind list in types.py
+        # in sync with the proto oneof field names.
         kind = fb_proto.WhichOneof("feedback") or ""
         event_kind = kind
         text: Optional[str] = None
         prompt: Optional[str] = None
         if kind == "reaction":
             r = fb_proto.reaction
-            # The proto's ReactionType enum is { UNSPECIFIED, THUMBS_UP,
-            # THUMBS_DOWN, CUSTOM_EMOJI }. Map to stable string kinds so
-            # adapters can switch on .kind without importing protos.
-            if r.type == 1:
+            # Map proto ReactionType enum → stable string kinds so adapters
+            # can switch on .kind without importing protos themselves.
+            if r.type == MessageReaction.THUMBS_UP:
                 event_kind = "thumbs_up"
-            elif r.type == 2:
+            elif r.type == MessageReaction.THUMBS_DOWN:
                 event_kind = "thumbs_down"
-            elif r.type == 3:
+            elif r.type == MessageReaction.CUSTOM_EMOJI:
                 event_kind = "reaction"
                 text = r.emoji
         elif kind == "text":
@@ -364,20 +389,23 @@ class MessagingBridge:
             conversation_id=fb_proto.conversation_id,
             response_id=fb_proto.response_id,
             kind=event_kind,
-            user_id=fb_proto.user_id,
-            user_name=fb_proto.user_name,
+            user_id=fb_proto.user.id,
+            user_name=fb_proto.user.username,
             text=text,
             prompt=prompt,
-            raw=fb_proto,
         )
 
         try:
             result = on_feedback(event)
             # Tolerate both sync and async implementations — coroutines are
             # scheduled so on_feedback can do network IO (Airtable, queues)
-            # without blocking the stream reader.
+            # without blocking the stream reader. Without the done_callback
+            # below, async exceptions would only surface as Python's noisy
+            # "Task exception was never retrieved" warning at GC time, which
+            # contradicts the contract that exceptions are logged + dropped.
             if asyncio.iscoroutine(result):
-                asyncio.create_task(result)
+                task = asyncio.create_task(result)
+                task.add_done_callback(_log_feedback_task_exception)
         except Exception as exc:
             logger.exception("on_feedback raised; dropping event: %s", exc)
 

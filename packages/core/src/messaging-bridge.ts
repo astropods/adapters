@@ -253,11 +253,10 @@ export class MessagingBridge {
       // `event.userId` straight to a row without null-checking every field.
       responseId: fb.responseId ?? "",
       kind,
-      userId: fb.userId ?? "",
-      userName: fb.userName ?? "",
+      userId: fb.user?.id ?? "",
+      userName: fb.user?.username ?? "",
       text,
       prompt,
-      raw: fb,
     };
 
     try {
