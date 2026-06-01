@@ -2,7 +2,6 @@ export type {
   AgentAdapter,
   AudioInput,
   FeedbackEvent,
-  FeedbackKind,
   StreamHooks,
   StreamOptions,
   ServeOptions,

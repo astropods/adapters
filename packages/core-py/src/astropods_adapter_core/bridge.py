@@ -359,13 +359,11 @@ class MessagingBridge:
             return
 
         # WhichOneof("feedback") returns the snake_case proto field name of
-        # the populated variant: "reaction", "text", "button_click",
+        # the populated variant ("reaction", "text", "button_click",
         # "prompt_selection", "stream_control", "message_edit",
-        # "message_delete". These intentionally match the documented
-        # FeedbackKind strings, so for the variants we don't unpack
-        # specially we let kind fall through to the proto field name.
-        # Touching this requires keeping the FeedbackKind list in types.py
-        # in sync with the proto oneof field names.
+        # "message_delete"). The proto oneof is the source of truth for
+        # the FeedbackEvent.kind discriminator — variants we don't unpack
+        # specially fall through with kind = proto field name unchanged.
         kind = fb_proto.WhichOneof("feedback") or ""
         event_kind = kind
         text: Optional[str] = None

@@ -12,7 +12,6 @@ import type {
   AgentAdapter,
   AudioInput,
   FeedbackEvent,
-  FeedbackKind,
   ServeOptions,
   StreamHooks,
 } from "./types";
@@ -210,7 +209,7 @@ export class MessagingBridge {
   private dispatchFeedback(fb: PlatformFeedback): void {
     if (!this.adapter.onFeedback) return;
 
-    let kind: FeedbackKind | string = "";
+    let kind: string = "";
     let text: string | undefined;
     let prompt: string | undefined;
 

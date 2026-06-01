@@ -25,34 +25,30 @@ export interface StreamOptions {
 }
 
 /**
- * Stable string discriminator for {@link FeedbackEvent.kind} so adapters
- * can switch on it without importing proto enums.
- */
-export type FeedbackKind =
-  | "thumbs_up"
-  | "thumbs_down"
-  | "reaction"
-  | "text"
-  | "button_click"
-  | "prompt_selection"
-  | "stream_control"
-  | "message_edit"
-  | "message_delete";
-
-/**
  * Inbound feedback from the platform (thumbs up/down, free-form comment,
  * etc.). Passed to {@link AgentAdapter.onFeedback} when the user interacts
  * with a feedback affordance the adapter renders alongside an agent reply.
  *
- * `text` is populated for `"text"` (free-form modal submission) and for
- * `"reaction"` (the emoji name). `prompt` is populated for `"text"` with
- * the label shown above the textbox.
+ * `kind` is a string discriminator. The proto's
+ * `PlatformFeedback.feedback` oneof is the source of truth. Current
+ * values:
+ *  - `"thumbs_up"`, `"thumbs_down"` — synthesized from
+ *    `MessageReaction.ReactionType` (THUMBS_UP=1, THUMBS_DOWN=2).
+ *  - `"reaction"` — `MessageReaction` with `CUSTOM_EMOJI`. `text` holds
+ *    the emoji name.
+ *  - `"text"` — `TextFeedback` (modal submission). `text` holds the
+ *    user-typed body; `prompt` holds the modal's label.
+ *  - `"button_click"`, `"prompt_selection"`, `"stream_control"`,
+ *    `"message_edit"`, `"message_delete"` — proto oneof field names.
+ *
+ * Adapters should handle unknown kinds defensively (ignore or log) so
+ * new proto variants don't break existing handlers.
  */
 export interface FeedbackEvent {
   conversationId: string;
   /** Platform message ID the feedback is attached to. */
   responseId: string;
-  kind: FeedbackKind | string;
+  kind: string;
   userId: string;
   userName: string;
   text?: string;
