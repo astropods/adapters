@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.3.0](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.2.0...@astropods/adapter-mastra@0.3.0) (2026-06-01)
+
+
+### Features
+
+* structured JSON logging for Loki level detection ([233d6b2](https://github.com/astropods/adapters/commit/233d6b2b4833411f5826cca6198c63f6507c30bd))
+
+
+### Bug Fixes
+
+* **adapters:** backfill empty user_id with "anonymous" before tracing ([#40](https://github.com/astropods/adapters/issues/40)) ([5ec841f](https://github.com/astropods/adapters/commit/5ec841f38e74f17493e38da4ff324d567034af50))
+* **mastra:** enrich Mastra traces with langfuse.user.id and langfuse.session.id ([c0a809e](https://github.com/astropods/adapters/commit/c0a809e6c21154789da016b2c9104c3b842ce7f3))
+* update tests to mock logger instead of console spies ([bf1dff3](https://github.com/astropods/adapters/commit/bf1dff31a0b596afdab82c87e709db83fe4d8188))
+
+
+
 ## [0.2.0](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.1.0...@astropods/adapter-mastra@0.2.0) (2026-03-19)
 
 

@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.2.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.1.0...@astropods/adapter-core@0.2.0) (2026-06-01)
+
+
+### Features
+
+* **core, core-py:** add on_feedback hook for inbound platform feedback ([c1ac7fa](https://github.com/astropods/adapters/commit/c1ac7fa80a35aa95d434dabddb3a06e0002bd56b))
+* structured JSON logging for Loki level detection ([233d6b2](https://github.com/astropods/adapters/commit/233d6b2b4833411f5826cca6198c63f6507c30bd))
+
+
+### Bug Fixes
+
+* **adapters:** backfill empty user_id with "anonymous" before tracing ([#40](https://github.com/astropods/adapters/issues/40)) ([5ec841f](https://github.com/astropods/adapters/commit/5ec841f38e74f17493e38da4ff324d567034af50))
+* preserve DEBUG env var behavior and update tests for pino logger ([1be5e88](https://github.com/astropods/adapters/commit/1be5e88135cd439e83c908affd2ccf358aaf6333))
+
+
+
 ## 0.1.0 (2026-03-09)
 
 
