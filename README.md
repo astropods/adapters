@@ -39,7 +39,7 @@ serve(agent);
 
 ## Custom adapters
 
-Implement `AgentAdapter` from `@astropods/adapter-core` to connect any agent framework:
+Implement `AgentAdapter` from `@astropods/adapter-core` (TS) or `astropods-adapter-core` (Python) to connect any agent framework:
 
 ```typescript
 import { serve } from '@astropods/adapter-core';
@@ -47,14 +47,19 @@ import type { AgentAdapter } from '@astropods/adapter-core';
 
 const adapter: AgentAdapter = {
   name: 'My Agent',
-  async stream(prompt, hooks, options) { /* ... */ },
+  async stream(prompt, hooks, options) {
+    // options.platformContext exposes channel, thread, workspace, eventKind, etc.
+    // when the message originated from a platform adapter (Slack, Discord, web).
+    hooks.onChunk('Hello!');
+    hooks.onFinish();
+  },
   getConfig() { return { systemPrompt: '', tools: [] }; },
 };
 
 serve(adapter);
 ```
 
-See [`packages/core`](./packages/core) for the full interface.
+See [`packages/core`](./packages/core/README.md) (TypeScript) or [`packages/core-py`](./packages/core-py/README.md) (Python) for the full interface, including how to use `PlatformContext` to branch on the source event (DM vs @-mention vs thread reply) and reply back into the right channel and thread.
 
 ## Contributing
 
