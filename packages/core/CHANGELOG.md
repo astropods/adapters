@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.3.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.2.0...@astropods/adapter-core@0.3.0) (2026-06-05)
+
+
+### Features
+
+* **core:** expose PlatformContext to adapters via StreamOptions ([ab6e309](https://github.com/astropods/adapters/commit/ab6e3097f184a3c20c0386dd22914f2fc12867ec))
+
+
+
 ## [0.2.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.1.0...@astropods/adapter-core@0.2.0) (2026-06-01)
 
 
