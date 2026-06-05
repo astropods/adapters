@@ -72,6 +72,25 @@ Per-request context passed to `stream()`:
 |-------|-------------|
 | `conversation_id` | Stable ID for the conversation thread |
 | `user_id` | ID of the user who sent the message |
+| `platform_context` | `Optional[PlatformContext]` — platform-specific fields (channel, thread, workspace, event kind). `None` for messages from non-platform sources (playground, direct gRPC). |
+
+#### Using `platform_context`
+
+`PlatformContext` exposes the source-event fields adapters often need to branch on — the channel and thread to reply into, the workspace, the bot's own user ID, and an `event_kind` enum that distinguishes a DM from an @-mention from a thread reply without having to inspect message content.
+
+```python
+from astropods_adapter_core import PlatformContext, StreamHooks, StreamOptions
+
+async def stream(self, prompt, hooks: StreamHooks, options: StreamOptions) -> None:
+    pc = options.platform_context
+    if pc and pc.event_kind == PlatformContext.EVENT_KIND_APP_MENTION:
+        hooks.on_chunk(f"You @-mentioned me in {pc.channel_name or pc.channel_id}.")
+    else:
+        hooks.on_chunk("Hello!")
+    hooks.on_finish()
+```
+
+Always null-check first — `platform_context` is `None` for messages from the playground or direct gRPC clients. See [`PlatformContext`](https://github.com/astropods/messaging/blob/main/proto/astro/messaging/v1/message.proto) for the full field list.
 
 ### `serve(adapter, options?)`
 
