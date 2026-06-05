@@ -27,6 +27,40 @@ jobs:
       - name: Test
         run: bunx lerna run test
 
+  test-claude-agent-sdk-matrix:
+    name: claude-agent-sdk against SDK ${{ matrix.sdk-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Floor, a mid-range patch, and whatever is currently published as latest.
+        # The adapter pins ^0.3.142 — when the SDK ships 0.4.x, extend this list
+        # (and the dependency range in packages/claude-agent-sdk/package.json).
+        sdk-version:
+          - "0.3.142"
+          - "0.3.150"
+          - "latest"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install workspace
+        run: bun install
+
+      - name: Override Claude Agent SDK to ${{ matrix.sdk-version }}
+        working-directory: packages/claude-agent-sdk
+        run: bun add @anthropic-ai/claude-agent-sdk@${{ matrix.sdk-version }}
+
+      - name: Build adapter
+        working-directory: packages/claude-agent-sdk
+        run: bun run build
+
+      - name: Test adapter
+        working-directory: packages/claude-agent-sdk
+        run: bun test
+
   test-python:
     name: Test Python packages
     runs-on: ubuntu-latest

@@ -1,0 +1,44 @@
+{
+  "name": "@astropods/adapter-claude-agent-sdk",
+  "license": "Apache-2.0",
+  "version": "0.1.0",
+  "description": "Drop-in replacement for @anthropic-ai/claude-agent-sdk that adds OpenTelemetry instrumentation for Astro deployments.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "bun test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/astropods/adapters.git",
+    "directory": "packages/claude-agent-sdk"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.142",
+    "@arizeai/openinference-instrumentation-claude-agent-sdk": "^0.1.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.200.0",
+    "@opentelemetry/resources": "^2.1.0",
+    "@opentelemetry/sdk-trace-node": "^2.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.5",
+    "typescript": "^5.3.0"
+  }
+}
