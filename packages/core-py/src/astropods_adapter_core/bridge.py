@@ -429,6 +429,9 @@ class MessagingBridge:
             # `or` catches the empty-string case too — a user object with
             # id="" would otherwise leak through and classify as Unattributed.
             user_id=(message.user.id if message.user else "") or "anonymous",
+            platform_context=(
+                message.platform_context if message.HasField("platform_context") else None
+            ),
         )
 
         try:

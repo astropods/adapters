@@ -476,7 +476,81 @@ describe("MessagingBridge", () => {
       expect(capturedOptions!).toEqual({
         conversationId: "conv-42",
         userId: "user-99",
+        platformContext: undefined,
       });
+    });
+
+    test("forwards platformContext from incoming message to adapter.stream", async () => {
+      let capturedOptions: StreamOptions | null = null;
+
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks, options) => {
+          capturedOptions = options;
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      mockResponseHandlers[0]({
+        conversationId: "conv-77",
+        incomingMessage: {
+          conversationId: "conv-77",
+          content: "hi",
+          platform: "slack",
+          user: { id: "U123", username: "Ada" },
+          platformContext: {
+            messageId: "1700000000.000100",
+            channelId: "C42",
+            threadId: "1699999999.000001",
+            workspaceId: "T9",
+            eventKind: "EVENT_KIND_APP_MENTION",
+            botUserId: "UBOT",
+            userId: "U123",
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(capturedOptions!.platformContext).toEqual({
+        messageId: "1700000000.000100",
+        channelId: "C42",
+        threadId: "1699999999.000001",
+        workspaceId: "T9",
+        eventKind: "EVENT_KIND_APP_MENTION",
+        botUserId: "UBOT",
+        userId: "U123",
+      });
+    });
+
+    test("platformContext is undefined when incoming message has none", async () => {
+      let capturedOptions: StreamOptions | null = null;
+
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks, options) => {
+          capturedOptions = options;
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      mockResponseHandlers[0]({
+        conversationId: "conv-78",
+        incomingMessage: {
+          conversationId: "conv-78",
+          content: "hi",
+          platform: "grpc",
+          user: { id: "U1", username: "Ada" },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(capturedOptions!.platformContext).toBeUndefined();
     });
 
     test("defaults userId to 'anonymous' when user.id is missing", async () => {

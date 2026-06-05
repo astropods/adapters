@@ -286,6 +286,7 @@ export class MessagingBridge {
         conversationId,
         // || catches empty strings too — ?? would let "" through.
         userId: message.user?.id || "anonymous",
+        platformContext: message.platformContext,
       })
       .catch((error) => {
         hooks.onError(
