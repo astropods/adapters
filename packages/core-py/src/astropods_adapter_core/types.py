@@ -1,6 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from astropods_messaging import PlatformContext
 
 
 @runtime_checkable
@@ -68,6 +71,11 @@ class StreamOptions:
 
     conversation_id: str
     user_id: str
+    # Platform-specific context from the source event (channel/thread IDs,
+    # workspace, event_kind, raw platform user_id, etc.). None when the
+    # message did not originate from a platform adapter (e.g. playground
+    # or direct gRPC). See PlatformContext in astropods_messaging.
+    platform_context: Optional["PlatformContext"] = None
 
 
 @dataclass

@@ -1,6 +1,7 @@
 import type {
   AgentConfig as MessagingAgentConfig,
   AudioStreamConfig,
+  PlatformContext,
   StatusUpdate,
 } from "@astropods/messaging";
 
@@ -22,6 +23,14 @@ export interface StreamHooks {
 export interface StreamOptions {
   conversationId: string;
   userId: string;
+  /**
+   * Platform-specific context from the source event (channel/thread IDs,
+   * workspace, event kind, raw platform user ID, etc.). Undefined when the
+   * message did not originate from a platform adapter (e.g. playground or
+   * direct gRPC). See `PlatformContext` in `@astropods/messaging` for the
+   * full field set.
+   */
+  platformContext?: PlatformContext;
 }
 
 /**

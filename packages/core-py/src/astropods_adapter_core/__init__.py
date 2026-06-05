@@ -1,3 +1,5 @@
+from astropods_messaging import PlatformContext
+
 from .types import (
     AgentAdapter,
     AudioInput,
@@ -13,6 +15,7 @@ __all__ = [
     "AgentAdapter",
     "AudioInput",
     "FeedbackEvent",
+    "PlatformContext",
     "StreamHooks",
     "StreamOptions",
     "ServeOptions",

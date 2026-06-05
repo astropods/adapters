@@ -14,6 +14,8 @@ from astropods_messaging import (
     ContentChunk,
     StatusUpdate,
     ErrorResponse,
+    Message,
+    PlatformContext,
     Transcript,
     MessageReaction,
     PlatformFeedback,
@@ -333,3 +335,86 @@ class TestAgentIdDerivation:
         registration = self._get_registration_message(sent)
         if registration:
             assert registration.user.id == "my-test-agent"
+
+
+# --- MessagingBridge platform_context forwarding ---
+
+class TestPlatformContextForwarding:
+    """_handle_message must surface platform_context onto StreamOptions so
+    adapter authors can branch on channel/thread/event_kind without
+    importing the messaging proto themselves."""
+
+    def _make_bridge(self, adapter):
+        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+        # _handle_message awaits self._write_queue.put for the START chunk;
+        # the queue is created in __init__ so no extra setup is needed.
+        return bridge
+
+    @pytest.mark.asyncio
+    async def test_forwards_platform_context_when_set(self):
+        captured: list[StreamOptions] = []
+
+        async def stream(prompt, hooks, options):
+            captured.append(options)
+
+        adapter = MagicMock()
+        adapter.stream = stream
+
+        bridge = self._make_bridge(adapter)
+
+        pc = PlatformContext(
+            message_id="1700000000.000100",
+            channel_id="C42",
+            thread_id="1699999999.000001",
+            workspace_id="T9",
+            bot_user_id="UBOT",
+            event_kind=PlatformContext.EVENT_KIND_APP_MENTION,
+            user_id="U123",
+        )
+        msg = Message(
+            conversation_id="conv-77",
+            content="hi",
+            platform="slack",
+            user=User(id="U123", username="Ada"),
+            platform_context=pc,
+        )
+
+        await bridge._handle_message(msg)
+
+        assert len(captured) == 1
+        opts = captured[0]
+        assert opts.conversation_id == "conv-77"
+        assert opts.user_id == "U123"
+        assert opts.platform_context is not None
+        assert opts.platform_context.channel_id == "C42"
+        assert opts.platform_context.thread_id == "1699999999.000001"
+        assert opts.platform_context.workspace_id == "T9"
+        assert opts.platform_context.bot_user_id == "UBOT"
+        assert opts.platform_context.event_kind == PlatformContext.EVENT_KIND_APP_MENTION
+
+    @pytest.mark.asyncio
+    async def test_platform_context_is_none_when_unset(self):
+        """A message with no platform_context (e.g. from the playground or
+        a direct gRPC client) must surface as None, not an empty proto —
+        adapters should be able to write `if opts.platform_context:`."""
+        captured: list[StreamOptions] = []
+
+        async def stream(prompt, hooks, options):
+            captured.append(options)
+
+        adapter = MagicMock()
+        adapter.stream = stream
+
+        bridge = self._make_bridge(adapter)
+
+        msg = Message(
+            conversation_id="conv-78",
+            content="hi",
+            platform="grpc",
+            user=User(id="U1", username="Ada"),
+        )
+
+        await bridge._handle_message(msg)
+
+        assert len(captured) == 1
+        assert captured[0].platform_context is None
