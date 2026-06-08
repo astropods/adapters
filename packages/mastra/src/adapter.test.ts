@@ -313,6 +313,31 @@ describe("MastraAdapter", () => {
       expect(callOpts?.tracingOptions?.tags).toEqual(["slack_team_id:T07XYZ"]);
     });
 
+    test("does not add Slack team id trace tag without platform context", async () => {
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model: modelFromParts(textParts(["hi"])),
+        instructions: "test",
+      });
+      const originalStream = agent.stream.bind(agent);
+      const spy = mock((...args: Parameters<typeof originalStream>) => originalStream(...args));
+      (agent as { stream: typeof originalStream }).stream = spy as unknown as typeof originalStream;
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      await adapter.stream("hi", hooks, {
+        conversationId: "conv-1",
+        userId: "user-1",
+        platform: "slack",
+      });
+
+      const callOpts = spy.mock.calls[0]?.[1] as {
+        tracingOptions?: { tags?: string[] };
+      };
+      expect(callOpts?.tracingOptions?.tags).toBeUndefined();
+    });
+
     test("does not add Slack team id trace tag for non-Slack messages", async () => {
       const agent = new Agent({
         id: "test",

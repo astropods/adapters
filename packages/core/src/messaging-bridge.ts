@@ -315,6 +315,7 @@ export class MessagingBridge {
         conversationId,
         // || catches empty strings too — ?? would let "" through.
         userId: userId || "anonymous",
+        // audioConfig doesn't carry platform context; Slack team tagging only applies to text messages.
       })
       .then(() => {
         debug(`[bridge] streamAudio resolved: conversation=${conversationId}`);
