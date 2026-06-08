@@ -26,12 +26,14 @@ export class MastraAdapter implements AgentAdapter {
     // Backfill the langfuse trace user_id only (Unauthorized bucket, not
     // Unattributed); memory.resource keeps the original to scope memory.
     const traceUserId = options.userId || "anonymous";
+    const traceTags = slackTraceTags(options);
     const stream = await this.agent.stream(prompt, {
       memory: {
         thread: options.conversationId,
         resource: options.userId,
       },
       tracingOptions: {
+        ...(traceTags.length > 0 ? { tags: traceTags } : {}),
         metadata: {
           "langfuse.user.id": traceUserId,
           "langfuse.session.id": options.conversationId,
@@ -210,4 +212,21 @@ export class MastraAdapter implements AgentAdapter {
       tools: toolConfigs,
     };
   }
+}
+
+function slackTraceTags(options: StreamOptions): string[] {
+  if (options.platform !== "slack") {
+    return [];
+  }
+  const teamID =
+    cleanTeamID(options.platformContext?.workspaceId) ||
+    cleanTeamID(options.platformContext?.platformData?.team_id);
+  if (!teamID) {
+    return [];
+  }
+  return [`slack_team_id:${teamID}`];
+}
+
+function cleanTeamID(value: string | undefined): string {
+  return value?.trim() ?? "";
 }

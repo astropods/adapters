@@ -14,6 +14,7 @@ import type {
   FeedbackEvent,
   ServeOptions,
   StreamHooks,
+  StreamOptions,
 } from "./types";
 import { logger } from "./logger";
 
@@ -280,13 +281,18 @@ export class MessagingBridge {
     stream.sendContentChunk(conversationId, { type: "START", content: "" });
 
     const hooks = this.buildHooks(conversationId);
+    const options: StreamOptions = {
+      conversationId,
+      // || catches empty strings too — ?? would let "" through.
+      userId: message.user?.id || "anonymous",
+      platform: message.platform,
+    };
+    if (message.platformContext) {
+      options.platformContext = message.platformContext;
+    }
 
     this.adapter
-      .stream(message.content, hooks, {
-        conversationId,
-        // || catches empty strings too — ?? would let "" through.
-        userId: message.user?.id || "anonymous",
-      })
+      .stream(message.content, hooks, options)
       .catch((error) => {
         hooks.onError(
           error instanceof Error ? error : new Error(String(error))

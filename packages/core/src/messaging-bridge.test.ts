@@ -465,7 +465,13 @@ describe("MessagingBridge", () => {
         incomingMessage: {
           conversationId: "conv-42",
           content: "What is the weather?",
-          platform: "discord",
+          platform: "slack",
+          platformContext: {
+            messageId: "1710000000.000001",
+            channelId: "C123",
+            workspaceId: "T123",
+            platformData: { team_id: "T123" },
+          },
           user: { id: "user-99", username: "Bob" },
         },
       });
@@ -475,6 +481,13 @@ describe("MessagingBridge", () => {
       expect(capturedPrompt!).toBe("What is the weather?");
       expect(capturedOptions!).toEqual({
         conversationId: "conv-42",
+        platform: "slack",
+        platformContext: {
+          messageId: "1710000000.000001",
+          channelId: "C123",
+          workspaceId: "T123",
+          platformData: { team_id: "T123" },
+        },
         userId: "user-99",
       });
     });

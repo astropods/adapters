@@ -1,6 +1,7 @@
 import type {
   AgentConfig as MessagingAgentConfig,
   AudioStreamConfig,
+  PlatformContext,
   StatusUpdate,
 } from "@astropods/messaging";
 
@@ -22,6 +23,8 @@ export interface StreamHooks {
 export interface StreamOptions {
   conversationId: string;
   userId: string;
+  platform?: string;
+  platformContext?: PlatformContext;
 }
 
 /**
