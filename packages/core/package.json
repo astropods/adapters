@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./instrument": {
+      "types": "./dist/instrument.d.ts",
+      "import": "./dist/instrument.js"
     }
   },
   "files": [
@@ -29,6 +33,11 @@
     "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.200.0",
+    "@opentelemetry/resources": "^2.1.0",
+    "@opentelemetry/sdk-trace-node": "^2.1.0",
+    "@opentelemetry/semantic-conventions": "^1.30.0",
     "pino": "^10.3.1"
   },
   "peerDependencies": {

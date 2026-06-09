@@ -1,6 +1,6 @@
-import { MessagingBridge } from "./messaging-bridge";
-import type { AgentAdapter, ServeOptions } from "./types";
-import { logger } from "./logger";
+import { MessagingBridge } from "./messaging-bridge.js";
+import type { AgentAdapter, ServeOptions } from "./types.js";
+import { logger } from "./logger.js";
 
 /**
  * Connect an agent adapter to the Astro messaging service and start listening.
