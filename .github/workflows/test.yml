@@ -46,16 +46,17 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - name: Install workspace
-        run: bun install
+      - name: Pin Claude Agent SDK to ${{ matrix.sdk-version }} and install
+        run: |
+          jq '.dependencies["@anthropic-ai/claude-agent-sdk"] = "${{ matrix.sdk-version }}"' \
+            packages/claude-agent-sdk/package.json > /tmp/pkg.json
+          mv /tmp/pkg.json packages/claude-agent-sdk/package.json
+          bun install
 
-      - name: Override Claude Agent SDK to ${{ matrix.sdk-version }}
-        working-directory: packages/claude-agent-sdk
-        run: bun add @anthropic-ai/claude-agent-sdk@${{ matrix.sdk-version }}
-
-      - name: Build adapter
-        working-directory: packages/claude-agent-sdk
-        run: bun run build
+      # tsc resolves `@astropods/adapter-core` via its declared `types`,
+      # which only exist once core is built. Lerna walks deps in order.
+      - name: Build adapter (with dependencies)
+        run: bunx lerna run build --scope @astropods/adapter-claude-agent-sdk --include-dependencies
 
       - name: Test adapter
         working-directory: packages/claude-agent-sdk
