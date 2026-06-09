@@ -158,6 +158,27 @@ for (const runtime of RUNTIMES) {
       expect(collector.spans()).toHaveLength(1);
     });
 
+    test("injects W3C trace context into outgoing headers and preserves user headers", async () => {
+      const { exitCode, result, stderr } = await runScenario("propagation.mjs", {
+        runtime,
+        env: baseEnv(),
+      });
+
+      expect(exitCode, `stderr:\n${stderr}`).toBe(0);
+      expect(result.ok).toBe(true);
+      expect(result.userHeader).toBe("preserved");
+      expect(result.traceparent).toMatch(
+        /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/,
+      );
+
+      const spans = collector.spans();
+      expect(spans).toHaveLength(1);
+      // The traceparent the server saw must reference our emitted span.
+      const [, traceId, spanId] = String(result.traceparent).split("-");
+      expect(spans[0]!.traceId).toBe(traceId);
+      expect(spans[0]!.spanId).toBe(spanId);
+    });
+
     test("five concurrent fetches yield five distinct spans with the right query strings", async () => {
       const { exitCode, result, stderr } = await runScenario("concurrent.mjs", {
         runtime,

@@ -27,6 +27,11 @@ export class TargetServer {
           const body = await req.text();
           return Response.json({ method: req.method, body });
         }
+        if (url.pathname === "/headers") {
+          return Response.json({
+            headers: Object.fromEntries(req.headers.entries()),
+          });
+        }
         if (url.pathname === "/slow") {
           const ms = Number(url.searchParams.get("ms") ?? "50");
           await new Promise((r) => setTimeout(r, ms));

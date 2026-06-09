@@ -147,6 +147,77 @@ describe("patchGlobalFetch", () => {
     }
   });
 
+  test("injects a traceparent header on outgoing requests", async () => {
+    let captured: { input: RequestInfo | URL; init: RequestInit | undefined } | null = null;
+    globalThis.fetch = ((input: any, init?: any) => {
+      captured = { input, init };
+      return Promise.resolve(new Response(null, { status: 200 }));
+    }) as typeof fetch;
+
+    patchGlobalFetch();
+    await fetch("https://api.example.com/widgets");
+
+    expect(captured).not.toBeNull();
+    const headers = new Headers(captured!.init?.headers);
+    const traceparent = headers.get("traceparent");
+    expect(traceparent).toBeTruthy();
+    // W3C traceparent: "00-<32-hex traceid>-<16-hex spanid>-<2-hex flags>"
+    expect(traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/);
+  });
+
+  test("preserves user-provided headers when injecting trace context", async () => {
+    let captured: RequestInit | undefined;
+    globalThis.fetch = ((_input: any, init?: any) => {
+      captured = init;
+      return Promise.resolve(new Response(null, { status: 200 }));
+    }) as typeof fetch;
+
+    patchGlobalFetch();
+    await fetch("https://api.example.com/widgets", {
+      headers: { authorization: "Bearer abc", "x-custom": "yes" },
+    });
+
+    const headers = new Headers(captured?.headers);
+    expect(headers.get("authorization")).toBe("Bearer abc");
+    expect(headers.get("x-custom")).toBe("yes");
+    expect(headers.get("traceparent")).toBeTruthy();
+  });
+
+  test("does not override an explicit traceparent set by the caller", async () => {
+    let captured: RequestInit | undefined;
+    globalThis.fetch = ((_input: any, init?: any) => {
+      captured = init;
+      return Promise.resolve(new Response(null, { status: 200 }));
+    }) as typeof fetch;
+
+    const callerTraceparent = "00-11111111111111111111111111111111-2222222222222222-01";
+    patchGlobalFetch();
+    await fetch("https://api.example.com/widgets", {
+      headers: { traceparent: callerTraceparent },
+    });
+
+    const headers = new Headers(captured?.headers);
+    expect(headers.get("traceparent")).toBe(callerTraceparent);
+  });
+
+  test("preserves headers attached to a Request input", async () => {
+    let captured: RequestInit | undefined;
+    globalThis.fetch = ((_input: any, init?: any) => {
+      captured = init;
+      return Promise.resolve(new Response(null, { status: 200 }));
+    }) as typeof fetch;
+
+    patchGlobalFetch();
+    const req = new Request("https://api.example.com/widgets", {
+      headers: { "x-from-request": "yes" },
+    });
+    await fetch(req);
+
+    const headers = new Headers(captured?.headers);
+    expect(headers.get("x-from-request")).toBe("yes");
+    expect(headers.get("traceparent")).toBeTruthy();
+  });
+
   test("preserves own properties on the original fetch (e.g. Bun's preconnect)", () => {
     const original = stubFetch(new Response("ok")) as typeof fetch & {
       preconnect?: (url: string) => void;
