@@ -119,3 +119,24 @@ import { MessagingBridge } from "@astropods/adapter-core";
 const bridge = new MessagingBridge(adapter);
 await bridge.start();
 ```
+
+## HTTP outbound instrumentation
+
+`@astropods/adapter-core/instrument` patches `globalThis.fetch` so every outbound HTTP request becomes an OpenTelemetry CLIENT span. Spans are sent to `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`. When that env var is unset, the import is a no-op.
+
+Import it **once, before any code that issues fetch** — typically the first line of your entry point:
+
+```ts
+import "@astropods/adapter-core/instrument";
+// ...the rest of your imports
+```
+
+Or call it explicitly:
+
+```ts
+import { instrumentHttp } from "@astropods/adapter-core";
+
+instrumentHttp();
+```
+
+Both forms are idempotent and share a tracer provider with other Astropods adapters in the same process.

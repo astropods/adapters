@@ -14,8 +14,8 @@ import type {
   FeedbackEvent,
   ServeOptions,
   StreamHooks,
-} from "./types";
-import { logger } from "./logger";
+} from "./types.js";
+import { logger } from "./logger.js";
 
 const DEFAULT_SERVER_ADDR = "localhost:9090";
 const MAX_RETRIES = 10;
