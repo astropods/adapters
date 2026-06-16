@@ -1,18 +1,39 @@
 # @astropods/adapter-ai-sdk
 
-Vercel AI SDK adapter for Astro. Wrap a `ToolLoopAgent` and pass it to `serve()` to run it on Astro's messaging service. Spread `astroTelemetry()` into the agent settings to send OpenTelemetry spans to the Astro dashboard.
+`@astropods/adapter-ai-sdk` exports two functions you can use independently:
+
+- `astroTelemetry()` returns AI SDK `experimental_telemetry` settings wired to Astro's OTLP exporter.
+- `serve()` connects a `ToolLoopAgent` (`Experimental_Agent`) to Astro's messaging service to make your agent compatible with the Astropods playground.
 
 Targets `ai >= 6.0.0`.
 
-## Installation
+## Install
 
 ```bash
 bun add @astropods/adapter-ai-sdk
 ```
 
-## Usage
+## Send telemetry to Astro
 
-Spread `astroTelemetry()` into `experimental_telemetry`, then pass the agent to `serve()`:
+Add `astroTelemetry()` into the agent's `experimental_telemetry`:
+
+```typescript
+import { Experimental_Agent as Agent } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { astroTelemetry } from "@astropods/adapter-ai-sdk";
+
+const agent = new Agent({
+  model: openai("gpt-4o"),
+  instructions: "You are a helpful assistant.",
+  experimental_telemetry: astroTelemetry(),
+});
+```
+
+Use this on its own when you serve the agent from your own framework and want AI traces reported in the dashboard.
+
+## Serve over Astro messaging
+
+To run the agent on Astro messaging, pass it to `serve()`:
 
 ```typescript
 import { Experimental_Agent as Agent } from "ai";
@@ -30,21 +51,9 @@ const agent = new Agent({
 serve(agent, { name: "My Agent", instructions });
 ```
 
+Passing `instructions` into the `serve()` function allows your agent's system prompt to be visible in the Astropods playground. This is optional. To hide your prompts exclude `instructions` from the `serve` call.
+
 `serve()` blocks until `SIGINT` or `SIGTERM`. Under `ast dev`, the CLI injects `GRPC_SERVER_ADDR` for you.
-
-### Observability without messaging
-
-If you serve the agent from your own framework (Next.js, Express, Lambda) and want spans in the dashboard, use `astroTelemetry()` on its own:
-
-```typescript
-import { Experimental_Agent as Agent } from "ai";
-import { astroTelemetry } from "@astropods/adapter-ai-sdk";
-
-const agent = new Agent({
-  model: openai("gpt-4o"),
-  experimental_telemetry: astroTelemetry(),
-});
-```
 
 ## API
 
@@ -55,7 +64,7 @@ Connects the agent to the messaging service.
 | Option | Type | Description |
 |--------|------|-------------|
 | `name` | `string` | Display name shown in logs and the playground. Defaults to `agent.id`, then `"AI SDK Agent"`. |
-| `instructions` | `string` | System prompt shown in the playground. The AI SDK `Agent` interface exposes no `instructions` field, so pass yours here. |
+| `instructions` | `string` | Optional. System prompt shown in the playground when provided. |
 | `serverAddress` | `string` | Override the gRPC address. Defaults to `process.env.GRPC_SERVER_ADDR ?? "localhost:9090"`. |
 
 ### `astroTelemetry()`
@@ -94,7 +103,7 @@ The adapter ignores these events: `start`, `start-step`, `finish-step`, `text-st
 
 ## Troubleshooting
 
-If spans don't show up:
+If nothing shows up:
 
 - Confirm `experimental_telemetry: astroTelemetry()` is on the agent.
 - Confirm `OTEL_EXPORTER_OTLP_ENDPOINT` is set in the deployed container.
