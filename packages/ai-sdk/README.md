@@ -1,6 +1,8 @@
 # @astropods/adapter-ai-sdk
 
-Vercel AI SDK adapter for the Astro platform. Wraps a `ToolLoopAgent` (the v6 `Experimental_Agent` class) so it can run on Astro's messaging service, and exposes an explicit `astroTelemetry()` helper that routes the SDK's OpenTelemetry spans into the Astro dashboard.
+Vercel AI SDK adapter for Astro. Wrap a `ToolLoopAgent` and pass it to `serve()` to run it on Astro's messaging service. Spread `astroTelemetry()` into the agent settings to send OpenTelemetry spans to the Astro dashboard.
+
+Targets `ai >= 6.0.0`.
 
 ## Installation
 
@@ -8,11 +10,9 @@ Vercel AI SDK adapter for the Astro platform. Wraps a `ToolLoopAgent` (the v6 `E
 bun add @astropods/adapter-ai-sdk
 ```
 
-Requires `ai >= 6.0.0`.
+## Usage
 
-## Use
-
-Pass `astroTelemetry()` into the agent's `experimental_telemetry` and pass the agent to `serve()`:
+Spread `astroTelemetry()` into `experimental_telemetry`, then pass the agent to `serve()`:
 
 ```typescript
 import { Experimental_Agent as Agent } from "ai";
@@ -30,11 +30,11 @@ const agent = new Agent({
 serve(agent, { name: "My Agent", instructions });
 ```
 
-`serve()` blocks until `SIGINT` or `SIGTERM`. Under `ast dev`, `GRPC_SERVER_ADDR` is injected automatically.
+`serve()` blocks until `SIGINT` or `SIGTERM`. Under `ast dev`, the CLI injects `GRPC_SERVER_ADDR` for you.
 
 ### Observability without messaging
 
-If you're not using Astro's messaging service (e.g. you're already serving the agent from your own HTTP framework) but still want spans in the Astro dashboard, `astroTelemetry()` alone is enough:
+If you serve the agent from your own framework (Next.js, Express, Lambda) and want spans in the dashboard, use `astroTelemetry()` on its own:
 
 ```typescript
 import { Experimental_Agent as Agent } from "ai";
@@ -44,30 +44,28 @@ const agent = new Agent({
   model: openai("gpt-4o"),
   experimental_telemetry: astroTelemetry(),
 });
-
-// Use the agent however you like — Next.js route, Express handler, etc.
 ```
 
 ## API
 
 ### `serve(agent, options?)`
 
-Connects the agent to the messaging service. Pure messaging — no observability side effects.
+Connects the agent to the messaging service.
 
 | Option | Type | Description |
 |--------|------|-------------|
 | `name` | `string` | Display name shown in logs and the playground. Defaults to `agent.id`, then `"AI SDK Agent"`. |
-| `instructions` | `string` | System prompt shown in the playground. The AI SDK `Agent` interface does not expose `instructions`, so pass them through here. |
+| `instructions` | `string` | System prompt shown in the playground. The AI SDK `Agent` interface exposes no `instructions` field, so pass yours here. |
 | `serverAddress` | `string` | Override the gRPC address. Defaults to `process.env.GRPC_SERVER_ADDR ?? "localhost:9090"`. |
 
 ### `astroTelemetry()`
 
-Returns `experimental_telemetry` settings for the AI SDK, wired to Astro's OTLP exporter. No global mutation — the tracer is delivered explicitly.
+Returns `experimental_telemetry` settings for the AI SDK, wired to Astro's OTLP exporter. The helper builds the tracer from an unregistered `NodeTracerProvider`, so it does not modify the OpenTelemetry global.
 
-- Returns `{ isEnabled: true, tracer }` when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
-- Returns `{ isEnabled: false }` when the env var is unset (e.g. local dev). The AI SDK skips telemetry entirely.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` set: returns `{ isEnabled: true, tracer }`.
+- Env var unset (local dev): returns `{ isEnabled: false }`. The AI SDK skips telemetry.
 
-Spread it on top of your own settings if you also want a `functionId` or `metadata`:
+Spread it on top of your own settings to add a `functionId` or `metadata`:
 
 ```typescript
 experimental_telemetry: { ...astroTelemetry(), functionId: "myAgent" }
@@ -75,11 +73,11 @@ experimental_telemetry: { ...astroTelemetry(), functionId: "myAgent" }
 
 ### `AISDKAdapter`
 
-The underlying `AgentAdapter` implementation. Use it directly if you want to compose with other adapters or call `serve()` from `@astropods/adapter-core` yourself.
+The underlying `AgentAdapter` implementation. Use it to compose with other adapters or to call `serve()` from `@astropods/adapter-core`.
 
 ## Stream mapping
 
-The adapter consumes `agent.stream({ prompt }).fullStream` and translates events into Astro's `StreamHooks` lifecycle:
+The adapter reads `agent.stream({ prompt }).fullStream` and maps each event to a `StreamHooks` call:
 
 | AI SDK event | Hook |
 |--------------|------|
@@ -92,12 +90,12 @@ The adapter consumes `agent.stream({ prompt }).fullStream` and translates events
 | `error` | `onError(error)` |
 | `finish` | `onFinish()` |
 
-Lifecycle and bookkeeping events (`start`, `start-step`, `finish-step`, `text-start`/`text-end`, `tool-input-delta`, `tool-call`, `tool-result`, `source`, `file`, `raw`) are ignored — they don't drive a visible state change in the playground or messaging clients.
+The adapter ignores these events: `start`, `start-step`, `finish-step`, `text-start`, `text-end`, `tool-input-delta`, `tool-call`, `tool-result`, `source`, `file`, `raw`. None of them change what the playground or messaging clients display.
 
 ## Troubleshooting
 
-If traces don't show up in the dashboard:
+If spans don't show up:
 
-- Confirm `experimental_telemetry: astroTelemetry()` is set on the agent.
-- Confirm `OTEL_EXPORTER_OTLP_ENDPOINT` is present in the deployed container.
-- Check the agent container logs for OpenTelemetry export errors.
+- Confirm `experimental_telemetry: astroTelemetry()` is on the agent.
+- Confirm `OTEL_EXPORTER_OTLP_ENDPOINT` is set in the deployed container.
+- Check the container logs for OpenTelemetry export errors.
