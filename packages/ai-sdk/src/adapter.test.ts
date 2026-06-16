@@ -14,8 +14,6 @@ mock.module("@astropods/adapter-core", () => ({
 
 import { AISDKAdapter } from "./adapter";
 
-// --- Helpers ---
-
 function createHooks() {
   const result = {
     chunks: [] as string[],
@@ -55,8 +53,6 @@ function fakeAgent(
     ...overrides,
   } as Agent<never, ToolSet, any>;
 }
-
-// --- Tests ---
 
 describe("AISDKAdapter", () => {
   describe("name", () => {
@@ -244,7 +240,7 @@ describe("AISDKAdapter", () => {
       expect(weather.type).toBe("other");
 
       const search = config.tools.find((t) => t.name === "search")!;
-      expect(search.title).toBe("search"); // falls back to key
+      expect(search.title).toBe("search");
       expect(search.description).toBe("Search the web");
 
       const calc = config.tools.find((t) => t.name === "calc")!;

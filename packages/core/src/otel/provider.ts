@@ -8,32 +8,14 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 let cached: NodeTracerProvider | null | undefined;
 
 export interface AstroTracerProviderOptions {
-  /**
-   * Whether to register the provider as the OpenTelemetry global
-   * (i.e. set it via `trace.setGlobalTracerProvider`). Defaults to `true`.
-   *
-   * Set to `false` when the provider will be passed explicitly to
-   * instrumentation that accepts a tracer (e.g. AI SDK
-   * `experimental_telemetry: { tracer }`). Because the provider is cached
-   * after the first call, the first caller's `register` setting wins for
-   * the lifetime of the process.
-   */
+  /** Whether to set the provider as the OTel global. Defaults to `true`. First caller wins because the provider is cached. */
   register?: boolean;
 }
 
-/**
- * Builds the OTLP traces endpoint URL from a base endpoint, stripping any
- * trailing slashes before appending the `/v1/traces` path so a base like
- * `http://host:4318/` produces `http://host:4318/v1/traces` (not `//v1/traces`).
- */
 export function buildTracesUrl(endpoint: string): string {
   return `${endpoint.replace(/\/+$/, "")}/v1/traces`;
 }
 
-/**
- * Returns a shared `NodeTracerProvider` wired to the OTLP HTTP exporter,
- * or `null` if `OTEL_EXPORTER_OTLP_ENDPOINT` is unset. Idempotent.
- */
 export function getOrCreateAstroTracerProvider(
   options: AstroTracerProviderOptions = {}
 ): NodeTracerProvider | null {

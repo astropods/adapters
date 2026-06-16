@@ -38,7 +38,6 @@ describe("astroTelemetry", () => {
     const settings = astroTelemetry();
     expect(settings.isEnabled).toBe(true);
     expect(settings.tracer).toBeDefined();
-    // Smoke-check the tracer surface — it should produce spans.
     const span = settings.tracer!.startSpan("test-span");
     expect(span).toBeDefined();
     span.end();
@@ -49,10 +48,7 @@ describe("astroTelemetry", () => {
 
     astroTelemetry();
 
-    // The global tracer provider is a stable proxy whose identity never
-    // changes; the real signal is its delegate. astroTelemetry caches the
-    // provider it built (with register: false), so getOrCreateAstroTracerProvider
-    // returns that same instance — and the global must NOT delegate to it.
+    // OTel's global tracer provider is a stable proxy; check its delegate, not its identity.
     const astroProvider = getOrCreateAstroTracerProvider();
     const globalDelegate = (
       trace.getTracerProvider() as { getDelegate(): unknown }

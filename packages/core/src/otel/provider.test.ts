@@ -43,14 +43,11 @@ describe("getOrCreateAstroTracerProvider", () => {
   test("caches the null result so a later endpoint set still no-ops within the process", () => {
     expect(getOrCreateAstroTracerProvider()).toBeNull();
     process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
-    // Without resetting, the cached null wins — agents shouldn't set the
-    // endpoint mid-process, so this matches expected behavior.
+    // Cached null wins — endpoint shouldn't change mid-process.
     expect(getOrCreateAstroTracerProvider()).toBeNull();
   });
 
-  // The global tracer provider is a stable ProxyTracerProvider singleton, so
-  // its object identity never changes. register() swaps the proxy's *delegate*,
-  // so getDelegate() is the only reliable signal of whether we registered.
+  // OTel's global is a stable proxy; check its delegate, not its identity.
   const globalDelegate = (): unknown =>
     (trace.getTracerProvider() as { getDelegate(): unknown }).getDelegate();
 
@@ -59,8 +56,6 @@ describe("getOrCreateAstroTracerProvider", () => {
 
     const provider = getOrCreateAstroTracerProvider();
     expect(provider).not.toBeNull();
-
-    // The global proxy must now delegate to our provider.
     expect(globalDelegate()).toBe(provider);
   });
 
@@ -69,9 +64,6 @@ describe("getOrCreateAstroTracerProvider", () => {
 
     const provider = getOrCreateAstroTracerProvider({ register: false });
     expect(provider).not.toBeNull();
-
-    // The global proxy must still delegate to the default (Noop) provider,
-    // not ours.
     expect(globalDelegate()).not.toBe(provider);
   });
 });

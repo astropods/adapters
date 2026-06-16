@@ -7,18 +7,11 @@ import type {
 } from "@astropods/adapter-core";
 
 export interface AISDKAdapterOptions {
-  /** Display name shown in logs and the playground. Defaults to `agent.id`, then "AI SDK Agent". */
   name?: string;
-  /** System prompt shown in the playground. The AI SDK `Agent` interface does not expose
-   *  instructions, so they must be passed explicitly to surface in the playground. */
+  /** The AI SDK `Agent` interface exposes no `instructions` field, so accept them here for the playground. */
   instructions?: string;
 }
 
-/**
- * Adapts a Vercel AI SDK `Agent` (e.g. `ToolLoopAgent` / `Experimental_Agent`)
- * to the Astro messaging protocol. Translates the AI SDK `fullStream` event
- * types into the `StreamHooks` lifecycle.
- */
 export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
   implements AgentAdapter
 {
@@ -40,7 +33,7 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
   ): Promise<void> {
     const result = await this.agent.stream({ prompt });
 
-    // tool-input-end only carries the call id; track id → name on -start.
+    // tool-input-end carries only the call id; track id → name on -start.
     const toolNames = new Map<string, string>();
 
     for await (const part of result.fullStream) {
