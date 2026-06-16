@@ -1,16 +1,7 @@
-import { describe, test, expect, mock } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import type { Agent, TextStreamPart, ToolSet } from "ai";
 import type { StatusUpdate } from "@astropods/messaging";
 import type { StreamOptions } from "@astropods/adapter-core";
-
-mock.module("@astropods/adapter-core", () => ({
-  logger: {
-    info: () => {},
-    debug: () => {},
-    error: () => {},
-    warn: () => {},
-  },
-}));
 
 import { AISDKAdapter } from "./adapter";
 
