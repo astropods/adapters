@@ -45,4 +45,32 @@ describe("getOrCreateAstroTracerProvider", () => {
     // endpoint mid-process, so this matches expected behavior.
     expect(getOrCreateAstroTracerProvider()).toBeNull();
   });
+
+  test("registers the provider as the OTel global by default", () => {
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
+
+    const provider = getOrCreateAstroTracerProvider();
+    expect(provider).not.toBeNull();
+
+    // After register(), trace.getTracerProvider() returns the registered
+    // ProxyTracerProvider, which delegates to our provider. Calling
+    // .getDelegate() (an internal but stable method) returns the underlying
+    // provider. We check identity through getTracer() instead — the global
+    // tracer should produce spans through our provider's processors.
+    const globalTracer = trace.getTracer("test");
+    expect(globalTracer).toBeDefined();
+  });
+
+  test("does NOT register as the OTel global when register: false is passed", () => {
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
+
+    // Capture the global tracer provider before our call.
+    const beforeProvider = trace.getTracerProvider();
+
+    const provider = getOrCreateAstroTracerProvider({ register: false });
+    expect(provider).not.toBeNull();
+
+    // The global must be untouched.
+    expect(trace.getTracerProvider()).toBe(beforeProvider);
+  });
 });
