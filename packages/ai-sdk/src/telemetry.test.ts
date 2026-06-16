@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { trace } from "@opentelemetry/api";
 
-import { _resetAstroTracerProviderForTests } from "../../core/dist/otel/provider.js";
+import {
+  _resetAstroTracerProviderForTests,
+  getOrCreateAstroTracerProvider,
+} from "../../core/dist/otel/provider.js";
 import { astroTelemetry } from "./telemetry";
 
 const ORIG_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
@@ -44,9 +47,16 @@ describe("astroTelemetry", () => {
   test("does NOT register the provider as the OpenTelemetry global", () => {
     process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
 
-    const beforeProvider = trace.getTracerProvider();
     astroTelemetry();
-    // Global must be untouched — that's the whole point of the explicit helper.
-    expect(trace.getTracerProvider()).toBe(beforeProvider);
+
+    // The global tracer provider is a stable proxy whose identity never
+    // changes; the real signal is its delegate. astroTelemetry caches the
+    // provider it built (with register: false), so getOrCreateAstroTracerProvider
+    // returns that same instance — and the global must NOT delegate to it.
+    const astroProvider = getOrCreateAstroTracerProvider();
+    const globalDelegate = (
+      trace.getTracerProvider() as { getDelegate(): unknown }
+    ).getDelegate();
+    expect(globalDelegate).not.toBe(astroProvider);
   });
 });

@@ -22,6 +22,15 @@ export interface AstroTracerProviderOptions {
 }
 
 /**
+ * Builds the OTLP traces endpoint URL from a base endpoint, stripping any
+ * trailing slashes before appending the `/v1/traces` path so a base like
+ * `http://host:4318/` produces `http://host:4318/v1/traces` (not `//v1/traces`).
+ */
+export function buildTracesUrl(endpoint: string): string {
+  return `${endpoint.replace(/\/+$/, "")}/v1/traces`;
+}
+
+/**
  * Returns a shared `NodeTracerProvider` wired to the OTLP HTTP exporter,
  * or `null` if `OTEL_EXPORTER_OTLP_ENDPOINT` is unset. Idempotent.
  */
@@ -36,7 +45,7 @@ export function getOrCreateAstroTracerProvider(
     return null;
   }
 
-  const tracesUrl = `${endpoint.replace(/\/+$/, "")}/v1/traces`;
+  const tracesUrl = buildTracesUrl(endpoint);
 
   const provider = new NodeTracerProvider({
     resource: resourceFromAttributes({

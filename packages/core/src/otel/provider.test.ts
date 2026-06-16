@@ -3,6 +3,7 @@ import { trace } from "@opentelemetry/api";
 
 import {
   _resetAstroTracerProviderForTests,
+  buildTracesUrl,
   getOrCreateAstroTracerProvider,
 } from "./provider";
 
@@ -10,6 +11,7 @@ const ORIG_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
 beforeEach(() => {
   _resetAstroTracerProviderForTests();
+  trace.disable();
   delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 });
 
@@ -46,31 +48,53 @@ describe("getOrCreateAstroTracerProvider", () => {
     expect(getOrCreateAstroTracerProvider()).toBeNull();
   });
 
+  // The global tracer provider is a stable ProxyTracerProvider singleton, so
+  // its object identity never changes. register() swaps the proxy's *delegate*,
+  // so getDelegate() is the only reliable signal of whether we registered.
+  const globalDelegate = (): unknown =>
+    (trace.getTracerProvider() as { getDelegate(): unknown }).getDelegate();
+
   test("registers the provider as the OTel global by default", () => {
     process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
 
     const provider = getOrCreateAstroTracerProvider();
     expect(provider).not.toBeNull();
 
-    // After register(), trace.getTracerProvider() returns the registered
-    // ProxyTracerProvider, which delegates to our provider. Calling
-    // .getDelegate() (an internal but stable method) returns the underlying
-    // provider. We check identity through getTracer() instead — the global
-    // tracer should produce spans through our provider's processors.
-    const globalTracer = trace.getTracer("test");
-    expect(globalTracer).toBeDefined();
+    // The global proxy must now delegate to our provider.
+    expect(globalDelegate()).toBe(provider);
   });
 
   test("does NOT register as the OTel global when register: false is passed", () => {
     process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
 
-    // Capture the global tracer provider before our call.
-    const beforeProvider = trace.getTracerProvider();
-
     const provider = getOrCreateAstroTracerProvider({ register: false });
     expect(provider).not.toBeNull();
 
-    // The global must be untouched.
-    expect(trace.getTracerProvider()).toBe(beforeProvider);
+    // The global proxy must still delegate to the default (Noop) provider,
+    // not ours.
+    expect(globalDelegate()).not.toBe(provider);
+  });
+});
+
+describe("buildTracesUrl", () => {
+  test("appends /v1/traces to a bare endpoint", () => {
+    expect(buildTracesUrl("http://localhost:4318")).toBe(
+      "http://localhost:4318/v1/traces"
+    );
+  });
+
+  test("strips trailing slashes before appending /v1/traces", () => {
+    expect(buildTracesUrl("http://localhost:4318/")).toBe(
+      "http://localhost:4318/v1/traces"
+    );
+    expect(buildTracesUrl("http://localhost:4318///")).toBe(
+      "http://localhost:4318/v1/traces"
+    );
+  });
+
+  test("preserves a path prefix on the endpoint", () => {
+    expect(buildTracesUrl("http://localhost:4318/otlp/")).toBe(
+      "http://localhost:4318/otlp/v1/traces"
+    );
   });
 });
