@@ -20,6 +20,5 @@ export type { InstrumentHttpOptions } from "./otel/instrument.js";
 export {
   buildTracesUrl,
   getOrCreateAstroTracerProvider,
-  _resetAstroTracerProviderForTests,
 } from "./otel/provider.js";
 export type { AstroTracerProviderOptions } from "./otel/provider.js";
