@@ -4,7 +4,7 @@ import { trace } from "@opentelemetry/api";
 import {
   _resetAstroTracerProviderForTests,
   getOrCreateAstroTracerProvider,
-} from "../../core/dist/otel/provider.js";
+} from "@astropods/adapter-core";
 import { astroTelemetry } from "./telemetry";
 
 const ORIG_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
