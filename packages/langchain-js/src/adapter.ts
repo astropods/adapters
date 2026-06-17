@@ -11,15 +11,10 @@ import type {
 
 const tracer = trace.getTracer("@astropods/adapter-langchain");
 
-/** Node names that carry the assistant's own messages / tool calls. */
+// "model" (createAgent) and "agent" (createReactAgent).
 const MODEL_NODE_KEYS = ["model", "agent"] as const;
 
-/**
- * Structural shape of a compiled LangChain/LangGraph agent — the object
- * returned by `createAgent` (langchain) or `createReactAgent`
- * (@langchain/langgraph). We only depend on `.stream`, so any agent that
- * streams LangGraph state updates works.
- */
+/** Minimal surface used from a compiled agent (`createAgent` / `createReactAgent`). */
 export interface LangChainAgent {
   stream(
     input: { messages: Array<{ role: string; content: string }> },
@@ -27,25 +22,17 @@ export interface LangChainAgent {
   ): Promise<AsyncIterable<unknown>>;
 }
 
-/** A tool as constructed for LangChain (`tool()` / `StructuredTool`). */
 interface LangChainTool {
   name?: string;
   description?: string;
 }
 
 export interface LangChainAdapterOptions {
-  /** Display name shown in logs and the playground. Defaults to "LangChain Agent". */
+  /** Defaults to "LangChain Agent". */
   name?: string;
-  /**
-   * System prompt shown in the playground. The compiled graph does not expose
-   * the prompt, so pass it here to surface it. Optional.
-   */
+  // The compiled graph exposes neither the prompt nor the tools, so both are
+  // passed here for the playground's system-prompt and tool-list display.
   instructions?: string;
-  /**
-   * The tools passed to the agent, used only to populate the playground's tool
-   * list. The compiled graph does not expose its tools, so pass the same array
-   * here. Optional.
-   */
   tools?: LangChainTool[];
 }
 
@@ -68,11 +55,8 @@ export class LangChainAdapter implements AgentAdapter {
     hooks: StreamHooks,
     options: StreamOptions
   ): Promise<void> {
-    // Wrap the run in a span carrying user/session attribution and trace-level
-    // input/output. OpenInference's chain/model/tool spans nest under it (the
-    // agent runs inside this active span), so the dashboard gets a fully
-    // attributed trace with rich child observations. When instrumentation is
-    // off this resolves to a no-op span.
+    // Root span carrying user/session + trace IO. OpenInference's spans nest
+    // under it via the active context; a no-op span when uninstrumented.
     await tracer.startActiveSpan(this.name, async (span) => {
       span.setAttribute("langfuse.user.id", options.userId || "anonymous");
       span.setAttribute("langfuse.session.id", options.conversationId);
@@ -93,16 +77,12 @@ export class LangChainAdapter implements AgentAdapter {
     });
   }
 
-  /**
-   * Drive the LangGraph stream and return the accumulated assistant text.
-   * Uses `["messages", "updates"]` so we get token-level text from the model
-   * node and tool-call/tool-result lifecycle from state updates.
-   */
   private async runStream(
     prompt: string,
     hooks: StreamHooks,
     options: StreamOptions
   ): Promise<string> {
+    // messages → token-level assistant text; updates → tool call/result lifecycle.
     const stream = await this.agent.stream(
       { messages: [{ role: "user", content: prompt }] },
       {
@@ -118,8 +98,7 @@ export class LangChainAdapter implements AgentAdapter {
       const [mode, payload] = event;
 
       if (mode === "messages") {
-        // payload is [messageChunk, metadata]; only the assistant's own
-        // messages should surface as chat text (tool results also stream here).
+        // [messageChunk, metadata]; tool/human messages stream here too — skip them.
         const [message] = payload as [unknown, unknown];
         if (messageType(message) !== "ai") continue;
 
@@ -165,7 +144,6 @@ interface NodeUpdate {
   messages?: Array<{ name?: string; tool_calls?: Array<{ name?: string }> }>;
 }
 
-/** Map LangGraph state updates to PROCESSING (tool call) / ANALYZING (result) statuses. */
 function emitToolStatus(
   update: Record<string, NodeUpdate>,
   hooks: StreamHooks
@@ -195,11 +173,7 @@ interface ContentBlock {
   text?: string;
 }
 
-/**
- * Normalize a LangChain message into content blocks. LangChain v1 exposes
- * `contentBlocks`; fall back to raw `content` (string for OpenAI-style,
- * array of blocks for Anthropic-style) for resilience across versions.
- */
+// v1 exposes contentBlocks; fall back to raw content (string or block array).
 function contentBlocks(message: unknown): ContentBlock[] {
   const msg = message as {
     contentBlocks?: ContentBlock[];
@@ -220,7 +194,6 @@ function contentBlocks(message: unknown): ContentBlock[] {
   return [];
 }
 
-/** LangChain message type discriminator ("ai" | "human" | "tool" | "system"). */
 function messageType(message: unknown): string | undefined {
   const msg = message as {
     _getType?: () => string;

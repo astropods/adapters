@@ -11,19 +11,11 @@ export { instrumentLangChain } from "./instrumentation";
 export interface LangChainServeOptions
   extends LangChainAdapterOptions,
     ServeOptions {
-  /**
-   * Enable process-global OpenTelemetry instrumentation before serving.
-   * Defaults to `true`. Set to `false` to manage instrumentation yourself
-   * (or to skip it entirely).
-   */
+  /** Instrument LangChain before serving. Defaults to `true`. */
   instrument?: boolean;
 }
 
-/**
- * Connect a LangChain/LangGraph agent to the Astro messaging service and start
- * listening. Instruments LangChain by default; pass `{ instrument: false }` to
- * opt out.
- */
+/** Serve a LangChain/LangGraph agent over Astro messaging; instruments by default. */
 export function serve(
   agent: LangChainAgent,
   options: LangChainServeOptions = {}
