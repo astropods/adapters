@@ -92,7 +92,9 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
   }
 
   getConfig(): MessagingAgentConfig {
-    const tools = this.agent.tools as Record<
+    // An Agent created without a `tools` option has `tools === undefined`,
+    // so default to an empty set before enumerating.
+    const tools = (this.agent.tools ?? {}) as Record<
       string,
       { description?: string; title?: string }
     >;
