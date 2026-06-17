@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.6.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.4.1...@astropods/adapter-core@0.6.0) (2026-06-17)
+
+
+### Features
+
+* **ai-sdk:** add Vercel AI SDK adapter ([#50](https://github.com/astropods/adapters/issues/50)) ([3f783b0](https://github.com/astropods/adapters/commit/3f783b0e94f816531aa7603c8b03893cfde3a34f))
+* **core:** instrument outbound fetch with OpenTelemetry ([#48](https://github.com/astropods/adapters/issues/48)) ([4243b9e](https://github.com/astropods/adapters/commit/4243b9e4d6abc90dd2b18465e141ff150ce12f75))
+
+
+
 ## [0.5.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.4.1...@astropods/adapter-core@0.5.0) (2026-06-17)
 
 
