@@ -1,0 +1,11 @@
+# Change Log
+
+All notable changes to this project will be documented in this file.
+See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
+
+## 0.2.0 (2026-06-17)
+
+
+### Features
+
+* **ai-sdk:** add Vercel AI SDK adapter ([#50](https://github.com/astropods/adapters/issues/50)) ([3f783b0](https://github.com/astropods/adapters/commit/3f783b0e94f816531aa7603c8b03893cfde3a34f))
