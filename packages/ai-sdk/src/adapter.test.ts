@@ -213,6 +213,15 @@ describe("AISDKAdapter", () => {
       expect(adapter.getConfig().tools).toEqual([]);
     });
 
+    test("returns empty tools when agent.tools is undefined", () => {
+      // A real Agent created without a `tools` option has `tools === undefined`,
+      // not `{}` — getConfig() must not throw on Object.entries(undefined).
+      const agent = fakeAgent([], { tools: undefined as any });
+      const adapter = new AISDKAdapter(agent);
+      expect(() => adapter.getConfig()).not.toThrow();
+      expect(adapter.getConfig().tools).toEqual([]);
+    });
+
     test("maps agent.tools to tool configs with description and title fallback", () => {
       const agent = fakeAgent([], {
         tools: {
