@@ -17,4 +17,8 @@ export { MessagingBridge } from "./messaging-bridge.js";
 export { logger } from "./logger.js";
 export { instrumentHttp } from "./otel/instrument.js";
 export type { InstrumentHttpOptions } from "./otel/instrument.js";
-export { getOrCreateAstroTracerProvider } from "./otel/provider.js";
+export {
+  buildTracesUrl,
+  getOrCreateAstroTracerProvider,
+} from "./otel/provider.js";
+export type { AstroTracerProviderOptions } from "./otel/provider.js";

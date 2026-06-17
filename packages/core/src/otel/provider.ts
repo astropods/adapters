@@ -7,11 +7,18 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 
 let cached: NodeTracerProvider | null | undefined;
 
-/**
- * Returns a shared `NodeTracerProvider` wired to the OTLP HTTP exporter,
- * or `null` if `OTEL_EXPORTER_OTLP_ENDPOINT` is unset. Idempotent.
- */
-export function getOrCreateAstroTracerProvider(): NodeTracerProvider | null {
+export interface AstroTracerProviderOptions {
+  /** Whether to set the provider as the OTel global. Defaults to `true`. First caller wins because the provider is cached. */
+  register?: boolean;
+}
+
+export function buildTracesUrl(endpoint: string): string {
+  return `${endpoint.replace(/\/+$/, "")}/v1/traces`;
+}
+
+export function getOrCreateAstroTracerProvider(
+  options: AstroTracerProviderOptions = {}
+): NodeTracerProvider | null {
   if (cached !== undefined) return cached;
 
   const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
@@ -20,7 +27,7 @@ export function getOrCreateAstroTracerProvider(): NodeTracerProvider | null {
     return null;
   }
 
-  const tracesUrl = `${endpoint.replace(/\/+$/, "")}/v1/traces`;
+  const tracesUrl = buildTracesUrl(endpoint);
 
   const provider = new NodeTracerProvider({
     resource: resourceFromAttributes({
@@ -31,7 +38,10 @@ export function getOrCreateAstroTracerProvider(): NodeTracerProvider | null {
       new BatchSpanProcessor(new OTLPTraceExporter({ url: tracesUrl })),
     ],
   });
-  provider.register();
+
+  if (options.register !== false) {
+    provider.register();
+  }
 
   const flushAndExit = async (signal: NodeJS.Signals) => {
     try {

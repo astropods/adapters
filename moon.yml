@@ -8,6 +8,7 @@ tasks:
       - "packages/core/dist"
       - "packages/mastra/dist"
       - "packages/claude-agent-sdk/dist"
+      - "packages/ai-sdk/dist"
   "install-local":
     command: "bash -c 'BUN_CONFIG_REGISTRY=http://localhost:4873 bun install'"
   "publish-local":
