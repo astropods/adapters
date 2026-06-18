@@ -87,7 +87,6 @@
         "langchain": ">=1.0.0",
       },
       "optionalPeers": [
-        "@langchain/core",
         "@langchain/langgraph-checkpoint",
         "langchain",
       ],

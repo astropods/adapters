@@ -29,9 +29,19 @@ export function serve(
   options: LangChainServeOptions = {}
 ): void {
   if (options.instrument !== false) instrumentLangChain();
-  if (options.memory !== false && ensureCheckpointer(agent)) {
-    logger.info("No checkpointer configured; using an in-process MemorySaver");
+
+  const start = () => serveAdapter(new LangChainAdapter(agent, options), options);
+
+  if (options.memory === false) {
+    start();
+    return;
   }
-  const adapter = new LangChainAdapter(agent, options);
-  serveAdapter(adapter, options);
+
+  // Install in-memory persistence before the bridge starts taking messages.
+  void ensureCheckpointer(agent).then((installed) => {
+    if (installed) {
+      logger.info("No checkpointer configured; using an in-process MemorySaver");
+    }
+    start();
+  });
 }

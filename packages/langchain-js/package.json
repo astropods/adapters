@@ -42,9 +42,6 @@
     "langchain": ">=1.0.0"
   },
   "peerDependenciesMeta": {
-    "@langchain/core": {
-      "optional": true
-    },
     "@langchain/langgraph-checkpoint": {
       "optional": true
     },

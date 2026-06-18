@@ -1,5 +1,3 @@
-import { MemorySaver } from "@langchain/langgraph-checkpoint";
-
 /**
  * Ensure the agent persists conversation state across turns.
  *
@@ -9,25 +7,31 @@ import { MemorySaver } from "@langchain/langgraph-checkpoint";
  * start fresh. When none is configured we install an in-process `MemorySaver`
  * so multi-turn chat works out of the box.
  *
- * A checkpointer the caller already configured (in-memory or durable) is left
- * untouched. Returns `true` when a `MemorySaver` was installed.
+ * Only a nullish value counts as "unset": a checkpointer the caller configured
+ * and an explicit `checkpointer: false` opt-out are both left untouched. The
+ * checkpoint package is imported lazily so the adapter still imports without it
+ * (e.g. when only `instrumentLangChain()` is used). Returns `true` when a
+ * `MemorySaver` was installed.
  */
-export function ensureCheckpointer(agent: unknown): boolean {
+export async function ensureCheckpointer(agent: unknown): Promise<boolean> {
   try {
     // Both a ReactAgent (accessor) and a compiled graph expose `checkpointer`.
     const target = agent as { checkpointer?: unknown };
     if (
-      target &&
-      typeof target === "object" &&
-      "checkpointer" in target &&
-      !target.checkpointer
+      !target ||
+      typeof target !== "object" ||
+      !("checkpointer" in target) ||
+      target.checkpointer != null
     ) {
-      target.checkpointer = new MemorySaver();
-      return true;
+      return false;
     }
+
+    const { MemorySaver } = await import("@langchain/langgraph-checkpoint");
+    target.checkpointer = new MemorySaver();
+    return true;
   } catch {
-    // Non-standard agent or a read-only checkpointer accessor — leave it as the
-    // caller built it rather than fail serving.
+    // Checkpoint package absent, or a read-only checkpointer accessor — serve
+    // without persistence rather than fail.
+    return false;
   }
-  return false;
 }

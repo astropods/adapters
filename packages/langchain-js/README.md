@@ -76,7 +76,7 @@ const agent = createAgent({ model, tools, checkpointer: postgresSaver });
 serve(agent, { name: "My Agent" }); // your checkpointer is kept as-is
 ```
 
-Pass `{ memory: false }` to `serve()` for stateless replies.
+For stateless replies, pass `{ memory: false }` to `serve()` or set `checkpointer: false` on the agent — both are honored.
 
 ### Per-run configuration
 
