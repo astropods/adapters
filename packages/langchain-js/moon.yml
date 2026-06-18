@@ -10,3 +10,11 @@ tasks:
       - "/tsconfig.base.json"
     outputs:
       - "dist"
+  typecheck:
+    command: "bun run tsc -p tsconfig.typecheck.json"
+    inputs:
+      - "src/**/*"
+      - "test-d/**/*"
+      - "tsconfig.json"
+      - "tsconfig.typecheck.json"
+      - "/tsconfig.base.json"

@@ -30,9 +30,17 @@ interface LangChainTool {
 export interface LangChainAdapterOptions {
   /** Defaults to "LangChain Agent". */
   name?: string;
-  // The compiled graph exposes neither the prompt nor the tools, so both are
-  // passed here for the playground's system-prompt and tool-list display.
+  /**
+   * System prompt shown in the playground. Read automatically from
+   * `agent.options.systemPrompt` for `createAgent` agents; set this to override
+   * it, or to supply it for agents that don't expose it (e.g. raw compiled
+   * graphs).
+   */
   instructions?: string;
+  /**
+   * Tools shown in the playground's tool list. Read automatically from
+   * `agent.options.tools` for `createAgent` agents; set this to override.
+   */
   tools?: LangChainTool[];
 }
 
@@ -45,9 +53,10 @@ export class LangChainAdapter implements AgentAdapter {
     private agent: LangChainAgent,
     options: LangChainAdapterOptions = {}
   ) {
+    const derived = deriveAgentMetadata(agent);
     this.name = options.name ?? "LangChain Agent";
-    this.instructions = options.instructions ?? "";
-    this.tools = options.tools ?? [];
+    this.instructions = options.instructions ?? derived.instructions;
+    this.tools = options.tools ?? derived.tools;
   }
 
   async stream(
@@ -65,15 +74,18 @@ export class LangChainAdapter implements AgentAdapter {
       try {
         const output = await this.runStream(prompt, hooks, options);
         span.setAttribute("langfuse.trace.output", output);
-        hooks.onFinish();
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         span.recordException(error);
         span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
         hooks.onError(error);
+        return;
       } finally {
         span.end();
       }
+
+      // Only on success — onError already terminated the response on failure.
+      hooks.onFinish();
     });
   }
 
@@ -201,7 +213,38 @@ function messageType(message: unknown): string | undefined {
     type?: string;
     role?: string;
   };
-  if (typeof msg?._getType === "function") return msg._getType();
   if (typeof msg?.getType === "function") return msg.getType();
+  if (typeof msg?._getType === "function") return msg._getType();
   return msg?.type ?? msg?.role;
+}
+
+/** `createAgent` returns a ReactAgent that retains its construction options. */
+interface ReactAgentOptions {
+  systemPrompt?: unknown;
+  tools?: LangChainTool[];
+}
+
+// Reuse the prompt and tools createAgent already holds, so callers don't
+// re-declare what they passed to createAgent. Raw compiled graphs don't expose
+// `options`; their playground metadata comes from the adapter options instead.
+function deriveAgentMetadata(agent: LangChainAgent): {
+  instructions: string;
+  tools: LangChainTool[];
+} {
+  const options = (agent as { options?: ReactAgentOptions }).options;
+  return {
+    instructions: systemPromptText(options?.systemPrompt),
+    tools: options?.tools ?? [],
+  };
+}
+
+// systemPrompt is a string or a SystemMessage, whose `text` getter flattens its
+// content blocks to a string.
+function systemPromptText(prompt: unknown): string {
+  if (typeof prompt === "string") return prompt;
+  if (prompt && typeof prompt === "object") {
+    const text = (prompt as { text?: unknown }).text;
+    if (typeof text === "string") return text;
+  }
+  return "";
 }

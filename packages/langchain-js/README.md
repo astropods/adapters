@@ -27,7 +27,7 @@ instrumentLangChain();
 const agent = createAgent({
   model: new ChatOpenAI({ model: "gpt-4o" }),
   tools: [getWeather],
-  prompt: "You are a helpful assistant.",
+  systemPrompt: "You are a helpful assistant.",
 });
 ```
 
@@ -44,22 +44,47 @@ import { createAgent } from "langchain";
 import { ChatOpenAI } from "@langchain/openai";
 import { serve } from "@astropods/adapter-langchain";
 
-const instructions = "You are a helpful assistant.";
-
 const agent = createAgent({
   model: new ChatOpenAI({ model: "gpt-4o" }),
   tools: [getWeather],
-  prompt: instructions,
+  systemPrompt: "You are a helpful assistant.",
 });
 
-serve(agent, { name: "My Agent", instructions, tools: [getWeather] });
+serve(agent, { name: "My Agent" });
 ```
 
 `serve()` calls `instrumentLangChain()` for you by default. Pass `{ instrument: false }` to opt out.
 
-Passing `instructions` and `tools` lets your system prompt and tool list show in the Astropods playground — the compiled graph does not expose them, so they are supplied here. Both are optional; omit `instructions` to hide your prompt.
+The playground shows your system prompt and tool list. For agents built with `createAgent`, both are read automatically from the agent (`agent.options.systemPrompt` and `agent.options.tools`) — you don't repeat them. Pass `instructions`/`tools` to `serve()` only to override, or to supply them for agents that don't expose `options` (e.g. a raw compiled graph or `createReactAgent` from `@langchain/langgraph`).
 
 `serve()` blocks until `SIGINT` or `SIGTERM`. Under `ast dev`, the CLI injects `GRPC_SERVER_ADDR` for you.
+
+### Supported agents
+
+`serve()` and `LangChainAdapter` expect a **LangGraph agent** — `createAgent` (langchain) or `createReactAgent` (`@langchain/langgraph`). The adapter drives `agent.stream(..., { streamMode: ["messages", "updates"] })`, which is a LangGraph feature. Plain LCEL runnables (`prompt.pipe(model).pipe(parser)`) and bare chat models also have a `.stream()` but don't emit LangGraph's stream events, so they aren't supported.
+
+### Conversation memory
+
+The adapter sends only the latest user message each turn, keyed by `thread_id` (the conversation id), and relies on the agent's **checkpointer** to restore prior turns — the standard LangGraph pattern. `createAgent`/`createReactAgent` have no checkpointer by default, so `serve()` installs an in-process `MemorySaver` when the agent has none, making multi-turn chat work out of the box.
+
+The in-process saver is not durable (state is lost on restart) and grows with the number of conversations, so for production configure a durable checkpointer on the agent — it is always respected and never replaced:
+
+```typescript
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+
+const agent = createAgent({ model, tools, checkpointer: postgresSaver });
+serve(agent, { name: "My Agent" }); // your checkpointer is kept as-is
+```
+
+Pass `{ memory: false }` to `serve()` for stateless replies.
+
+### Per-run configuration
+
+`serve()` controls the stream's `streamMode` and `thread_id`. To set other run options — `recursionLimit`, `tags`, a `store` — configure them on the agent before serving with [`agent.withConfig(...)`](https://docs.langchain.com/oss/javascript/langchain/agents), which `serve()` preserves:
+
+```typescript
+serve(agent.withConfig({ recursionLimit: 100 }), { name: "My Agent" });
+```
 
 ## API
 
@@ -70,9 +95,10 @@ Connects the agent to the messaging service.
 | Option | Type | Description |
 |--------|------|-------------|
 | `name` | `string` | Display name shown in logs and the playground. Defaults to `"LangChain Agent"`. |
-| `instructions` | `string` | Optional. System prompt shown in the playground when provided. |
-| `tools` | `Array<{ name?, description? }>` | Optional. The agent's tools, for the playground's tool list. |
+| `instructions` | `string` | Optional. Overrides the system prompt shown in the playground (auto-read from `agent.options.systemPrompt`). |
+| `tools` | `Array<{ name?, description? }>` | Optional. Overrides the playground's tool list (auto-read from `agent.options.tools`). |
 | `instrument` | `boolean` | Enable process-global instrumentation before serving. Defaults to `true`. |
+| `memory` | `boolean` | Install an in-process `MemorySaver` when the agent has no checkpointer. Defaults to `true`. A checkpointer configured on the agent is always respected. |
 | `serverAddress` | `string` | Override the gRPC address. Defaults to `process.env.GRPC_SERVER_ADDR ?? "localhost:9090"`. |
 
 ### `instrumentLangChain()`
@@ -98,6 +124,8 @@ The adapter reads `agent.stream({ messages }, { streamMode: ["messages", "update
 
 Tool-result messages that also stream through `messages` mode are skipped — only the assistant's own messages surface as chat text.
 
+Tool status is read from the `model`/`agent` and `tools` nodes that `createAgent`/`createReactAgent` produce. A custom graph with differently named nodes still streams its assistant text, but won't surface the `PROCESSING`/`ANALYZING` tool-status updates.
+
 ## Troubleshooting
 
 If nothing shows up:
@@ -105,3 +133,5 @@ If nothing shows up:
 - Confirm `instrumentLangChain()` was called (or `serve()` ran without `{ instrument: false }`).
 - Confirm `OTEL_EXPORTER_OTLP_ENDPOINT` is set in the deployed container.
 - Check the container logs for OpenTelemetry export errors.
+
+If the agent doesn't remember earlier turns, a checkpointer isn't active — check that `serve()` wasn't called with `{ memory: false }`, or configure a durable checkpointer on the agent.

@@ -177,6 +177,23 @@ describe("LangChainAdapter", () => {
       );
     });
 
+    test("prefers getType over the deprecated _getType", async () => {
+      // A v1 message exposes both; getType is the non-deprecated accessor. If we
+      // read _getType first this message would be treated as a tool result and
+      // skipped, so a streamed chunk proves getType wins.
+      const message = {
+        getType: () => "ai",
+        _getType: () => "tool",
+        contentBlocks: [{ type: "text", text: "hi" }],
+      };
+      const adapter = new LangChainAdapter(fakeAgent([["messages", [message, {}]]]));
+      const hooks = createHooks();
+
+      await adapter.stream("x", hooks, defaultOptions);
+
+      expect(hooks.chunks).toEqual(["hi"]);
+    });
+
     test("calls onError when the stream throws", async () => {
       const adapter = new LangChainAdapter(fakeAgent([], { throwOnStream: true }));
       const hooks = createHooks();
@@ -322,6 +339,54 @@ describe("LangChainAdapter", () => {
       expect(config.tools[0].name).toBe("tool");
       expect(config.tools[0].title).toBe("tool");
       expect(config.tools[0].description).toBe("Unnamed tool");
+    });
+
+    test("derives systemPrompt and tools from agent.options (createAgent)", () => {
+      const agent = {
+        options: {
+          systemPrompt: "Derived prompt.",
+          tools: [{ name: "weather", description: "Get weather" }],
+        },
+        async stream() {
+          return asyncFrom([]);
+        },
+      } as unknown as LangChainAgent;
+      const config = new LangChainAdapter(agent).getConfig();
+
+      expect(config.systemPrompt).toBe("Derived prompt.");
+      expect(config.tools.map((t) => t.name)).toEqual(["weather"]);
+    });
+
+    test("extracts systemPrompt text from a SystemMessage", () => {
+      const agent = {
+        options: { systemPrompt: { text: "From a SystemMessage" } },
+        async stream() {
+          return asyncFrom([]);
+        },
+      } as unknown as LangChainAgent;
+
+      expect(new LangChainAdapter(agent).getConfig().systemPrompt).toBe(
+        "From a SystemMessage"
+      );
+    });
+
+    test("explicit options take precedence over derived metadata", () => {
+      const agent = {
+        options: {
+          systemPrompt: "derived",
+          tools: [{ name: "derived-tool" }],
+        },
+        async stream() {
+          return asyncFrom([]);
+        },
+      } as unknown as LangChainAgent;
+      const config = new LangChainAdapter(agent, {
+        instructions: "explicit",
+        tools: [{ name: "explicit-tool" }],
+      }).getConfig();
+
+      expect(config.systemPrompt).toBe("explicit");
+      expect(config.tools.map((t) => t.name)).toEqual(["explicit-tool"]);
     });
   });
 });
