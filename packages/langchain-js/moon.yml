@@ -1,0 +1,20 @@
+language: "typescript"
+type: "library"
+
+tasks:
+  build:
+    command: "bun run tsc"
+    inputs:
+      - "src/**/*"
+      - "tsconfig.json"
+      - "/tsconfig.base.json"
+    outputs:
+      - "dist"
+  typecheck:
+    command: "bun run tsc -p tsconfig.typecheck.json"
+    inputs:
+      - "src/**/*"
+      - "test-d/**/*"
+      - "tsconfig.json"
+      - "tsconfig.typecheck.json"
+      - "/tsconfig.base.json"

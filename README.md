@@ -12,6 +12,9 @@ Astro is a platform-agnostic deployment platform for AI agents — it doesn't ca
 |---------|-------------|
 | [`@astropods/adapter-core`](./packages/core) | Framework-agnostic `AgentAdapter` interface and `MessagingBridge` that connects any adapter to the Astro messaging gRPC service. |
 | [`@astropods/adapter-mastra`](./packages/mastra) | Mastra-specific adapter. Wraps a Mastra `Agent` and translates its `fullStream` chunks into the `StreamHooks` lifecycle, including voice (STT + TTS) support. |
+| [`@astropods/adapter-ai-sdk`](./packages/ai-sdk) | Vercel AI SDK adapter. Serves an `Experimental_Agent` over messaging and exposes `astroTelemetry()` to wire `experimental_telemetry` to Astro's OTLP exporter. |
+| [`@astropods/adapter-langchain`](./packages/langchain-js) | LangChain.js adapter. Serves a `createAgent`/`createReactAgent` agent over messaging and exposes `instrumentLangChain()` for OpenTelemetry tracing. |
+| [`@astropods/adapter-claude-agent-sdk`](./packages/claude-agent-sdk) | Drop-in replacement for `@anthropic-ai/claude-agent-sdk` that adds OpenTelemetry instrumentation. |
 
 ## Quick start
 

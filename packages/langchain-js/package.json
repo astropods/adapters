@@ -1,0 +1,59 @@
+{
+  "name": "@astropods/adapter-langchain",
+  "license": "Apache-2.0",
+  "version": "0.1.0",
+  "description": "LangChain.js adapter for the Astro messaging service. Serves a LangChain/LangGraph agent and wires OpenTelemetry tracing.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.typecheck.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/astropods/adapters.git",
+    "directory": "packages/langchain-js"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "dependencies": {
+    "@arizeai/openinference-instrumentation-langchain": "^4.0.0",
+    "@astropods/adapter-core": "workspace:*",
+    "@astropods/messaging": "latest",
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "peerDependencies": {
+    "@langchain/core": ">=1.0.0",
+    "@langchain/langgraph-checkpoint": ">=1.0.0",
+    "langchain": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/langgraph-checkpoint": {
+      "optional": true
+    },
+    "langchain": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@langchain/core": "^1.0.0",
+    "@langchain/langgraph-checkpoint": "^1.0.0",
+    "@types/bun": "^1.3.5",
+    "langchain": "^1.0.0",
+    "typescript": "^5.3.0"
+  }
+}

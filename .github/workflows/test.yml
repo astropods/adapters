@@ -24,6 +24,9 @@ jobs:
       - name: Build
         run: bunx lerna run build
 
+      - name: Typecheck
+        run: bunx lerna run typecheck
+
       - name: Test
         run: bunx lerna run test
 
