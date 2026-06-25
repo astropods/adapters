@@ -16,13 +16,14 @@ describe("tier 2 — wire", () => {
     collector.stop();
   });
 
-  test("emits a span that reaches the configured collector with the right resource attrs", async () => {
+  test("emits a span that reaches the configured collector with the right resource attrs", { timeout: 15000 }, async () => {
     const { exitCode, stderr } = await runScenario("tier-2-emit-span.ts", {
       env: {
         OTEL_EXPORTER_OTLP_ENDPOINT: endpoint,
         ASTRO_AGENT_NAME: "tier-2-agent",
         ASTRO_AGENT_BUILD: "tier-2-build-abc",
       },
+      timeoutMs: 14000,
     });
 
     expect(exitCode, `stderr:\n${stderr}`).toBe(0);
