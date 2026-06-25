@@ -2,9 +2,10 @@ import { describe, test, expect } from "bun:test";
 import { runScenario } from "./fixtures/child-runner";
 
 describe("tier 1 — plumbing", () => {
-  test("with no OTLP endpoint: no provider registered, query not patched", async () => {
+  test("with no OTLP endpoint: no provider registered, query not patched", { timeout: 15000 }, async () => {
     const { exitCode, result, stderr } = await runScenario("tier-1-probe.ts", {
       env: { OTEL_EXPORTER_OTLP_ENDPOINT: "" },
+      timeoutMs: 14000,
     });
 
     expect(exitCode, `stderr:\n${stderr}`).toBe(0);
@@ -15,12 +16,13 @@ describe("tier 1 — plumbing", () => {
     });
   });
 
-  test("with OTLP endpoint set: provider registered, query patched, spans recording", async () => {
+  test("with OTLP endpoint set: provider registered, query patched, spans recording", { timeout: 15000 }, async () => {
     const { exitCode, result, stderr } = await runScenario("tier-1-probe.ts", {
       env: {
         OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:65535",
         ASTRO_AGENT_NAME: "tier-1-agent",
       },
+      timeoutMs: 14000,
     });
 
     expect(exitCode, `stderr:\n${stderr}`).toBe(0);
