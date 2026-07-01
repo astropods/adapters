@@ -1,7 +1,9 @@
 export type {
   AgentAdapter,
   AudioInput,
+  ElicitOptions,
   FeedbackEvent,
+  RenderableInput,
   StreamHooks,
   StreamOptions,
   ServeOptions,
@@ -10,10 +12,14 @@ export type {
 export type {
   PlatformContext,
   PlatformContextEventKind,
+  Renderable,
+  RenderableAction,
+  RenderableResponse,
+  RenderKind,
 } from "@astropods/messaging";
 
 export { serve } from "./serve.js";
-export { MessagingBridge } from "./messaging-bridge.js";
+export { MessagingBridge, UnsupportedRenderableError } from "./messaging-bridge.js";
 export { logger } from "./logger.js";
 export { instrumentHttp } from "./otel/instrument.js";
 export type { InstrumentHttpOptions } from "./otel/instrument.js";

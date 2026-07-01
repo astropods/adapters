@@ -6,12 +6,17 @@ import {
   type Message,
   type ConversationStream,
   type PlatformFeedback,
+  type Renderable,
+  type RenderableAction,
+  type RenderableResponse,
 } from "@astropods/messaging";
+import { randomUUID } from "node:crypto";
 
 import type {
   AgentAdapter,
   AudioInput,
   FeedbackEvent,
+  RenderableInput,
   ServeOptions,
   StreamHooks,
 } from "./types.js";
@@ -22,8 +27,25 @@ const MAX_RETRIES = 10;
 const INITIAL_DELAY_MS = 500;
 const MAX_DELAY_MS = 15000;
 
+const DEFAULT_ALLOWED_ACTIONS: RenderableAction[] = [
+  "RENDERABLE_ACTION_SUBMIT",
+  "RENDERABLE_ACTION_CANCEL",
+];
+
 function debug(msg: string) {
   if (process.env.DEBUG) logger.debug(msg);
+}
+
+/**
+ * Rejection for a strict Renderable (no RESPOND) that reached a surface which
+ * cannot render it. Lets out-of-loop callers tell "couldn't ask" apart from a
+ * user DECLINE / CANCEL.
+ */
+export class UnsupportedRenderableError extends Error {
+  constructor(public readonly renderableId: string) {
+    super(`Renderable ${renderableId} could not be rendered on the target surface`);
+    this.name = "UnsupportedRenderableError";
+  }
 }
 
 export class MessagingBridge {
@@ -34,6 +56,12 @@ export class MessagingBridge {
   private shutdownHandler: (() => void) | null = null;
   // In-flight model call per conversation, so a StreamControl STOP can abort it.
   private abortControllers = new Map<string, AbortController>();
+  // Live awaiters for blocking Renderables, keyed by Renderable.id. In-process
+  // only: correctness across restarts rests on the durable store, not this map.
+  private pendingRenderables = new Map<
+    string,
+    { resolve: (r: RenderableResponse) => void; reject: (e: Error) => void }
+  >();
 
   constructor(adapter: AgentAdapter, options?: ServeOptions) {
     this.adapter = adapter;
@@ -88,6 +116,13 @@ export class MessagingBridge {
     // Listen for incoming messages
     this.stream.on("response", (response: AgentResponse) => {
       if (response.feedback) {
+        if (response.feedback.renderableResponse) {
+          this.handleRenderableResponse(
+            response.feedback.conversationId,
+            response.feedback.renderableResponse
+          );
+          return;
+        }
         this.maybeAbortOnStreamControl(response.feedback);
         this.dispatchFeedback(response.feedback);
         return;
@@ -319,6 +354,13 @@ export class MessagingBridge {
         userId: message.user?.id || "anonymous",
         platformContext: message.platformContext,
         signal: controller.signal,
+        render: (input) =>
+          this.sendRenderable(conversationId, this.buildRenderable(input)),
+        elicit: (elicitMessage, dataSchema, opts) =>
+          this.sendRenderable(
+            conversationId,
+            this.buildRenderable({ message: elicitMessage, dataSchema, ...opts })
+          ),
       })
       .catch((error) => {
         // A user stop aborts the model call — that's expected; end quietly
@@ -345,6 +387,86 @@ export class MessagingBridge {
           this.abortControllers.delete(conversationId);
         }
       });
+  }
+
+  /** Build a wire Renderable from the friendly render() input, filling defaults. */
+  private buildRenderable(input: RenderableInput): Renderable {
+    return {
+      id: input.id || randomUUID(),
+      kind: input.kind ?? "RENDER_KIND_FORM",
+      message: input.message,
+      dataSchemaJson: JSON.stringify(input.dataSchema),
+      valueJson:
+        input.value === undefined ? undefined : JSON.stringify(input.value),
+      allowedActions: input.allowedActions ?? DEFAULT_ALLOWED_ACTIONS,
+      intent: input.intent,
+    };
+  }
+
+  /**
+   * Emit a blocking Renderable and return a promise that settles when the
+   * user's response arrives (resolve) or a strict ask cannot be rendered
+   * (reject with UnsupportedRenderableError). Correlation is by Renderable.id.
+   * The promise is in-process only; cross-restart delivery rests on the durable
+   * store and the adapter's onResume hook.
+   */
+  sendRenderable(
+    conversationId: string,
+    renderable: Renderable
+  ): Promise<RenderableResponse> {
+    return new Promise<RenderableResponse>((resolve, reject) => {
+      if (!this.stream) {
+        reject(new Error("Cannot send a Renderable before the stream is open"));
+        return;
+      }
+      this.pendingRenderables.set(renderable.id, { resolve, reject });
+      try {
+        this.stream.sendAgentResponse({ conversationId, renderable });
+      } catch (err) {
+        this.pendingRenderables.delete(renderable.id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  /**
+   * Route an inbound RenderableResponse: settle the live awaiter if one exists
+   * (UNSUPPORTED rejects, everything else resolves), otherwise hand it to the
+   * adapter's optional onResume (checkpointed frameworks / recovery). We do NOT
+   * await onResume, mirroring dispatchFeedback.
+   */
+  private handleRenderableResponse(
+    conversationId: string,
+    response: RenderableResponse
+  ): void {
+    const waiter = this.pendingRenderables.get(response.id);
+    if (waiter) {
+      this.pendingRenderables.delete(response.id);
+      if (response.action === "RENDERABLE_ACTION_UNSUPPORTED") {
+        waiter.reject(new UnsupportedRenderableError(response.id));
+      } else {
+        waiter.resolve(response);
+      }
+      return;
+    }
+
+    if (this.adapter.onResume) {
+      try {
+        const result = this.adapter.onResume(conversationId, response);
+        if (result && typeof (result as Promise<void>).catch === "function") {
+          (result as Promise<void>).catch((err) =>
+            logger.error({ err }, "onResume rejected; dropping response")
+          );
+        }
+      } catch (err) {
+        logger.error({ err }, "onResume threw; dropping response");
+      }
+      return;
+    }
+
+    logger.warn(
+      `Renderable response ${response.id} has no in-process awaiter and no onResume handler; dropping`
+    );
   }
 
   private handleAudio(audioInput: AudioInput, conversationId: string, userId?: string): void {
@@ -375,6 +497,15 @@ export class MessagingBridge {
   }
 
   stop(): void {
+    // Fail any in-flight awaiters so a caller blocked on render() doesn't hang
+    // past shutdown. The durable store keeps the interaction for redelivery.
+    for (const waiter of this.pendingRenderables.values()) {
+      waiter.reject(
+        new Error("Messaging bridge stopped before the interaction was answered")
+      );
+    }
+    this.pendingRenderables.clear();
+
     if (this.shutdownHandler) {
       process.removeListener("SIGINT", this.shutdownHandler);
       process.removeListener("SIGTERM", this.shutdownHandler);
