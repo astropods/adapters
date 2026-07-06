@@ -50,4 +50,11 @@ jobs:
         run: bunx lerna publish from-package --yes
 
       - name: Push version commits and tags
+        # Run even when a package failed to publish (e.g. a not-yet-bootstrapped
+        # package returning E404). `lerna publish from-package` is idempotent —
+        # it skips versions already on the registry — so recording the version
+        # commit and tags here keeps main in sync with what actually published
+        # and lets a later run retry only the still-unpublished packages, instead
+        # of leaving main behind npm whenever one package blocks the job.
+        if: ${{ !cancelled() }}
         run: git push origin HEAD --tags --force-with-lease
