@@ -20,5 +20,8 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      - name: Install dependencies
+        run: bun install
+
       - name: Check conventional commits
-        run: bunx --bun commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --config .commitlintrc.json
+        run: ./node_modules/.bin/commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --config .commitlintrc.json
