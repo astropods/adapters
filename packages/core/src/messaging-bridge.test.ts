@@ -1082,6 +1082,60 @@ describe("MessagingBridge", () => {
       expect(signals[0].aborted).toBe(true); // prior turn aborted
       expect(signals[1].aborted).toBe(false); // new turn still active
     });
+
+    test("a STOP settles a pending render() so the awaiter cannot hang", async () => {
+      let caught: any = null;
+      const adapter = createMockAdapter({
+        stream: async (_p, _hooks, opts) => {
+          try {
+            await opts.render!({ message: "approve?", dataSchema: { type: "object" } });
+          } catch (err) {
+            caught = err;
+          }
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      sendMessage("conv-1");
+      await new Promise((r) => setTimeout(r, 10));
+
+      emitFeedback({
+        conversationId: "conv-1",
+        streamControl: { action: "STOP", reason: "" },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(caught).toBeInstanceOf(Error);
+      expect(String(caught.message)).toContain("aborted");
+    });
+
+    test("a superseding message settles the prior turn's pending render()", async () => {
+      let caught: any = null;
+      let calls = 0;
+      const adapter = createMockAdapter({
+        stream: async (_p, _hooks, opts) => {
+          calls += 1;
+          if (calls === 1) {
+            try {
+              await opts.render!({ message: "approve?", dataSchema: { type: "object" } });
+            } catch (err) {
+              caught = err;
+            }
+          }
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      sendMessage("conv-1"); // turn A blocks on render()
+      await new Promise((r) => setTimeout(r, 10));
+      sendMessage("conv-1"); // turn B supersedes A
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(caught).toBeInstanceOf(Error);
+      expect(String(caught.message)).toContain("aborted");
+    });
   });
 
   describe("renderable / elicitation", () => {

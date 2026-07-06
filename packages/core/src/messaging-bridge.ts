@@ -69,7 +69,11 @@ export class MessagingBridge {
   // only: correctness across restarts rests on the durable store, not this map.
   private pendingRenderables = new Map<
     string,
-    { resolve: (r: RenderableResponse) => void; reject: (e: Error) => void }
+    {
+      conversationId: string;
+      resolve: (r: RenderableResponse) => void;
+      reject: (e: Error) => void;
+    }
   >();
 
   constructor(adapter: AgentAdapter, options?: ServeOptions) {
@@ -338,6 +342,23 @@ export class MessagingBridge {
       existing.abort();
       this.abortControllers.delete(conversationId);
     }
+    // Settle any renderable the aborted turn was blocked on, so `render()` does
+    // not hang and the map entry does not leak. The rejection unwinds the
+    // adapter's stream() into the aborted-turn path (it checks signal.aborted);
+    // the durable store still holds the interaction for redelivery / resume.
+    this.rejectPendingRenderables(
+      conversationId,
+      new Error("Interaction aborted: the turn was stopped or superseded")
+    );
+  }
+
+  private rejectPendingRenderables(conversationId: string, error: Error): void {
+    for (const [id, waiter] of this.pendingRenderables) {
+      if (waiter.conversationId === conversationId) {
+        this.pendingRenderables.delete(id);
+        waiter.reject(error);
+      }
+    }
   }
 
   private handleMessage(message: Message): void {
@@ -446,7 +467,11 @@ export class MessagingBridge {
         );
         return;
       }
-      this.pendingRenderables.set(renderable.id, { resolve, reject });
+      this.pendingRenderables.set(renderable.id, {
+        conversationId,
+        resolve,
+        reject,
+      });
       try {
         this.stream.sendAgentResponse({ conversationId, renderable });
       } catch (err) {
