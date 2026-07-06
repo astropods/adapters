@@ -473,11 +473,12 @@ describe("MessagingBridge", () => {
       await new Promise((r) => setTimeout(r, 10));
 
       expect(capturedPrompt!).toBe("What is the weather?");
-      expect(capturedOptions!).toEqual({
-        conversationId: "conv-42",
-        userId: "user-99",
-        platformContext: undefined,
-      });
+      expect(capturedOptions!.conversationId).toBe("conv-42");
+      expect(capturedOptions!.userId).toBe("user-99");
+      expect(capturedOptions!.platformContext).toBeUndefined();
+      // The bridge now threads a per-turn abort signal into stream options so a
+      // "stop generating" can cancel the in-flight model call.
+      expect(capturedOptions!.signal).toBeInstanceOf(AbortSignal);
     });
 
     test("forwards platformContext from incoming message to adapter.stream", async () => {
@@ -958,6 +959,125 @@ describe("MessagingBridge", () => {
       // If the rejection had escaped Bun would have flagged an unhandled
       // promise rejection by now; reaching this point passes the test.
       expect(resolved).toBe(true);
+    });
+  });
+
+  describe("stop-generation (abort)", () => {
+    function emitFeedback(fb: any) {
+      mockResponseHandlers[0]({ conversationId: fb.conversationId, feedback: fb } as any);
+    }
+
+    function sendMessage(conversationId: string) {
+      mockResponseHandlers[0]({
+        conversationId,
+        incomingMessage: {
+          conversationId,
+          content: "hello",
+          platform: "slack",
+          user: { id: "user-1" },
+        },
+      });
+    }
+
+    // proto-loader may surface StreamControl.action=STOP as the enum name, its
+    // numeric value, or a numeric string — the bridge must abort on all three.
+    for (const action of ["STOP", 1, "1"] as const) {
+      test(`StreamControl STOP (action=${JSON.stringify(action)}) aborts the in-flight model call`, async () => {
+        let capturedSignal: AbortSignal | undefined;
+        const adapter = createMockAdapter({
+          stream: (_p, _hooks, opts) =>
+            new Promise<void>((resolve) => {
+              capturedSignal = opts?.signal;
+              opts?.signal?.addEventListener("abort", () => resolve());
+            }),
+        });
+        const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+        await bridge.start();
+
+        sendMessage("conv-1");
+        await new Promise((r) => setTimeout(r, 10));
+        expect(capturedSignal).toBeDefined();
+        expect(capturedSignal!.aborted).toBe(false);
+
+        emitFeedback({
+          conversationId: "conv-1",
+          streamControl: { action, reason: "user stopped generation" },
+        });
+        await new Promise((r) => setTimeout(r, 10));
+
+        expect(capturedSignal!.aborted).toBe(true);
+      });
+    }
+
+    test("a non-STOP stream control does not abort the model call", async () => {
+      let capturedSignal: AbortSignal | undefined;
+      const adapter = createMockAdapter({
+        stream: (_p, _hooks, opts) =>
+          new Promise<void>(() => {
+            capturedSignal = opts?.signal;
+          }),
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      sendMessage("conv-1");
+      await new Promise((r) => setTimeout(r, 10));
+
+      emitFeedback({
+        conversationId: "conv-1",
+        streamControl: { action: 0, reason: "" }, // UNSPECIFIED, not STOP
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(capturedSignal!.aborted).toBe(false);
+    });
+
+    test("abort is swallowed by .catch and does not surface an agent error", async () => {
+      const adapter = createMockAdapter({
+        stream: (_p, _hooks, opts) =>
+          new Promise<void>((_resolve, reject) => {
+            // Model call throws when aborted (as a real SDK does). The bridge's
+            // .catch must recognize the abort and end quietly.
+            opts?.signal?.addEventListener("abort", () =>
+              reject(new Error("model call aborted"))
+            );
+          }),
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      sendMessage("conv-1");
+      await new Promise((r) => setTimeout(r, 10));
+
+      emitFeedback({
+        conversationId: "conv-1",
+        streamControl: { action: "STOP", reason: "" },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(mockSendAgentResponseCalls).toHaveLength(0);
+    });
+
+    test("a new message supersedes and aborts the prior in-flight turn", async () => {
+      const signals: AbortSignal[] = [];
+      const adapter = createMockAdapter({
+        stream: (_p, _hooks, opts) =>
+          new Promise<void>((resolve) => {
+            if (opts?.signal) signals.push(opts.signal);
+            opts?.signal?.addEventListener("abort", () => resolve());
+          }),
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      sendMessage("conv-1"); // turn A
+      await new Promise((r) => setTimeout(r, 10));
+      sendMessage("conv-1"); // turn B supersedes A
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(signals).toHaveLength(2);
+      expect(signals[0].aborted).toBe(true); // prior turn aborted
+      expect(signals[1].aborted).toBe(false); // new turn still active
     });
   });
 });

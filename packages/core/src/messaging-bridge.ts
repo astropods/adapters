@@ -323,6 +323,13 @@ export class MessagingBridge {
       .catch((error) => {
         // A user stop aborts the model call — that's expected; end quietly
         // rather than surfacing an error to the client.
+        //
+        // We deliberately do NOT emit a terminal END here. Cancel finalization
+        // is owned by the sidecar: HandleCancel broadcasts the finish and closes
+        // the SSE (and astro-server clears the stream marker), so the client and
+        // chat store are already finalized. An END sent from here would only race
+        // that finish — and on the /cancel path the sidecar's stop-gate would
+        // drop it anyway (a non-START content chunk on a stopped conversation).
         if (controller.signal.aborted) {
           debug(`[bridge] Generation aborted by stop: conversation=${conversationId}`);
           return;

@@ -542,4 +542,98 @@ describe("MastraAdapter", () => {
       expect(config.tools[0].type).toBe("other");
     });
   });
+
+  describe("stop-generation (abort)", () => {
+    test("forwards the abort signal to agent.stream", async () => {
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model: modelFromParts(textParts(["hi"])),
+        instructions: "test",
+      });
+      const originalStream = agent.stream.bind(agent);
+      const spy = mock((...args: Parameters<typeof originalStream>) => originalStream(...args));
+      (agent as { stream: typeof originalStream }).stream = spy as unknown as typeof originalStream;
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const controller = new AbortController();
+
+      await adapter.stream("hi", hooks, {
+        conversationId: "conv-1",
+        userId: "user-1",
+        signal: controller.signal,
+      });
+
+      const callOpts = spy.mock.calls[0]?.[1] as { abortSignal?: AbortSignal };
+      expect(callOpts?.abortSignal).toBe(controller.signal);
+    });
+
+    test("an already-aborted signal stops consuming fullStream before emitting anything", async () => {
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model: modelFromParts(textParts(["hi"])),
+        instructions: "test",
+      });
+
+      async function* fullStream() {
+        yield { type: "text-delta", payload: { text: "should-not-appear" } };
+        yield { type: "finish", payload: {} };
+      }
+      (agent as unknown as { stream: unknown }).stream = mock(async () => ({
+        fullStream: fullStream(),
+      }));
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const controller = new AbortController();
+      controller.abort(); // aborted before streaming begins
+
+      await adapter.stream("hi", hooks, {
+        conversationId: "conv-1",
+        userId: "user-1",
+        signal: controller.signal,
+      });
+
+      expect(hooks.chunks).toEqual([]);
+      expect(hooks.finishCount).toBe(0);
+      expect(hooks.errors).toEqual([]);
+    });
+
+    test("aborting mid-stream stops further chunks and suppresses the trailing finish", async () => {
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model: modelFromParts(textParts(["hi"])),
+        instructions: "test",
+      });
+
+      const controller = new AbortController();
+      async function* fullStream() {
+        yield { type: "text-delta", payload: { text: "first" } };
+        controller.abort(); // user stops after the first token
+        yield { type: "text-delta", payload: { text: "second" } };
+        yield { type: "finish", payload: {} };
+      }
+      (agent as unknown as { stream: unknown }).stream = mock(async () => ({
+        fullStream: fullStream(),
+      }));
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+
+      await adapter.stream("hi", hooks, {
+        conversationId: "conv-1",
+        userId: "user-1",
+        signal: controller.signal,
+      });
+
+      // Only the pre-abort token is emitted; the post-abort chunk and the
+      // finish are dropped by the guard.
+      expect(hooks.chunks).toEqual(["first"]);
+      expect(hooks.finishCount).toBe(0);
+      expect(hooks.errors).toEqual([]);
+    });
+  });
 });
