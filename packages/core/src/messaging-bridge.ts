@@ -27,8 +27,17 @@ const MAX_RETRIES = 10;
 const INITIAL_DELAY_MS = 500;
 const MAX_DELAY_MS = 15000;
 
+// Plain render() default: an escapable submit form.
 const DEFAULT_ALLOWED_ACTIONS: RenderableAction[] = [
   "RENDERABLE_ACTION_SUBMIT",
+  "RENDERABLE_ACTION_CANCEL",
+];
+
+// elicit() is MCP-elicitation-shaped, whose native action set is
+// accept / decline / cancel, so it surfaces DECLINE as well as CANCEL.
+const DEFAULT_ELICIT_ACTIONS: RenderableAction[] = [
+  "RENDERABLE_ACTION_SUBMIT",
+  "RENDERABLE_ACTION_DECLINE",
   "RENDERABLE_ACTION_CANCEL",
 ];
 
@@ -359,7 +368,12 @@ export class MessagingBridge {
         elicit: (elicitMessage, dataSchema, opts) =>
           this.sendRenderable(
             conversationId,
-            this.buildRenderable({ message: elicitMessage, dataSchema, ...opts })
+            this.buildRenderable({
+              message: elicitMessage,
+              dataSchema,
+              ...opts,
+              allowedActions: opts?.allowedActions ?? DEFAULT_ELICIT_ACTIONS,
+            })
           ),
       })
       .catch((error) => {
@@ -417,6 +431,19 @@ export class MessagingBridge {
     return new Promise<RenderableResponse>((resolve, reject) => {
       if (!this.stream) {
         reject(new Error("Cannot send a Renderable before the stream is open"));
+        return;
+      }
+      // Every blocking Renderable must offer an escape so a thread can never
+      // wedge (spec: allowed_actions must include CANCEL or DECLINE).
+      if (
+        !renderable.allowedActions.includes("RENDERABLE_ACTION_CANCEL") &&
+        !renderable.allowedActions.includes("RENDERABLE_ACTION_DECLINE")
+      ) {
+        reject(
+          new Error(
+            "A blocking Renderable must offer CANCEL or DECLINE so the user can always escape"
+          )
+        );
         return;
       }
       this.pendingRenderables.set(renderable.id, { resolve, reject });

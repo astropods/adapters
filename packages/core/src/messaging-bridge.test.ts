@@ -1198,7 +1198,7 @@ describe("MessagingBridge", () => {
       expect(caught.renderableId).toBe(id);
     });
 
-    test("elicit() defaults to submit + cancel actions", async () => {
+    test("elicit() defaults to the MCP submit/decline/cancel action set", async () => {
       const adapter = createMockAdapter({
         stream: async (_p, _h, options) => {
           void options.elicit!("Your name?", {
@@ -1217,6 +1217,7 @@ describe("MessagingBridge", () => {
       expect(renderable.message).toBe("Your name?");
       expect(renderable.allowedActions).toEqual([
         "RENDERABLE_ACTION_SUBMIT",
+        "RENDERABLE_ACTION_DECLINE",
         "RENDERABLE_ACTION_CANCEL",
       ]);
 
@@ -1224,6 +1225,33 @@ describe("MessagingBridge", () => {
         id: renderable.id,
         action: "RENDERABLE_ACTION_CANCEL",
       });
+    });
+
+    test("render() rejects when allowedActions offers no CANCEL or DECLINE escape", async () => {
+      let caught: any = null;
+      const adapter = createMockAdapter({
+        stream: async (_p, _h, options) => {
+          try {
+            await options.render!({
+              message: "no escape",
+              dataSchema: { type: "object" },
+              allowedActions: ["RENDERABLE_ACTION_SUBMIT"],
+            });
+          } catch (err) {
+            caught = err;
+          }
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      incoming("conv-r6");
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(caught).toBeInstanceOf(Error);
+      expect(String(caught.message)).toContain("CANCEL or DECLINE");
+      // Nothing should reach the wire when the invariant fails.
+      expect(mockSendAgentResponseCalls.find((r) => (r as any).renderable)).toBeUndefined();
     });
 
     test("a response with no live awaiter is handed to onResume", async () => {

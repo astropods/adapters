@@ -80,7 +80,10 @@ export interface StreamOptions {
    * callers may omit it. Audio surfaces do not render forms in v1.
    */
   render?(input: RenderableInput): Promise<RenderableResponse>;
-  /** MCP-elicitation-shaped convenience over {@link render}. */
+  /**
+   * MCP-elicitation-shaped convenience over {@link render}. When `allowedActions`
+   * is omitted it defaults to the MCP triple: submit / decline / cancel.
+   */
   elicit?(
     message: string,
     dataSchema: object,
