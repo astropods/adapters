@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.6.1](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.6.0...@astropods/adapter-core@0.6.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* **chat:** honor stop-generation by aborting the model call ([#58](https://github.com/astropods/adapters/issues/58)) ([284106c](https://github.com/astropods/adapters/commit/284106c95bf736143c4749b0b81ead475c6348ab))
+
+
+
 ## [0.6.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.4.1...@astropods/adapter-core@0.6.0) (2026-06-17)
 
 

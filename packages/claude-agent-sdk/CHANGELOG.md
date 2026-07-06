@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.5.1](https://github.com/astropods/adapters/compare/@astropods/adapter-claude-agent-sdk@0.5.0...@astropods/adapter-claude-agent-sdk@0.5.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* **claude-agent-sdk:** adapt to upstream changes for @anthropic-ai/claude-agent-sdk@0.3.193 ([#56](https://github.com/astropods/adapters/issues/56)) ([3fb10bd](https://github.com/astropods/adapters/commit/3fb10bdceb4a2952a1673ef5851b28bbbd04c995))
+
+
+
 ## [0.5.0](https://github.com/astropods/adapters/compare/@astropods/adapter-claude-agent-sdk@0.3.0...@astropods/adapter-claude-agent-sdk@0.5.0) (2026-06-17)
 
 
