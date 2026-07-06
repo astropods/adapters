@@ -31,6 +31,14 @@ export interface StreamOptions {
    * full field set.
    */
   platformContext?: PlatformContext;
+  /**
+   * Aborted when the user stops generation (a `StreamControl` STOP arrives for
+   * this conversation, e.g. the chat "stop generating" button). Adapters should
+   * forward it to the underlying model call so generation actually halts —
+   * otherwise the model runs to completion and its full output is still recorded
+   * in telemetry (and can resurface on reload).
+   */
+  signal?: AbortSignal;
 }
 
 /**

@@ -32,6 +32,8 @@ export class MessagingBridge {
   private client: MessagingClient | null = null;
   private stream: ConversationStream | null = null;
   private shutdownHandler: (() => void) | null = null;
+  // In-flight model call per conversation, so a StreamControl STOP can abort it.
+  private abortControllers = new Map<string, AbortController>();
 
   constructor(adapter: AgentAdapter, options?: ServeOptions) {
     this.adapter = adapter;
@@ -86,6 +88,7 @@ export class MessagingBridge {
     // Listen for incoming messages
     this.stream.on("response", (response: AgentResponse) => {
       if (response.feedback) {
+        this.maybeAbortOnStreamControl(response.feedback);
         this.dispatchFeedback(response.feedback);
         return;
       }
@@ -270,11 +273,39 @@ export class MessagingBridge {
     }
   }
 
+  /**
+   * Abort the in-flight model call for a conversation when a StreamControl STOP
+   * feedback arrives (chat "stop generating"). The action is compared loosely
+   * because proto-loader may surface the enum as a string ("STOP") or number.
+   * With no cooperating agent this is a no-op; with one, generation halts so
+   * telemetry records only the partial.
+   */
+  private maybeAbortOnStreamControl(fb: PlatformFeedback): void {
+    const action = fb.streamControl?.action;
+    const isStop = action === "STOP" || action === 1 || action === "1";
+    if (!isStop) return;
+    this.abortInFlight(fb.conversationId);
+    debug(`[bridge] Stop received; aborting generation: conversation=${fb.conversationId}`);
+  }
+
+  private abortInFlight(conversationId: string): void {
+    const existing = this.abortControllers.get(conversationId);
+    if (existing) {
+      existing.abort();
+      this.abortControllers.delete(conversationId);
+    }
+  }
+
   private handleMessage(message: Message): void {
     if (!this.stream) return;
 
     const { conversationId } = message;
     const stream = this.stream;
+
+    // A new turn supersedes any prior in-flight turn on this conversation.
+    this.abortInFlight(conversationId);
+    const controller = new AbortController();
+    this.abortControllers.set(conversationId, controller);
 
     // Signal start of streaming response
     stream.sendContentChunk(conversationId, { type: "START", content: "" });
@@ -287,11 +318,25 @@ export class MessagingBridge {
         // || catches empty strings too — ?? would let "" through.
         userId: message.user?.id || "anonymous",
         platformContext: message.platformContext,
+        signal: controller.signal,
       })
       .catch((error) => {
+        // A user stop aborts the model call — that's expected; end quietly
+        // rather than surfacing an error to the client.
+        if (controller.signal.aborted) {
+          debug(`[bridge] Generation aborted by stop: conversation=${conversationId}`);
+          return;
+        }
         hooks.onError(
           error instanceof Error ? error : new Error(String(error))
         );
+      })
+      .finally(() => {
+        // Only clear if we're still the active turn (a newer turn may have
+        // replaced us).
+        if (this.abortControllers.get(conversationId) === controller) {
+          this.abortControllers.delete(conversationId);
+        }
       });
   }
 

@@ -37,6 +37,10 @@ export class MastraAdapter implements AgentAdapter {
           "langfuse.session.id": options.conversationId,
         },
       },
+      // Forward the stop signal so a "stop generating" actually aborts the model
+      // call — Mastra force-closes the stream and the LLM request is cancelled,
+      // so telemetry records only the partial rather than the full completion.
+      abortSignal: options.signal,
     });
 
     // Track tool names by call ID so we can reference them when the call ends
@@ -44,6 +48,9 @@ export class MastraAdapter implements AgentAdapter {
     const toolNames = new Map<string, string>();
 
     for await (const chunk of stream.fullStream) {
+      // Once stopped, drop any trailing chunks (including a Mastra abort/error
+      // chunk) so we neither emit more text nor surface a spurious error.
+      if (options.signal?.aborted) break;
       switch (chunk.type) {
         case "text-delta":
           hooks.onChunk(chunk.payload.text);
