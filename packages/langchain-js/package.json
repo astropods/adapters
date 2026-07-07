@@ -1,6 +1,7 @@
 {
   "name": "@astropods/adapter-langchain",
   "license": "Apache-2.0",
+  "private": true,
   "version": "0.1.0",
   "description": "LangChain.js adapter for the Astro messaging service. Serves a LangChain/LangGraph agent and wires OpenTelemetry tracing.",
   "type": "module",

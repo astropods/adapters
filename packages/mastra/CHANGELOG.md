@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.4.4](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.4.3...@astropods/adapter-mastra@0.4.4) (2026-07-06)
+
+
+### Bug Fixes
+
+* **chat:** honor stop-generation by aborting the model call ([#58](https://github.com/astropods/adapters/issues/58)) ([284106c](https://github.com/astropods/adapters/commit/284106c95bf736143c4749b0b81ead475c6348ab))
+
+
+
 ## [0.4.3](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.4.1...@astropods/adapter-mastra@0.4.3) (2026-06-17)
 
 **Note:** Version bump only for package @astropods/adapter-mastra

@@ -63,7 +63,14 @@ export function setupObservability(agent: Agent): void {
   // Create a new Mastra with our observability and register the agent on it.
   // This calls agent.__registerMastra() internally, wiring the agent to the
   // new instance's observability.
-  const mastra = new Mastra({ observability });
+  //
+  // @mastra/core >=1.50.0 requires flush() on ObservabilityEntrypoint;
+  // @mastra/observability 1.5.0 doesn't implement it yet — shim it here.
+  const observabilityWithFlush = Object.assign(observability, {
+    flush: (): Promise<void> =>
+      Promise.all([...observability.listInstances().values()].map(i => i.flush())).then(() => undefined),
+  });
+  const mastra = new Mastra({ observability: observabilityWithFlush });
   mastra.addAgent(agent);
 
   console.log(`OTEL tracing enabled → ${tracesUrl}`);
