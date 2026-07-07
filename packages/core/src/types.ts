@@ -78,6 +78,10 @@ export interface StreamOptions {
    * surface which cannot render it rejects with `UnsupportedRenderableError`.
    * Provided by the bridge on the text-message path; optional so non-bridge
    * callers may omit it. Audio surfaces do not render forms in v1.
+   *
+   * Await (or attach `.catch` to) the returned promise: it also rejects if the
+   * turn is stopped, superseded, or the bridge shuts down before a response
+   * arrives, so a fire-and-forget call risks an unhandled rejection.
    */
   render?(input: RenderableInput): Promise<RenderableResponse>;
   /**

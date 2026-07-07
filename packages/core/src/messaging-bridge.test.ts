@@ -1328,5 +1328,79 @@ describe("MessagingBridge", () => {
       expect(resumed.conversationId).toBe("conv-r5");
       expect(resumed.response.id).toBe("orphan-1");
     });
+
+    test("a numeric UNSUPPORTED action still rejects (enum normalization)", async () => {
+      let caught: any = null;
+      const adapter = createMockAdapter({
+        stream: async (_p, _h, options) => {
+          try {
+            await options.render!({ message: "strict", dataSchema: { type: "object" } });
+          } catch (err) {
+            caught = err;
+          }
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      incoming("conv-r7");
+      await new Promise((r) => setTimeout(r, 10));
+
+      // action arrives as the numeric enum value (5), not the prefixed string.
+      emitRenderableResponse("conv-r7", { id: lastRenderable().id, action: 5 });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(caught).toBeInstanceOf(UnsupportedRenderableError);
+    });
+
+    test("a numeric SUBMIT resolves with the canonical string action", async () => {
+      let result: any = null;
+      const adapter = createMockAdapter({
+        stream: async (_p, _h, options) => {
+          result = await options.render!({ message: "q", dataSchema: { type: "object" } });
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      incoming("conv-r8");
+      await new Promise((r) => setTimeout(r, 10));
+
+      emitRenderableResponse("conv-r8", {
+        id: lastRenderable().id,
+        action: 1, // numeric SUBMIT
+        contentJson: "{}",
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(result.action).toBe("RENDERABLE_ACTION_SUBMIT");
+    });
+
+    test("stop() settles a pending render() without emitting AGENT_ERROR", async () => {
+      let caught: any = null;
+      const adapter = createMockAdapter({
+        stream: async (_p, _h, options) => {
+          try {
+            await options.render!({ message: "q", dataSchema: { type: "object" } });
+          } catch (err) {
+            caught = err;
+          }
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      incoming("conv-r9");
+      await new Promise((r) => setTimeout(r, 10));
+
+      bridge.stop();
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(caught).toBeInstanceOf(Error);
+      // Shutdown aborts the turn, so the adapter unwinds quietly rather than
+      // sending an error on a stream that is being closed.
+      const errors = mockSendAgentResponseCalls.filter((r) => (r as any).error);
+      expect(errors).toHaveLength(0);
+    });
   });
 });

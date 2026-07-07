@@ -41,6 +41,30 @@ const DEFAULT_ELICIT_ACTIONS: RenderableAction[] = [
   "RENDERABLE_ACTION_CANCEL",
 ];
 
+const ACTION_BY_NUMBER: Record<number, RenderableAction> = {
+  0: "RENDERABLE_ACTION_UNSPECIFIED",
+  1: "RENDERABLE_ACTION_SUBMIT",
+  2: "RENDERABLE_ACTION_DECLINE",
+  3: "RENDERABLE_ACTION_CANCEL",
+  4: "RENDERABLE_ACTION_RESPOND",
+  5: "RENDERABLE_ACTION_UNSUPPORTED",
+};
+
+// proto-loader may surface an enum as its name, numeric value, or numeric
+// string (the StreamControl STOP handling defends the same way). Normalize any
+// representation to the canonical name so comparisons are representation-safe.
+function normalizeAction(
+  action: RenderableAction | number | string
+): RenderableAction {
+  if (typeof action === "number") {
+    return ACTION_BY_NUMBER[action] ?? "RENDERABLE_ACTION_UNSPECIFIED";
+  }
+  if (/^\d+$/.test(action)) {
+    return ACTION_BY_NUMBER[Number(action)] ?? "RENDERABLE_ACTION_UNSPECIFIED";
+  }
+  return action as RenderableAction;
+}
+
 function debug(msg: string) {
   if (process.env.DEBUG) logger.debug(msg);
 }
@@ -456,9 +480,10 @@ export class MessagingBridge {
       }
       // Every blocking Renderable must offer an escape so a thread can never
       // wedge (spec: allowed_actions must include CANCEL or DECLINE).
+      const actions = renderable.allowedActions.map(normalizeAction);
       if (
-        !renderable.allowedActions.includes("RENDERABLE_ACTION_CANCEL") &&
-        !renderable.allowedActions.includes("RENDERABLE_ACTION_DECLINE")
+        !actions.includes("RENDERABLE_ACTION_CANCEL") &&
+        !actions.includes("RENDERABLE_ACTION_DECLINE")
       ) {
         reject(
           new Error(
@@ -494,10 +519,12 @@ export class MessagingBridge {
     const waiter = this.pendingRenderables.get(response.id);
     if (waiter) {
       this.pendingRenderables.delete(response.id);
-      if (response.action === "RENDERABLE_ACTION_UNSUPPORTED") {
+      const action = normalizeAction(response.action);
+      if (action === "RENDERABLE_ACTION_UNSUPPORTED") {
         waiter.reject(new UnsupportedRenderableError(response.id));
       } else {
-        waiter.resolve(response);
+        // Hand the adapter the canonical string action even if it arrived numeric.
+        waiter.resolve({ ...response, action });
       }
       return;
     }
@@ -549,6 +576,14 @@ export class MessagingBridge {
   }
 
   stop(): void {
+    // Abort in-flight turns first so an adapter blocked on render() unwinds
+    // through the quiet aborted-turn path (stream().catch checks signal.aborted)
+    // rather than emitting an AGENT_ERROR on a stream we're about to close.
+    for (const controller of this.abortControllers.values()) {
+      controller.abort();
+    }
+    this.abortControllers.clear();
+
     // Fail any in-flight awaiters so a caller blocked on render() doesn't hang
     // past shutdown. The durable store keeps the interaction for redelivery.
     for (const waiter of this.pendingRenderables.values()) {
