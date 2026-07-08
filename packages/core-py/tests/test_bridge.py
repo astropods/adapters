@@ -19,6 +19,7 @@ from astropods_messaging import (
     Transcript,
     MessageReaction,
     PlatformFeedback,
+    StreamControl,
     TextFeedback,
     User,
 )
@@ -418,3 +419,252 @@ class TestPlatformContextForwarding:
 
         assert len(captured) == 1
         assert captured[0].platform_context is None
+
+
+# --- Stop generation (StreamControl STOP) ---
+
+
+class _RecordingAdapter:
+    """Adapter whose stream() emits a partial chunk then blocks until released.
+
+    Each call records its own lifecycle so tests can assert on *observable*
+    outcomes — was the awaited call actually interrupted? did it run to
+    completion? — rather than on mock call bookkeeping (which would pass no
+    matter what the bridge does).
+    """
+
+    def __init__(self) -> None:
+        self.name = "recording"
+        self.calls: list[dict] = []
+
+    async def stream(self, prompt, hooks, options) -> None:
+        state = {
+            "conversation_id": options.conversation_id,
+            "prompt": prompt,
+            "started": asyncio.Event(),
+            "release": asyncio.Event(),
+            "cancelled": False,
+            "completed": False,
+        }
+        self.calls.append(state)
+        hooks.on_chunk("partial ")
+        state["started"].set()
+        try:
+            await state["release"].wait()
+        except asyncio.CancelledError:
+            state["cancelled"] = True
+            raise
+        hooks.on_chunk("done")
+        hooks.on_finish()
+        state["completed"] = True
+
+    def get_config(self) -> dict:
+        return {"system_prompt": "", "tools": []}
+
+
+def _drain(queue: asyncio.Queue) -> list:
+    items = []
+    while not queue.empty():
+        items.append(queue.get_nowait())
+    return items
+
+
+def _content_events(items: list) -> list:
+    """Reduce queued requests to [(kind, text)] for the agent-response chunks.
+
+    kind is 'start' / 'delta' / 'end' for content chunks, or 'error'.
+    """
+    events = []
+    for it in items:
+        if not it.HasField("agent_response"):
+            continue
+        ar = it.agent_response
+        if ar.HasField("error"):
+            events.append(("error", ar.error.message))
+        elif ar.HasField("content"):
+            kind = ContentChunk.ChunkType.Name(ar.content.type).lower()
+            events.append((kind, ar.content.content))
+    return events
+
+
+async def _await_started(
+    adapter: _RecordingAdapter,
+    conversation_id: str,
+    prompt: str | None = None,
+    timeout: float = 1.0,
+) -> dict:
+    """Block until the matching turn has entered stream().
+
+    ``prompt`` disambiguates successive turns on the same conversation (the
+    supersede case), where filtering by ``conversation_id`` alone would match
+    the already-started prior call.
+    """
+
+    async def _wait() -> dict:
+        while True:
+            match = next(
+                (
+                    c
+                    for c in reversed(adapter.calls)
+                    if c["conversation_id"] == conversation_id
+                    and (prompt is None or c["prompt"] == prompt)
+                ),
+                None,
+            )
+            if match is not None:
+                await match["started"].wait()
+                return match
+            await asyncio.sleep(0)
+
+    return await asyncio.wait_for(_wait(), timeout)
+
+
+def _stop_feedback(conversation_id: str) -> PlatformFeedback:
+    return PlatformFeedback(
+        conversation_id=conversation_id,
+        stream_control=StreamControl(action=StreamControl.STOP),
+    )
+
+
+async def _settle(predicate, timeout: float = 1.0) -> None:
+    """Yield until ``predicate`` holds or the timeout elapses.
+
+    Deliberately does NOT cancel any task — unlike ``asyncio.wait_for``, which
+    cancels its awaitable on timeout and would itself trigger the code path
+    under test, making the stop assertions pass whether or not the bridge
+    actually cancelled anything.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if predicate():
+            return
+        await asyncio.sleep(0.005)
+
+
+class TestStopGeneration:
+    def _bridge(self, adapter: _RecordingAdapter) -> MessagingBridge:
+        return MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+
+    def _start_turn(self, bridge: MessagingBridge, conversation_id: str, content: str = "hi") -> "asyncio.Task":
+        msg = Message(conversation_id=conversation_id, content=content, user=User(id="u1"))
+        bridge._track_turn(conversation_id, bridge._handle_message(msg))
+        return bridge._inflight[conversation_id]
+
+    @pytest.mark.asyncio
+    async def test_stop_cancels_generation_and_does_not_finalize(self):
+        adapter = _RecordingAdapter()
+        bridge = self._bridge(adapter)
+
+        task = self._start_turn(bridge, "c1")
+        call = await _await_started(adapter, "c1")
+        assert "c1" in bridge._inflight
+
+        bridge._maybe_abort_on_stream_control(_stop_feedback("c1"))
+        # Only the bridge's STOP handling can drive this turn to completion —
+        # _settle never cancels the task itself, so if the STOP were a no-op the
+        # task would stay pending and the assertions below would fail.
+        await _settle(lambda: task.done())
+        await asyncio.sleep(0)  # let the done-callback clear _inflight
+
+        # The awaited model call was actually interrupted, not run to completion.
+        assert task.done()
+        assert call["cancelled"] is True
+        assert call["completed"] is False
+
+        # The partial reaches the client, but the turn is never finalized by the
+        # agent (no END, no error) — the sidecar owns stop finalization.
+        events = _content_events(_drain(bridge._write_queue))
+        assert ("start", "") in events
+        assert ("delta", "partial ") in events
+        assert not any(kind == "end" for kind, _ in events)
+        assert not any(kind == "error" for kind, _ in events)
+
+        assert "c1" not in bridge._inflight
+
+    @pytest.mark.asyncio
+    async def test_non_stop_feedback_does_not_cancel(self):
+        adapter = _RecordingAdapter()
+        bridge = self._bridge(adapter)
+
+        task = self._start_turn(bridge, "c1")
+        call = await _await_started(adapter, "c1")
+
+        # A thumbs-up reaction must leave the in-flight turn untouched.
+        bridge._maybe_abort_on_stream_control(
+            PlatformFeedback(
+                conversation_id="c1",
+                reaction=MessageReaction(type=MessageReaction.THUMBS_UP),
+            )
+        )
+        # Give any (erroneous) cancellation time to land before asserting it did not.
+        await asyncio.sleep(0.02)
+        assert call["cancelled"] is False
+        assert task.done() is False
+        assert "c1" in bridge._inflight
+
+        # Released, the turn finishes normally and finalizes with an END.
+        call["release"].set()
+        await asyncio.wait_for(task, timeout=1.0)
+        assert call["completed"] is True
+        assert ("end", "") in _content_events(_drain(bridge._write_queue))
+
+    @pytest.mark.asyncio
+    async def test_new_turn_supersedes_prior_turn(self):
+        adapter = _RecordingAdapter()
+        bridge = self._bridge(adapter)
+
+        first = self._start_turn(bridge, "c1", content="first")
+        first_call = await _await_started(adapter, "c1", prompt="first")
+
+        # Second message on the same conversation supersedes the first.
+        second = self._start_turn(bridge, "c1", content="second")
+        second_call = await _await_started(adapter, "c1", prompt="second")
+
+        # Starting the second turn — not any test-side wait — must cancel the first.
+        await _settle(lambda: first.done())
+        await asyncio.sleep(0)
+
+        assert first.done()
+        assert first_call["cancelled"] is True
+        assert first_call["completed"] is False
+        assert second_call["cancelled"] is False
+        assert bridge._inflight.get("c1") is second
+
+        second_call["release"].set()
+        await asyncio.wait_for(second, timeout=1.0)
+        assert second_call["completed"] is True
+
+    @pytest.mark.asyncio
+    async def test_stop_is_scoped_to_its_conversation(self):
+        adapter = _RecordingAdapter()
+        bridge = self._bridge(adapter)
+
+        task1 = self._start_turn(bridge, "c1")
+        task2 = self._start_turn(bridge, "c2")
+        call1 = await _await_started(adapter, "c1")
+        call2 = await _await_started(adapter, "c2")
+
+        bridge._maybe_abort_on_stream_control(_stop_feedback("c1"))
+        await _settle(lambda: task1.done())
+        await asyncio.sleep(0)
+
+        # Only c1 is cancelled; c2 keeps generating and stays tracked.
+        assert task1.done()
+        assert call1["cancelled"] is True
+        assert call2["cancelled"] is False
+        assert task2.done() is False
+        assert "c1" not in bridge._inflight
+        assert bridge._inflight.get("c2") is task2
+
+        call2["release"].set()
+        await asyncio.wait_for(task2, timeout=1.0)
+        assert call2["completed"] is True
+
+    @pytest.mark.asyncio
+    async def test_stop_for_unknown_conversation_is_noop(self):
+        adapter = _RecordingAdapter()
+        bridge = self._bridge(adapter)
+        # No in-flight turn: must not raise and must not fabricate state.
+        bridge._maybe_abort_on_stream_control(_stop_feedback("ghost"))
+        assert bridge._inflight == {}

@@ -23,6 +23,7 @@ from astropods_messaging import (
     HealthCheckRequest,
     Message,
     StatusUpdate,
+    StreamControl,
     Transcript,
     User,
 )
@@ -42,6 +43,10 @@ DEFAULT_SERVER_ADDR = "localhost:9090"
 MAX_RETRIES = 10
 INITIAL_DELAY_MS = 500
 MAX_DELAY_MS = 15000
+
+# StreamControl.Action value for a user "stop generating". Resolved once at
+# import so the hot feedback path is a plain int comparison.
+_STREAM_CONTROL_STOP = StreamControl.Action.Value("STOP")
 
 
 def _debug(*args: object) -> None:
@@ -180,6 +185,9 @@ class MessagingBridge:
         self._stub: Optional[AgentMessagingStub] = None
         self._write_queue: asyncio.Queue = asyncio.Queue()
         self._stop_event: asyncio.Event = asyncio.Event()
+        # In-flight turn task per conversation, so a StreamControl STOP (chat
+        # "stop generating") can cancel the awaited model call.
+        self._inflight: dict[str, asyncio.Task] = {}
         # Audio accumulation state: keyed by conversation_id
         self._audio_configs: dict = {}
         self._audio_chunks: dict = {}
@@ -295,12 +303,14 @@ class MessagingBridge:
                                     data=b"".join(chunks),
                                     config=config,
                                 )
-                                asyncio.create_task(
-                                    self._handle_audio(conv_id, audio_input, config)
+                                self._track_turn(
+                                    conv_id,
+                                    self._handle_audio(conv_id, audio_input, config),
                                 )
                     continue
 
                 if payload == "feedback":
+                    self._maybe_abort_on_stream_control(response.feedback)
                     self._dispatch_feedback(response.feedback)
                     continue
 
@@ -335,7 +345,9 @@ class MessagingBridge:
                     continue
 
                 if not is_audio:
-                    asyncio.create_task(self._handle_message(message))
+                    self._track_turn(
+                        message.conversation_id, self._handle_message(message)
+                    )
         except grpc.aio.AioRpcError as e:
             if not self._stop_event.is_set():
                 logger.error("Stream error: %s", e)
@@ -407,6 +419,50 @@ class MessagingBridge:
         except Exception as exc:
             logger.exception("on_feedback raised; dropping event: %s", exc)
 
+    def _maybe_abort_on_stream_control(self, fb_proto) -> None:
+        """Cancel the in-flight turn when a StreamControl STOP feedback arrives.
+
+        This is the chat "stop generating" path. With no cooperating runtime
+        it's a best-effort task cancel; asyncio unwinds the awaited model call
+        (CancelledError propagates out of ``adapter.stream``) so generation
+        actually halts and only the partial is recorded. Non-STOP controls
+        (pause/resume/regenerate) fall through to ``on_feedback`` untouched.
+        """
+        if fb_proto.WhichOneof("feedback") != "stream_control":
+            return
+        if fb_proto.stream_control.action != _STREAM_CONTROL_STOP:
+            return
+        self._abort_inflight(fb_proto.conversation_id)
+        _debug(
+            "[bridge] Stop received; aborting generation: conversation=%s",
+            fb_proto.conversation_id,
+        )
+
+    def _abort_inflight(self, conversation_id: str) -> None:
+        """Cancel and forget the in-flight turn task for a conversation, if any."""
+        task = self._inflight.pop(conversation_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _track_turn(self, conversation_id: str, coro) -> None:
+        """Run a turn coroutine as a tracked task so a later STOP can cancel it.
+
+        A new turn supersedes any prior in-flight turn on the same
+        conversation, matching the platform's one-active-turn model.
+        """
+        # A new turn supersedes any prior in-flight turn on this conversation.
+        self._abort_inflight(conversation_id)
+        task = asyncio.create_task(coro)
+        self._inflight[conversation_id] = task
+
+        def _clear(finished: asyncio.Task) -> None:
+            # Only clear if we're still the active turn — a newer turn may have
+            # already replaced us in the map.
+            if self._inflight.get(conversation_id) is finished:
+                self._inflight.pop(conversation_id, None)
+
+        task.add_done_callback(_clear)
+
     async def _handle_message(self, message: Message) -> None:
         conversation_id = message.conversation_id
 
@@ -436,6 +492,15 @@ class MessagingBridge:
 
         try:
             await self._adapter.stream(message.content, hooks, options)
+        except asyncio.CancelledError:
+            # A user stop cancelled this turn. Finalization is owned by the
+            # sidecar (it broadcasts the finish and closes the SSE), so end
+            # quietly: no END chunk (the sidecar's stop-gate drops non-START
+            # chunks on a stopped conversation) and no error surfaced.
+            _debug(
+                "[bridge] Generation aborted by stop: conversation=%s",
+                conversation_id,
+            )
         except Exception as error:
             hooks.on_error(
                 error if isinstance(error, Exception) else Exception(str(error))
@@ -464,6 +529,13 @@ class MessagingBridge:
 
         try:
             await self._adapter.stream_audio(audio_input, hooks, options)
+        except asyncio.CancelledError:
+            # A user stop cancelled this audio turn — end quietly (see
+            # _handle_message; the sidecar owns finalization).
+            _debug(
+                "[bridge] Audio generation aborted by stop: conversation=%s",
+                conversation_id,
+            )
         except Exception as error:
             hooks.on_error(
                 error if isinstance(error, Exception) else Exception(str(error))
