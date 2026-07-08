@@ -112,7 +112,7 @@ mock.module("./logger", () => ({
   },
 }));
 
-const { MessagingBridge } = await import("./messaging-bridge");
+const { MessagingBridge, UnsupportedRenderableError } = await import("./messaging-bridge");
 
 // --- Helpers ---
 
@@ -479,6 +479,9 @@ describe("MessagingBridge", () => {
       // The bridge now threads a per-turn abort signal into stream options so a
       // "stop generating" can cancel the in-flight model call.
       expect(capturedOptions!.signal).toBeInstanceOf(AbortSignal);
+      // render/elicit are wired on the text-message path.
+      expect(typeof capturedOptions!.render).toBe("function");
+      expect(typeof capturedOptions!.elicit).toBe("function");
     });
 
     test("forwards platformContext from incoming message to adapter.stream", async () => {
@@ -1078,6 +1081,326 @@ describe("MessagingBridge", () => {
       expect(signals).toHaveLength(2);
       expect(signals[0].aborted).toBe(true); // prior turn aborted
       expect(signals[1].aborted).toBe(false); // new turn still active
+    });
+
+    test("a STOP settles a pending render() so the awaiter cannot hang", async () => {
+      let caught: any = null;
+      const adapter = createMockAdapter({
+        stream: async (_p, _hooks, opts) => {
+          try {
+            await opts.render!({ message: "approve?", dataSchema: { type: "object" } });
+          } catch (err) {
+            caught = err;
+          }
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      sendMessage("conv-1");
+      await new Promise((r) => setTimeout(r, 10));
+
+      emitFeedback({
+        conversationId: "conv-1",
+        streamControl: { action: "STOP", reason: "" },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(caught).toBeInstanceOf(Error);
+      expect(String(caught.message)).toContain("aborted");
+    });
+
+    test("a superseding message settles the prior turn's pending render()", async () => {
+      let caught: any = null;
+      let calls = 0;
+      const adapter = createMockAdapter({
+        stream: async (_p, _hooks, opts) => {
+          calls += 1;
+          if (calls === 1) {
+            try {
+              await opts.render!({ message: "approve?", dataSchema: { type: "object" } });
+            } catch (err) {
+              caught = err;
+            }
+          }
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      sendMessage("conv-1"); // turn A blocks on render()
+      await new Promise((r) => setTimeout(r, 10));
+      sendMessage("conv-1"); // turn B supersedes A
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(caught).toBeInstanceOf(Error);
+      expect(String(caught.message)).toContain("aborted");
+    });
+  });
+
+  describe("renderable / elicitation", () => {
+    // Drive the response listener with a synthetic incoming message so
+    // adapter.stream() runs and can call options.render()/elicit().
+    function incoming(conversationId: string) {
+      mockResponseHandlers[0]({
+        conversationId,
+        incomingMessage: {
+          conversationId,
+          content: "hi",
+          platform: "web",
+          user: { id: "user-1", username: "Ada" },
+        },
+      });
+    }
+    // Deliver a RenderableResponse the way the gRPC stream does: server → agent
+    // as an AgentResponse whose feedback carries renderableResponse.
+    function emitRenderableResponse(conversationId: string, response: any) {
+      mockResponseHandlers[0]({
+        conversationId,
+        feedback: { conversationId, renderableResponse: response },
+      } as any);
+    }
+    function lastRenderable(): any {
+      const sent = mockSendAgentResponseCalls.find((r) => (r as any).renderable);
+      return sent ? (sent as any).renderable : undefined;
+    }
+
+    test("render() emits an AgentResponse.renderable with defaults filled", async () => {
+      const adapter = createMockAdapter({
+        stream: async (_p, _h, options) => {
+          void options.render!({
+            message: "Approve this write?",
+            dataSchema: { type: "object", properties: { ok: { type: "boolean" } } },
+            value: { ok: true },
+            intent: "tool_permission",
+          });
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      incoming("conv-r1");
+      await new Promise((r) => setTimeout(r, 10));
+
+      const renderable = lastRenderable();
+      expect(renderable).toBeDefined();
+      expect(renderable.id).toBeTruthy();
+      expect(renderable.kind).toBe("RENDER_KIND_FORM");
+      expect(renderable.message).toBe("Approve this write?");
+      expect(JSON.parse(renderable.dataSchemaJson).type).toBe("object");
+      expect(JSON.parse(renderable.valueJson)).toEqual({ ok: true });
+      expect(renderable.allowedActions).toEqual([
+        "RENDERABLE_ACTION_SUBMIT",
+        "RENDERABLE_ACTION_CANCEL",
+      ]);
+      expect(renderable.intent).toBe("tool_permission");
+
+      // Settle so the awaiter doesn't dangle.
+      emitRenderableResponse("conv-r1", {
+        id: renderable.id,
+        action: "RENDERABLE_ACTION_CANCEL",
+      });
+    });
+
+    test("a matching response resolves the render() promise", async () => {
+      let result: any = null;
+      const adapter = createMockAdapter({
+        stream: async (_p, _h, options) => {
+          result = await options.render!({ message: "Pick one", dataSchema: { type: "object" } });
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      incoming("conv-r2");
+      await new Promise((r) => setTimeout(r, 10));
+
+      emitRenderableResponse("conv-r2", {
+        id: lastRenderable().id,
+        action: "RENDERABLE_ACTION_SUBMIT",
+        contentJson: '{"choice":"a"}',
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(result).not.toBeNull();
+      expect(result.action).toBe("RENDERABLE_ACTION_SUBMIT");
+      expect(result.contentJson).toBe('{"choice":"a"}');
+    });
+
+    test("an UNSUPPORTED response rejects with UnsupportedRenderableError", async () => {
+      let caught: any = null;
+      const adapter = createMockAdapter({
+        stream: async (_p, _h, options) => {
+          try {
+            await options.render!({ message: "strict", dataSchema: { type: "object" } });
+          } catch (err) {
+            caught = err;
+          }
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      incoming("conv-r3");
+      await new Promise((r) => setTimeout(r, 10));
+
+      const id = lastRenderable().id;
+      emitRenderableResponse("conv-r3", { id, action: "RENDERABLE_ACTION_UNSUPPORTED" });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(caught).toBeInstanceOf(UnsupportedRenderableError);
+      expect(caught.renderableId).toBe(id);
+    });
+
+    test("elicit() defaults to the MCP submit/decline/cancel action set", async () => {
+      const adapter = createMockAdapter({
+        stream: async (_p, _h, options) => {
+          void options.elicit!("Your name?", {
+            type: "object",
+            properties: { name: { type: "string" } },
+          });
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      incoming("conv-r4");
+      await new Promise((r) => setTimeout(r, 10));
+
+      const renderable = lastRenderable();
+      expect(renderable.message).toBe("Your name?");
+      expect(renderable.allowedActions).toEqual([
+        "RENDERABLE_ACTION_SUBMIT",
+        "RENDERABLE_ACTION_DECLINE",
+        "RENDERABLE_ACTION_CANCEL",
+      ]);
+
+      emitRenderableResponse("conv-r4", {
+        id: renderable.id,
+        action: "RENDERABLE_ACTION_CANCEL",
+      });
+    });
+
+    test("render() rejects when allowedActions offers no CANCEL or DECLINE escape", async () => {
+      let caught: any = null;
+      const adapter = createMockAdapter({
+        stream: async (_p, _h, options) => {
+          try {
+            await options.render!({
+              message: "no escape",
+              dataSchema: { type: "object" },
+              allowedActions: ["RENDERABLE_ACTION_SUBMIT"],
+            });
+          } catch (err) {
+            caught = err;
+          }
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      incoming("conv-r6");
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(caught).toBeInstanceOf(Error);
+      expect(String(caught.message)).toContain("CANCEL or DECLINE");
+      // Nothing should reach the wire when the invariant fails.
+      expect(mockSendAgentResponseCalls.find((r) => (r as any).renderable)).toBeUndefined();
+    });
+
+    test("a response with no live awaiter is handed to onResume", async () => {
+      let resumed: any = null;
+      const adapter = createMockAdapter({
+        onResume: (conversationId, response) => {
+          resumed = { conversationId, response };
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      emitRenderableResponse("conv-r5", {
+        id: "orphan-1",
+        action: "RENDERABLE_ACTION_SUBMIT",
+        contentJson: "{}",
+      });
+
+      expect(resumed).not.toBeNull();
+      expect(resumed.conversationId).toBe("conv-r5");
+      expect(resumed.response.id).toBe("orphan-1");
+    });
+
+    test("a numeric UNSUPPORTED action still rejects (enum normalization)", async () => {
+      let caught: any = null;
+      const adapter = createMockAdapter({
+        stream: async (_p, _h, options) => {
+          try {
+            await options.render!({ message: "strict", dataSchema: { type: "object" } });
+          } catch (err) {
+            caught = err;
+          }
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      incoming("conv-r7");
+      await new Promise((r) => setTimeout(r, 10));
+
+      // action arrives as the numeric enum value (5), not the prefixed string.
+      emitRenderableResponse("conv-r7", { id: lastRenderable().id, action: 5 });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(caught).toBeInstanceOf(UnsupportedRenderableError);
+    });
+
+    test("a numeric SUBMIT resolves with the canonical string action", async () => {
+      let result: any = null;
+      const adapter = createMockAdapter({
+        stream: async (_p, _h, options) => {
+          result = await options.render!({ message: "q", dataSchema: { type: "object" } });
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      incoming("conv-r8");
+      await new Promise((r) => setTimeout(r, 10));
+
+      emitRenderableResponse("conv-r8", {
+        id: lastRenderable().id,
+        action: 1, // numeric SUBMIT
+        contentJson: "{}",
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(result.action).toBe("RENDERABLE_ACTION_SUBMIT");
+    });
+
+    test("stop() settles a pending render() without emitting AGENT_ERROR", async () => {
+      let caught: any = null;
+      const adapter = createMockAdapter({
+        stream: async (_p, _h, options) => {
+          try {
+            await options.render!({ message: "q", dataSchema: { type: "object" } });
+          } catch (err) {
+            caught = err;
+          }
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      incoming("conv-r9");
+      await new Promise((r) => setTimeout(r, 10));
+
+      bridge.stop();
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(caught).toBeInstanceOf(Error);
+      // Shutdown aborts the turn, so the adapter unwinds quietly rather than
+      // sending an error on a stream that is being closed.
+      const errors = mockSendAgentResponseCalls.filter((r) => (r as any).error);
+      expect(errors).toHaveLength(0);
     });
   });
 });
