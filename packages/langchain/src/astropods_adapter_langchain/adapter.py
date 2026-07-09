@@ -7,6 +7,8 @@ from typing import Any, Optional
 from langchain_core.messages import HumanMessage
 from opentelemetry import trace as otel_trace
 
+from astropods_messaging import TraceContext
+from astropods_adapter_core import create_traceparent
 from astropods_adapter_core.types import AudioInput, StreamHooks, StreamOptions, VoiceProvider
 
 _tracer = otel_trace.get_tracer(__name__)
@@ -65,6 +67,9 @@ class LangChainAdapter:
         self, prompt: str, hooks: StreamHooks, options: StreamOptions
     ) -> None:
         with _tracer.start_as_current_span(self.name) as span:
+            traceparent = _traceparent_from_span(span)
+            if traceparent:
+                hooks.on_trace_context(TraceContext(traceparent=traceparent))
             # Backfill so the trace lands in Insights' Unauthorized bucket,
             # not Unattributed (the latter is for cron / SDK / ingestion).
             user_id = options.user_id or "anonymous"
@@ -142,6 +147,9 @@ class LangChainAdapter:
             error_occurred = False
 
             class _AccumulatingHooks:
+                def on_trace_context(self_, trace_context: TraceContext) -> None:
+                    hooks.on_trace_context(trace_context)
+
                 def on_chunk(self_, text: str) -> None:
                     text_chunks.append(text)
                     hooks.on_chunk(text)
@@ -194,3 +202,14 @@ class LangChainAdapter:
             "system_prompt": self._system_prompt,
             "tools": tool_configs,
         }
+
+
+def _traceparent_from_span(span: Any) -> str:
+    ctx = span.get_span_context()
+    if not getattr(ctx, "is_valid", False):
+        return ""
+    return create_traceparent(
+        trace_id=f"{ctx.trace_id:032x}",
+        span_id=f"{ctx.span_id:016x}",
+        trace_flags=int(ctx.trace_flags),
+    )

@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import type { StatusUpdate } from "@astropods/messaging";
-import type { StreamOptions } from "@astropods/adapter-core";
+import type { StreamOptions, TraceContext } from "@astropods/adapter-core";
 
 import { LangChainAdapter } from "./adapter";
 import type { LangChainAgent } from "./adapter";
@@ -11,6 +11,10 @@ function createHooks() {
     statuses: [] as StatusUpdate[],
     errors: [] as Error[],
     finishCount: 0,
+    traceContexts: [] as TraceContext[],
+    onTraceContext(traceContext: TraceContext) {
+      result.traceContexts.push(traceContext);
+    },
     onChunk(text: string) {
       result.chunks.push(text);
     },

@@ -8,6 +8,7 @@ import type {
   StreamHooks,
   StreamOptions,
 } from "@astropods/adapter-core";
+import { createTraceparent } from "@astropods/adapter-core";
 
 const tracer = trace.getTracer("@astropods/adapter-langchain");
 
@@ -67,6 +68,7 @@ export class LangChainAdapter implements AgentAdapter {
     // Root span carrying user/session + trace IO. OpenInference's spans nest
     // under it via the active context; a no-op span when uninstrumented.
     await tracer.startActiveSpan(this.name, async (span) => {
+      hooks.onTraceContext({ traceparent: traceparentFromSpan(span) });
       span.setAttribute("langfuse.user.id", options.userId || "anonymous");
       span.setAttribute("langfuse.session.id", options.conversationId);
       span.setAttribute("langfuse.trace.input", prompt);
@@ -247,4 +249,15 @@ function systemPromptText(prompt: unknown): string {
     if (typeof text === "string") return text;
   }
   return "";
+}
+
+function traceparentFromSpan(span: {
+  spanContext(): { traceId: string; spanId: string; traceFlags: number };
+}): string {
+  const ctx = span.spanContext();
+  return createTraceparent({
+    traceId: ctx.traceId,
+    spanId: ctx.spanId,
+    traceFlags: ctx.traceFlags,
+  });
 }

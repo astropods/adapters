@@ -3,7 +3,7 @@ import type {
   AgentConfig as MessagingAgentConfig,
 } from "@astropods/messaging";
 import type { AgentAdapter, AudioInput, StreamHooks, StreamOptions } from "@astropods/adapter-core";
-import { logger } from "@astropods/adapter-core";
+import { createTraceparent, logger } from "@astropods/adapter-core";
 
 /**
  * Adapts a Mastra Agent to the Astro messaging protocol.
@@ -42,6 +42,13 @@ export class MastraAdapter implements AgentAdapter {
       // so telemetry records only the partial rather than the full completion.
       abortSignal: options.signal,
     });
+    const traceparent = createTraceparent({
+      traceId: stream.traceId,
+      spanId: stream.spanId,
+    });
+    if (traceparent) {
+      hooks.onTraceContext({ traceparent });
+    }
 
     // Track tool names by call ID so we can reference them when the call ends
     // (the end chunk only carries toolCallId, not toolName).
