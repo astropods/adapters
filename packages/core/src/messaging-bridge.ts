@@ -100,7 +100,6 @@ export class MessagingBridge {
       reject: (e: Error) => void;
     }
   >();
-  private traceContexts = new Map<string, TraceContext>();
 
   constructor(adapter: AgentAdapter, options?: ServeOptions) {
     this.adapter = adapter;
@@ -243,34 +242,46 @@ export class MessagingBridge {
   private buildHooks(conversationId: string): StreamHooks {
     const stream = this.stream!;
 
+    // Per-turn, so a late-unwinding superseded turn can't tag a newer turn.
+    let traceContext: TraceContext | undefined;
+
+    // Stamp every AgentResponse for this turn with its trace context. (Audio
+    // uses a separate transport — see onAudioChunk.)
+    const sendResponse = (payload: Omit<AgentResponse, "conversationId">) => {
+      if (!this.stream) return;
+      this.stream.sendAgentResponse({
+        conversationId,
+        ...(traceContext ? { traceContext } : {}),
+        ...payload,
+      });
+    };
+
     return {
-      onTraceContext: (traceContext) => {
-        if (!traceContext?.traceparent) return;
-        this.traceContexts.set(conversationId, traceContext);
+      onTraceContext: (tc) => {
+        if (!tc?.traceparent) return;
+        traceContext = tc;
         debug(`[bridge] Trace context attached: conversation=${conversationId}`);
       },
       onChunk: (text: string) => {
-        this.sendResponse(conversationId, { content: { type: "DELTA", content: text } });
+        sendResponse({ content: { type: "DELTA", content: text } });
       },
       onStatusUpdate: (status) => {
-        this.sendResponse(conversationId, { status });
+        sendResponse({ status });
       },
       onError: (error: Error) => {
         logger.error({ err: error }, "Agent error");
-        this.sendResponse(conversationId, {
-          error: { code: "AGENT_ERROR", message: error.message },
-        });
+        sendResponse({ error: { code: "AGENT_ERROR", message: error.message } });
       },
       onFinish: () => {
-        this.sendResponse(conversationId, { content: { type: "END", content: "" } });
+        sendResponse({ content: { type: "END", content: "" } });
         debug(`[bridge] Response complete: conversation=${conversationId}`);
       },
       onTranscript: (text: string) => {
         debug(`[bridge] Sending transcript: conversation=${conversationId} text=${JSON.stringify(text)}`);
-        this.sendResponse(conversationId, { transcript: { text } });
+        sendResponse({ transcript: { text } });
       },
-      // Audio streams over ConversationRequest.audio, a separate wire field with
-      // no trace-context slot, so it stays off the sendResponse path below.
+      // Audio uses ConversationRequest.audio — no trace-context slot — so it
+      // stays off sendResponse.
       onAudioChunk: (data: Uint8Array) => {
         stream.sendAudioChunk({ data, done: false });
       },
@@ -278,23 +289,6 @@ export class MessagingBridge {
         stream.endAudio();
       },
     };
-  }
-
-  // Single construction point so every AgentResponse for a turn carries that
-  // turn's trace context. trace_context identifies the trace the response
-  // belongs to, letting a consumer correlate any response back to it. (Audio
-  // uses a separate transport — see onAudioChunk.)
-  private sendResponse(
-    conversationId: string,
-    payload: Omit<AgentResponse, "conversationId">,
-  ): void {
-    if (!this.stream) return;
-    const traceContext = this.traceContexts.get(conversationId);
-    this.stream.sendAgentResponse({
-      conversationId,
-      ...(traceContext ? { traceContext } : {}),
-      ...payload,
-    });
   }
 
   /**
@@ -416,7 +410,6 @@ export class MessagingBridge {
 
     // A new turn supersedes any prior in-flight turn on this conversation.
     this.abortInFlight(conversationId);
-    this.traceContexts.delete(conversationId);
     const controller = new AbortController();
     this.abortControllers.set(conversationId, controller);
 
@@ -465,10 +458,9 @@ export class MessagingBridge {
       })
       .finally(() => {
         // Only clear if we're still the active turn (a newer turn may have
-        // replaced us — clearing then would wipe its trace context too).
+        // replaced us).
         if (this.abortControllers.get(conversationId) === controller) {
           this.abortControllers.delete(conversationId);
-          this.traceContexts.delete(conversationId);
         }
       });
   }
@@ -577,7 +569,6 @@ export class MessagingBridge {
     if (!this.stream || !this.adapter.streamAudio) return;
 
     const stream = this.stream;
-    this.traceContexts.delete(conversationId);
 
     debug(`[bridge] Starting audio response: conversation=${conversationId} encoding=${audioInput.config.encoding} filetype=${audioInput.filetype}`);
     stream.sendContentChunk(conversationId, { type: "START", content: "" });
@@ -598,9 +589,6 @@ export class MessagingBridge {
         hooks.onError(
           error instanceof Error ? error : new Error(String(error))
         );
-      })
-      .finally(() => {
-        this.traceContexts.delete(conversationId);
       });
   }
 
@@ -612,7 +600,6 @@ export class MessagingBridge {
       controller.abort();
     }
     this.abortControllers.clear();
-    this.traceContexts.clear();
 
     // Fail any in-flight awaiters so a caller blocked on render() doesn't hang
     // past shutdown. The durable store keeps the interaction for redelivery.
