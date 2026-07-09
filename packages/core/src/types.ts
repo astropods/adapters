@@ -8,8 +8,15 @@ import type {
   StatusUpdate,
 } from "@astropods/messaging";
 
+export interface TraceContext {
+  traceparent?: string;
+  tracestate?: string;
+}
+
 /** Lifecycle hooks called by an adapter as the agent streams a response. */
 export interface StreamHooks {
+  /** W3C trace context for the current assistant turn. */
+  onTraceContext(traceContext: TraceContext): void;
   onChunk(text: string): void;
   onStatusUpdate(status: StatusUpdate): void;
   onError(error: Error): void;
@@ -119,6 +126,8 @@ export interface FeedbackEvent {
   conversationId: string;
   /** Platform message ID the feedback is attached to. */
   responseId: string;
+  /** Trace context for the referenced assistant response, when available. */
+  traceContext?: TraceContext;
   kind: string;
   userId: string;
   userName: string;

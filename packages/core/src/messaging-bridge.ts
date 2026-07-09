@@ -19,6 +19,7 @@ import type {
   RenderableInput,
   ServeOptions,
   StreamHooks,
+  TraceContext,
 } from "./types.js";
 import { logger } from "./logger.js";
 
@@ -99,6 +100,7 @@ export class MessagingBridge {
       reject: (e: Error) => void;
     }
   >();
+  private traceContexts = new Map<string, TraceContext>();
 
   constructor(adapter: AgentAdapter, options?: ServeOptions) {
     this.adapter = adapter;
@@ -242,24 +244,38 @@ export class MessagingBridge {
     const stream = this.stream!;
 
     return {
+      onTraceContext: (traceContext) => {
+        if (!traceContext?.traceparent) return;
+        this.traceContexts.set(conversationId, traceContext);
+        debug(`[bridge] Trace context attached: conversation=${conversationId}`);
+      },
       onChunk: (text: string) => {
-        stream.sendContentChunk(conversationId, {
+        const chunk = {
           type: "DELTA",
           content: text,
-        });
+        } as const;
+        stream.sendContentChunk(
+          conversationId,
+          this.attachTraceContext(conversationId, chunk)
+        );
       },
       onStatusUpdate: (status) => {
         stream.sendStatusUpdate(conversationId, status);
       },
       onError: (error: Error) => {
         logger.error({ err: error }, "Agent error");
-        stream.sendAgentResponse({
+        const response: AgentResponse & { traceContext?: TraceContext } = {
           conversationId,
+          traceContext: this.traceContexts.get(conversationId),
           error: { code: "AGENT_ERROR", message: error.message },
-        });
+        };
+        stream.sendAgentResponse(response);
       },
       onFinish: () => {
-        stream.sendContentChunk(conversationId, { type: "END", content: "" });
+        stream.sendContentChunk(
+          conversationId,
+          this.attachTraceContext(conversationId, { type: "END", content: "" })
+        );
         debug(`[bridge] Response complete: conversation=${conversationId}`);
       },
       onTranscript: (text: string) => {
@@ -273,6 +289,15 @@ export class MessagingBridge {
         stream.endAudio();
       },
     };
+  }
+
+  private attachTraceContext<T extends object>(
+    conversationId: string,
+    value: T
+  ): T & { traceContext?: TraceContext } {
+    const traceContext = this.traceContexts.get(conversationId);
+    if (!traceContext) return value;
+    return { ...value, traceContext };
   }
 
   /**
@@ -326,6 +351,7 @@ export class MessagingBridge {
       // surfaces empty strings rather than undefined so callbacks can write
       // `event.userId` straight to a row without null-checking every field.
       responseId: fb.responseId ?? "",
+      traceContext: (fb as PlatformFeedback & { traceContext?: TraceContext }).traceContext,
       kind,
       userId: fb.user?.id ?? "",
       userName: fb.user?.username ?? "",
@@ -393,6 +419,7 @@ export class MessagingBridge {
 
     // A new turn supersedes any prior in-flight turn on this conversation.
     this.abortInFlight(conversationId);
+    this.traceContexts.delete(conversationId);
     const controller = new AbortController();
     this.abortControllers.set(conversationId, controller);
 
@@ -445,6 +472,7 @@ export class MessagingBridge {
         if (this.abortControllers.get(conversationId) === controller) {
           this.abortControllers.delete(conversationId);
         }
+        this.traceContexts.delete(conversationId);
       });
   }
 
@@ -552,6 +580,7 @@ export class MessagingBridge {
     if (!this.stream || !this.adapter.streamAudio) return;
 
     const stream = this.stream;
+    this.traceContexts.delete(conversationId);
 
     debug(`[bridge] Starting audio response: conversation=${conversationId} encoding=${audioInput.config.encoding} filetype=${audioInput.filetype}`);
     stream.sendContentChunk(conversationId, { type: "START", content: "" });
@@ -572,6 +601,9 @@ export class MessagingBridge {
         hooks.onError(
           error instanceof Error ? error : new Error(String(error))
         );
+      })
+      .finally(() => {
+        this.traceContexts.delete(conversationId);
       });
   }
 

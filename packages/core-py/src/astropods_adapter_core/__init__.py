@@ -10,6 +10,7 @@ from .types import (
 )
 from .bridge import MessagingBridge
 from .serve import serve
+from .trace import create_traceparent
 
 __all__ = [
     "AgentAdapter",
@@ -20,5 +21,6 @@ __all__ = [
     "StreamOptions",
     "ServeOptions",
     "MessagingBridge",
+    "create_traceparent",
     "serve",
 ]

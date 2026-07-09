@@ -3,12 +3,16 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from astropods_messaging import PlatformContext
+    from astropods_messaging import PlatformContext, TraceContext
 
 
 @runtime_checkable
 class StreamHooks(Protocol):
     """Lifecycle callbacks called by an adapter as the agent streams a response."""
+
+    def on_trace_context(self, trace_context: "TraceContext") -> None:
+        """W3C trace context for this assistant turn."""
+        ...
 
     def on_chunk(self, text: str) -> None:
         """Send a text token or fragment from the LLM."""
@@ -103,6 +107,7 @@ class FeedbackEvent:
     conversation_id: str
     response_id: str             # platform message ID the feedback is attached to
     kind: str
+    trace_context: Optional["TraceContext"] = None
     user_id: str = ""
     user_name: str = ""
     text: Optional[str] = None   # populated for "text" and "reaction"

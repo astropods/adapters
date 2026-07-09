@@ -24,6 +24,7 @@ from astropods_messaging import (
     Message,
     StatusUpdate,
     StreamControl,
+    TraceContext,
     Transcript,
     User,
 )
@@ -78,9 +79,21 @@ class _StreamHooksImpl:
         self._conversation_id = conversation_id
         self._write_queue = write_queue
         self._finished = False
+        self._trace_context: Optional[TraceContext] = None
 
     def _enqueue(self, request: ConversationRequest) -> None:
         self._write_queue.put_nowait(request)
+
+    def _response(self, **kwargs) -> AgentResponse:
+        if self._trace_context is not None:
+            kwargs.setdefault("trace_context", self._trace_context)
+        return AgentResponse(conversation_id=self._conversation_id, **kwargs)
+
+    def on_trace_context(self, trace_context: TraceContext) -> None:
+        if not trace_context.traceparent:
+            return
+        self._trace_context = trace_context
+        _debug("[bridge] Trace context attached: conversation=%s", self._conversation_id)
 
     def on_chunk(self, text: str) -> None:
         if self._finished:
@@ -89,10 +102,9 @@ class _StreamHooksImpl:
             type=ContentChunk.ChunkType.Value("DELTA"),
             content=text,
         )
-        response = AgentResponse(
-            conversation_id=self._conversation_id,
-            content=chunk,
-        )
+        if self._trace_context is not None:
+            chunk.trace_context.CopyFrom(self._trace_context)
+        response = self._response(content=chunk)
         self._enqueue(ConversationRequest(agent_response=response))
 
     def on_status_update(self, status: dict) -> None:
@@ -105,10 +117,7 @@ class _StreamHooksImpl:
         except ValueError:
             status_value = StatusUpdate.Status.Value("THINKING")
         update = StatusUpdate(status=status_value, custom_message=custom_message)
-        response = AgentResponse(
-            conversation_id=self._conversation_id,
-            status=update,
-        )
+        response = self._response(status=update)
         self._enqueue(ConversationRequest(agent_response=response))
 
     def on_error(self, error: Exception) -> None:
@@ -119,10 +128,7 @@ class _StreamHooksImpl:
             code=ErrorResponse.ErrorCode.Value("AGENT_ERROR"),
             message=str(error),
         )
-        response = AgentResponse(
-            conversation_id=self._conversation_id,
-            error=err,
-        )
+        response = self._response(error=err)
         self._enqueue(ConversationRequest(agent_response=response))
         logger.error("Agent error: %s", error)
 
@@ -134,38 +140,28 @@ class _StreamHooksImpl:
             type=ContentChunk.ChunkType.Value("END"),
             content="",
         )
-        response = AgentResponse(
-            conversation_id=self._conversation_id,
-            content=chunk,
-        )
+        if self._trace_context is not None:
+            chunk.trace_context.CopyFrom(self._trace_context)
+        response = self._response(content=chunk)
         self._enqueue(ConversationRequest(agent_response=response))
         _debug("[bridge] Response complete: conversation=%s", self._conversation_id)
 
     def on_transcript(self, text: str) -> None:
         if self._finished:
             return
-        response = AgentResponse(
-            conversation_id=self._conversation_id,
-            transcript=Transcript(text=text),
-        )
+        response = self._response(transcript=Transcript(text=text))
         self._enqueue(ConversationRequest(agent_response=response))
 
     def on_audio_chunk(self, data: bytes) -> None:
         if self._finished:
             return
-        response = AgentResponse(
-            conversation_id=self._conversation_id,
-            audio_chunk=AudioChunk(data=data, done=False),
-        )
+        response = self._response(audio_chunk=AudioChunk(data=data, done=False))
         self._enqueue(ConversationRequest(agent_response=response))
 
     def on_audio_end(self) -> None:
         if self._finished:
             return
-        response = AgentResponse(
-            conversation_id=self._conversation_id,
-            audio_chunk=AudioChunk(done=True),
-        )
+        response = self._response(audio_chunk=AudioChunk(done=True))
         self._enqueue(ConversationRequest(agent_response=response))
 
 
@@ -399,6 +395,9 @@ class MessagingBridge:
             conversation_id=fb_proto.conversation_id,
             response_id=fb_proto.response_id,
             kind=event_kind,
+            trace_context=(
+                fb_proto.trace_context if fb_proto.HasField("trace_context") else None
+            ),
             user_id=fb_proto.user.id,
             user_name=fb_proto.user.username,
             text=text,
