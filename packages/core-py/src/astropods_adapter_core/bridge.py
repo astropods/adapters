@@ -90,7 +90,7 @@ class _StreamHooksImpl:
         return AgentResponse(conversation_id=self._conversation_id, **kwargs)
 
     def on_trace_context(self, trace_context: TraceContext) -> None:
-        if not trace_context.traceparent:
+        if trace_context is None or not trace_context.traceparent:
             return
         self._trace_context = trace_context
         _debug("[bridge] Trace context attached: conversation=%s", self._conversation_id)
