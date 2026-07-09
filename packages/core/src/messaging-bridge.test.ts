@@ -323,6 +323,53 @@ describe("MessagingBridge", () => {
       expect(deltas[1].chunk.content).toBe(" world");
     });
 
+    test("sends trace context on AgentResponse wrapper for content chunks", async () => {
+      const traceContext = {
+        traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+      };
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks) => {
+          hooks.onTraceContext(traceContext);
+          hooks.onChunk("Hello");
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      mockResponseHandlers[0]({
+        conversationId: "conv-1",
+        incomingMessage: {
+          conversationId: "conv-1",
+          content: "hi",
+          platform: "slack",
+          user: { id: "user-1" },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(mockSendContentChunkCalls).toEqual([
+        {
+          conversationId: "conv-1",
+          chunk: { type: "START", content: "" },
+        },
+      ]);
+      expect(mockSendAgentResponseCalls).toEqual([
+        {
+          conversationId: "conv-1",
+          traceContext,
+          content: { type: "DELTA", content: "Hello" },
+        },
+        {
+          conversationId: "conv-1",
+          traceContext,
+          content: { type: "END", content: "" },
+        },
+      ]);
+    });
+
     test("sends status updates via sendStatusUpdate", async () => {
       const adapter = createMockAdapter({
         stream: async (_prompt, hooks) => {

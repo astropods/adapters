@@ -102,8 +102,6 @@ class _StreamHooksImpl:
             type=ContentChunk.ChunkType.Value("DELTA"),
             content=text,
         )
-        if self._trace_context is not None:
-            chunk.trace_context.CopyFrom(self._trace_context)
         response = self._response(content=chunk)
         self._enqueue(ConversationRequest(agent_response=response))
 
@@ -140,8 +138,6 @@ class _StreamHooksImpl:
             type=ContentChunk.ChunkType.Value("END"),
             content="",
         )
-        if self._trace_context is not None:
-            chunk.trace_context.CopyFrom(self._trace_context)
         response = self._response(content=chunk)
         self._enqueue(ConversationRequest(agent_response=response))
         _debug("[bridge] Response complete: conversation=%s", self._conversation_id)

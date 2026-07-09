@@ -254,10 +254,7 @@ export class MessagingBridge {
           type: "DELTA",
           content: text,
         } as const;
-        stream.sendContentChunk(
-          conversationId,
-          this.attachTraceContext(conversationId, chunk)
-        );
+        this.sendContentChunk(conversationId, chunk);
       },
       onStatusUpdate: (status) => {
         stream.sendStatusUpdate(conversationId, status);
@@ -272,10 +269,7 @@ export class MessagingBridge {
         stream.sendAgentResponse(response);
       },
       onFinish: () => {
-        stream.sendContentChunk(
-          conversationId,
-          this.attachTraceContext(conversationId, { type: "END", content: "" })
-        );
+        this.sendContentChunk(conversationId, { type: "END", content: "" });
         debug(`[bridge] Response complete: conversation=${conversationId}`);
       },
       onTranscript: (text: string) => {
@@ -291,13 +285,19 @@ export class MessagingBridge {
     };
   }
 
-  private attachTraceContext<T extends object>(
-    conversationId: string,
-    value: T
-  ): T & { traceContext?: TraceContext } {
+  private sendContentChunk(conversationId: string, chunk: AgentResponse["content"]): void {
+    if (!this.stream || !chunk) return;
     const traceContext = this.traceContexts.get(conversationId);
-    if (!traceContext) return value;
-    return { ...value, traceContext };
+    if (traceContext) {
+      const response: AgentResponse & { traceContext?: TraceContext } = {
+        conversationId,
+        traceContext,
+        content: chunk,
+      };
+      this.stream.sendAgentResponse(response);
+      return;
+    }
+    this.stream.sendContentChunk(conversationId, chunk);
   }
 
   /**
