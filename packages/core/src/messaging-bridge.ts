@@ -261,7 +261,7 @@ export class MessagingBridge {
       },
       onError: (error: Error) => {
         logger.error({ err: error }, "Agent error");
-        const response: AgentResponse & { traceContext?: TraceContext } = {
+        const response: AgentResponse = {
           conversationId,
           traceContext: this.traceContexts.get(conversationId),
           error: { code: "AGENT_ERROR", message: error.message },
@@ -288,16 +288,7 @@ export class MessagingBridge {
   private sendContentChunk(conversationId: string, chunk: AgentResponse["content"]): void {
     if (!this.stream || !chunk) return;
     const traceContext = this.traceContexts.get(conversationId);
-    if (traceContext) {
-      const response: AgentResponse & { traceContext?: TraceContext } = {
-        conversationId,
-        traceContext,
-        content: chunk,
-      };
-      this.stream.sendAgentResponse(response);
-      return;
-    }
-    this.stream.sendContentChunk(conversationId, chunk);
+    this.stream.sendContentChunk(conversationId, chunk, traceContext ? { traceContext } : undefined);
   }
 
   /**
@@ -351,7 +342,7 @@ export class MessagingBridge {
       // surfaces empty strings rather than undefined so callbacks can write
       // `event.userId` straight to a row without null-checking every field.
       responseId: fb.responseId ?? "",
-      traceContext: (fb as PlatformFeedback & { traceContext?: TraceContext }).traceContext,
+      traceContext: fb.traceContext,
       kind,
       userId: fb.user?.id ?? "",
       userName: fb.user?.username ?? "",
@@ -615,6 +606,7 @@ export class MessagingBridge {
       controller.abort();
     }
     this.abortControllers.clear();
+    this.traceContexts.clear();
 
     // Fail any in-flight awaiters so a caller blocked on render() doesn't hang
     // past shutdown. The durable store keeps the interaction for redelivery.

@@ -6,12 +6,12 @@ import type {
   RenderableResponse,
   RenderKind,
   StatusUpdate,
+  TraceContext,
 } from "@astropods/messaging";
 
-export interface TraceContext {
-  traceparent?: string;
-  tracestate?: string;
-}
+// The wire type is the source of truth; re-export it so adapters get a single
+// TraceContext shared with the messaging SDK rather than a parallel copy.
+export type { TraceContext } from "@astropods/messaging";
 
 /** Lifecycle hooks called by an adapter as the agent streams a response. */
 export interface StreamHooks {

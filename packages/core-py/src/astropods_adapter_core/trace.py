@@ -22,22 +22,21 @@ def create_traceparent(
     return f"00-{normalized_trace_id}-{normalized_span_id}-{normalized_trace_flags}"
 
 
-def _normalize_trace_id(trace_id: str | None) -> str:
-    normalized = (trace_id or "").strip().lower()
-    if not _TRACE_ID_PATTERN.match(normalized):
-        return ""
-    if normalized == "00000000000000000000000000000000":
+# A valid id matches its hex-length pattern and is not the all-zero sentinel
+# (which the regex admits but OTel uses to mean "no id").
+def _normalize_id(id_: str | None, pattern: "re.Pattern[str]", zero: str) -> str:
+    normalized = (id_ or "").strip().lower()
+    if not pattern.match(normalized) or normalized == zero:
         return ""
     return normalized
+
+
+def _normalize_trace_id(trace_id: str | None) -> str:
+    return _normalize_id(trace_id, _TRACE_ID_PATTERN, "00000000000000000000000000000000")
 
 
 def _normalize_span_id(span_id: str | None) -> str:
-    normalized = (span_id or "").strip().lower()
-    if not _SPAN_ID_PATTERN.match(normalized):
-        return ""
-    if normalized == "0000000000000000":
-        return ""
-    return normalized
+    return _normalize_id(span_id, _SPAN_ID_PATTERN, "0000000000000000")
 
 
 def _normalize_trace_flags(trace_flags: Union[int, str]) -> str:

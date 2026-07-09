@@ -17,7 +17,11 @@ let mockCloseCalled = false;
 let mockStreamEndCalled = false;
 let mockSendAgentConfigArgs: AgentConfig | null = null;
 let mockSendMessageArgs: Message | null = null;
-let mockSendContentChunkCalls: Array<{ conversationId: string; chunk: ContentChunk }> = [];
+let mockSendContentChunkCalls: Array<{
+  conversationId: string;
+  chunk: ContentChunk;
+  response?: Pick<AgentResponse, "responseId" | "traceContext">;
+}> = [];
 let mockSendStatusUpdateCalls: Array<{ conversationId: string; status: StatusUpdate }> = [];
 let mockSendAgentResponseCalls: AgentResponse[] = [];
 let mockResponseHandlers: Array<(response: AgentResponse) => void> = [];
@@ -52,8 +56,12 @@ mock.module("@astropods/messaging", () => ({
         sendMessage(msg: Message) {
           mockSendMessageArgs = msg;
         },
-        sendContentChunk(conversationId: string, chunk: ContentChunk) {
-          mockSendContentChunkCalls.push({ conversationId, chunk });
+        sendContentChunk(
+          conversationId: string,
+          chunk: ContentChunk,
+          response?: Pick<AgentResponse, "responseId" | "traceContext">,
+        ) {
+          mockSendContentChunkCalls.push({ conversationId, chunk, response });
         },
         sendStatusUpdate(conversationId: string, status: StatusUpdate) {
           mockSendStatusUpdateCalls.push({ conversationId, status });
@@ -323,7 +331,7 @@ describe("MessagingBridge", () => {
       expect(deltas[1].chunk.content).toBe(" world");
     });
 
-    test("sends trace context on AgentResponse wrapper for content chunks", async () => {
+    test("attaches trace context to content chunks once the hook fires", async () => {
       const traceContext = {
         traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
       };
@@ -350,24 +358,26 @@ describe("MessagingBridge", () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
+      // START is sent before the hook fires (no trace context); the DELTA and
+      // END that follow carry it on the AgentResponse wrapper via the third arg.
       expect(mockSendContentChunkCalls).toEqual([
         {
           conversationId: "conv-1",
           chunk: { type: "START", content: "" },
-        },
-      ]);
-      expect(mockSendAgentResponseCalls).toEqual([
-        {
-          conversationId: "conv-1",
-          traceContext,
-          content: { type: "DELTA", content: "Hello" },
+          response: undefined,
         },
         {
           conversationId: "conv-1",
-          traceContext,
-          content: { type: "END", content: "" },
+          chunk: { type: "DELTA", content: "Hello" },
+          response: { traceContext },
+        },
+        {
+          conversationId: "conv-1",
+          chunk: { type: "END", content: "" },
+          response: { traceContext },
         },
       ]);
+      expect(mockSendAgentResponseCalls).toEqual([]);
     });
 
     test("sends status updates via sendStatusUpdate", async () => {

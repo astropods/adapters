@@ -22,18 +22,20 @@ export function createTraceparent({
   return `00-${normalizedTraceId}-${normalizedSpanId}-${normalizedTraceFlags}`;
 }
 
-function normalizeTraceId(traceId: string | undefined): string {
-  const normalized = traceId?.trim().toLowerCase() ?? "";
-  if (!traceIdPattern.test(normalized)) return "";
-  if (normalized === "00000000000000000000000000000000") return "";
+// A valid id matches its hex-length pattern and is not the all-zero sentinel
+// (which the regex admits but OTel uses to mean "no id").
+function normalizeId(id: string | undefined, pattern: RegExp, zero: string): string {
+  const normalized = id?.trim().toLowerCase() ?? "";
+  if (!pattern.test(normalized) || normalized === zero) return "";
   return normalized;
 }
 
+function normalizeTraceId(traceId: string | undefined): string {
+  return normalizeId(traceId, traceIdPattern, "00000000000000000000000000000000");
+}
+
 function normalizeSpanId(spanId: string | undefined): string {
-  const normalized = spanId?.trim().toLowerCase() ?? "";
-  if (!spanIdPattern.test(normalized)) return "";
-  if (normalized === "0000000000000000") return "";
-  return normalized;
+  return normalizeId(spanId, spanIdPattern, "0000000000000000");
 }
 
 function normalizeTraceFlags(traceFlags: number | string): string {
