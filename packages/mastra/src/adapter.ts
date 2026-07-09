@@ -43,9 +43,15 @@ export class MastraAdapter implements AgentAdapter {
     // (the end chunk only carries toolCallId, not toolName).
     const toolNames = new Map<string, string>();
 
+    // A turn that finishes without any text produces no Slack message (the
+    // adapter skips empty content). Track whether we saw text so we can log the
+    // finish reason and make that silent case diagnosable.
+    let textEmitted = false;
+
     for await (const chunk of stream.fullStream) {
       switch (chunk.type) {
         case "text-delta":
+          textEmitted = true;
           hooks.onChunk(chunk.payload.text);
           break;
 
@@ -76,6 +82,15 @@ export class MastraAdapter implements AgentAdapter {
         }
 
         case "finish":
+          if (!textEmitted) {
+            logger.warn(
+              {
+                conversationId: options.conversationId,
+                finishReason: chunk.payload.stepResult.reason,
+              },
+              "[MastraAdapter] Turn finished with no text; nothing will be posted"
+            );
+          }
           hooks.onFinish();
           break;
 
@@ -84,6 +99,16 @@ export class MastraAdapter implements AgentAdapter {
             chunk.payload.error instanceof Error
               ? chunk.payload.error
               : new Error(String(chunk.payload.error))
+          );
+          break;
+
+        default:
+          // Surface chunk types we don't explicitly handle (e.g. tool-error,
+          // abort) so version drift or dropped output is visible in logs
+          // instead of silently swallowed.
+          logger.debug(
+            { chunkType: chunk.type, conversationId: options.conversationId },
+            "[MastraAdapter] Unhandled stream chunk type"
           );
           break;
       }

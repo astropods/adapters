@@ -226,6 +226,38 @@ describe("MastraAdapter", () => {
       expect(hooks.finishCount).toBe(1);
     });
 
+    test("warns with the finish reason and still finishes when the model produces no text", async () => {
+      mockLoggerWarnCalls = [];
+      const emptyParts: LanguageModelV2StreamPart[] = [
+        {
+          type: "finish",
+          finishReason: "stop",
+          usage: { inputTokens: 5, outputTokens: 0, totalTokens: 5 },
+        },
+      ];
+
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model: modelFromParts(emptyParts),
+        instructions: "test",
+      });
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+
+      await adapter.stream("hi", hooks, defaultOptions);
+
+      // No content was streamed, but the turn still completes cleanly...
+      expect(hooks.chunks).toEqual([]);
+      expect(hooks.finishCount).toBe(1);
+      // ...and the empty turn is logged with the model's finish reason.
+      const emptyWarn = mockLoggerWarnCalls.find(
+        (args) => typeof args[1] === "string" && args[1].includes("no text")
+      );
+      expect(emptyWarn).toBeDefined();
+      expect(emptyWarn![0]).toMatchObject({ finishReason: "stop" });
+    });
+
     test("empty userId backfills tracing user_id to 'anonymous' but leaves memory.resource untouched", async () => {
       // Unauthenticated Slack user → empty userId on the bridge. Tracing must
       // still set a non-empty user_id so the trace classifies as Unauthorized
