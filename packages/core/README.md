@@ -58,7 +58,7 @@ Call these inside `stream()` as the agent produces output:
 
 | Method | When to call |
 |--------|-------------|
-| `onTraceContext({ traceparent })` | Optional — once per turn, to attach the W3C trace context for this response so inbound feedback can be tied back to its trace. Ignored if `traceparent` is empty. |
+| `onTraceContext({ traceparent })` | Optional — once per turn, to supply the W3C trace context of the assistant turn. The bridge stamps it on every response it emits for the turn, so a consumer can correlate any response back to its trace. Ignored if `traceparent` is empty. |
 | `onChunk(text)` | Each text token or fragment from the LLM |
 | `onStatusUpdate({ status })` | Agent state change — valid values: `THINKING`, `SEARCHING`, `GENERATING`, `PROCESSING`, `ANALYZING`, `CUSTOM` |
 | `onFinish()` | Response complete — call exactly once per request |
@@ -66,7 +66,7 @@ Call these inside `stream()` as the agent produces output:
 
 ### `createTraceparent(input)`
 
-Formats a native trace/span ID pair into a W3C `traceparent` string for `onTraceContext`. Returns `""` for invalid or all-zero IDs, so it's safe to pass raw OpenTelemetry span context. `traceFlags` accepts a number or hex string and defaults to `01` (sampled).
+Formats a native trace/span ID pair into a W3C `traceparent` string to hand to `onTraceContext`. Returns `""` for invalid or all-zero IDs, so it's safe to pass raw OpenTelemetry span context. `traceFlags` accepts a number or hex string and defaults to `01` (sampled).
 
 ```ts
 import { createTraceparent } from "@astropods/adapter-core";

@@ -250,32 +250,27 @@ export class MessagingBridge {
         debug(`[bridge] Trace context attached: conversation=${conversationId}`);
       },
       onChunk: (text: string) => {
-        const chunk = {
-          type: "DELTA",
-          content: text,
-        } as const;
-        this.sendContentChunk(conversationId, chunk);
+        this.sendResponse(conversationId, { content: { type: "DELTA", content: text } });
       },
       onStatusUpdate: (status) => {
-        stream.sendStatusUpdate(conversationId, status);
+        this.sendResponse(conversationId, { status });
       },
       onError: (error: Error) => {
         logger.error({ err: error }, "Agent error");
-        const response: AgentResponse = {
-          conversationId,
-          traceContext: this.traceContexts.get(conversationId),
+        this.sendResponse(conversationId, {
           error: { code: "AGENT_ERROR", message: error.message },
-        };
-        stream.sendAgentResponse(response);
+        });
       },
       onFinish: () => {
-        this.sendContentChunk(conversationId, { type: "END", content: "" });
+        this.sendResponse(conversationId, { content: { type: "END", content: "" } });
         debug(`[bridge] Response complete: conversation=${conversationId}`);
       },
       onTranscript: (text: string) => {
         debug(`[bridge] Sending transcript: conversation=${conversationId} text=${JSON.stringify(text)}`);
-        stream.sendTranscript(conversationId, text);
+        this.sendResponse(conversationId, { transcript: { text } });
       },
+      // Audio streams over ConversationRequest.audio, a separate wire field with
+      // no trace-context slot, so it stays off the sendResponse path below.
       onAudioChunk: (data: Uint8Array) => {
         stream.sendAudioChunk({ data, done: false });
       },
@@ -285,10 +280,21 @@ export class MessagingBridge {
     };
   }
 
-  private sendContentChunk(conversationId: string, chunk: AgentResponse["content"]): void {
-    if (!this.stream || !chunk) return;
+  // Single construction point so every AgentResponse for a turn carries that
+  // turn's trace context. trace_context identifies the trace the response
+  // belongs to, letting a consumer correlate any response back to it. (Audio
+  // uses a separate transport — see onAudioChunk.)
+  private sendResponse(
+    conversationId: string,
+    payload: Omit<AgentResponse, "conversationId">,
+  ): void {
+    if (!this.stream) return;
     const traceContext = this.traceContexts.get(conversationId);
-    this.stream.sendContentChunk(conversationId, chunk, traceContext ? { traceContext } : undefined);
+    this.stream.sendAgentResponse({
+      conversationId,
+      ...(traceContext ? { traceContext } : {}),
+      ...payload,
+    });
   }
 
   /**

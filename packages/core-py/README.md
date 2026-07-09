@@ -53,7 +53,7 @@ Call these inside `stream()` as the agent produces output:
 
 | Method | When to call |
 |--------|-------------|
-| `on_trace_context(trace_context)` | Optional — once per turn, to attach the W3C trace context for this response so inbound feedback can be tied back to its trace. Ignored if `traceparent` is empty. |
+| `on_trace_context(trace_context)` | Optional — once per turn, to supply the W3C trace context of the assistant turn. The bridge stamps it on every response it emits for the turn, so a consumer can correlate any response back to its trace. Ignored if `traceparent` is empty. |
 | `on_chunk(text)` | Each text token or fragment from the LLM |
 | `on_status_update({"status": "..."})` | Agent state change — valid values: `THINKING`, `SEARCHING`, `GENERATING`, `PROCESSING`, `ANALYZING`, `CUSTOM` |
 | `on_finish()` | Response complete — call exactly once per request |
@@ -67,7 +67,7 @@ hooks.on_status_update({"status": "CUSTOM", "custom_message": "Fetching data..."
 
 ### `create_traceparent(*, trace_id, span_id, trace_flags="01")`
 
-Formats a native trace/span ID pair into a W3C `traceparent` string for `on_trace_context`. Returns `""` for invalid or all-zero IDs, so it's safe to pass raw OpenTelemetry span context. `trace_flags` accepts an int or hex string and defaults to `"01"` (sampled).
+Formats a native trace/span ID pair into a W3C `traceparent` string to hand to `on_trace_context`. Returns `""` for invalid or all-zero IDs, so it's safe to pass raw OpenTelemetry span context. `trace_flags` accepts an int or hex string and defaults to `"01"` (sampled).
 
 ```python
 from astropods_messaging import TraceContext

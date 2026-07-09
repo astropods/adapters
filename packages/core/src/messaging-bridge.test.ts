@@ -286,16 +286,16 @@ describe("MessagingBridge", () => {
       // Allow async stream call to complete
       await new Promise((r) => setTimeout(r, 10));
 
-      // First call: START
+      // START is sent directly before the adapter runs.
       expect(mockSendContentChunkCalls[0]).toEqual({
         conversationId: "conv-1",
         chunk: { type: "START", content: "" },
       });
-      // Last call: END
-      const lastChunk = mockSendContentChunkCalls[mockSendContentChunkCalls.length - 1];
-      expect(lastChunk).toEqual({
+      // END is sent as an AgentResponse.
+      const lastResponse = mockSendAgentResponseCalls[mockSendAgentResponseCalls.length - 1];
+      expect(lastResponse).toEqual({
         conversationId: "conv-1",
-        chunk: { type: "END", content: "" },
+        content: { type: "END", content: "" },
       });
     });
 
@@ -323,12 +323,12 @@ describe("MessagingBridge", () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
-      const deltas = mockSendContentChunkCalls.filter(
-        (c) => c.chunk.type === "DELTA"
+      const deltas = mockSendAgentResponseCalls.filter(
+        (r) => r.content?.type === "DELTA"
       );
       expect(deltas).toHaveLength(2);
-      expect(deltas[0].chunk.content).toBe("Hello");
-      expect(deltas[1].chunk.content).toBe(" world");
+      expect(deltas[0].content?.content).toBe("Hello");
+      expect(deltas[1].content?.content).toBe(" world");
     });
 
     test("attaches trace context to content chunks once the hook fires", async () => {
@@ -358,26 +358,28 @@ describe("MessagingBridge", () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
-      // START is sent before the hook fires (no trace context); the DELTA and
-      // END that follow carry it on the AgentResponse wrapper via the third arg.
+      // START is sent before the hook fires, so it carries no trace context and
+      // goes out as a bare content chunk. The DELTA and END that follow are sent
+      // as AgentResponses carrying the turn's trace context.
       expect(mockSendContentChunkCalls).toEqual([
         {
           conversationId: "conv-1",
           chunk: { type: "START", content: "" },
           response: undefined,
         },
+      ]);
+      expect(mockSendAgentResponseCalls).toEqual([
         {
           conversationId: "conv-1",
-          chunk: { type: "DELTA", content: "Hello" },
-          response: { traceContext },
+          traceContext,
+          content: { type: "DELTA", content: "Hello" },
         },
         {
           conversationId: "conv-1",
-          chunk: { type: "END", content: "" },
-          response: { traceContext },
+          traceContext,
+          content: { type: "END", content: "" },
         },
       ]);
-      expect(mockSendAgentResponseCalls).toEqual([]);
     });
 
     test("a superseded turn's cleanup does not wipe the new turn's trace context", async () => {
@@ -425,16 +427,16 @@ describe("MessagingBridge", () => {
       mockResponseHandlers[0](message); // turn B: supersedes A, sets ctxB
       await new Promise((r) => setTimeout(r, 30));
 
-      const bChunks = mockSendContentChunkCalls.filter(
-        (c) => c.chunk.type !== "START",
+      const bChunks = mockSendAgentResponseCalls.filter(
+        (r) => r.content?.type === "DELTA" || r.content?.type === "END",
       );
       expect(bChunks.length).toBeGreaterThan(0);
-      for (const c of bChunks) {
-        expect(c.response?.traceContext).toEqual(ctxB);
+      for (const r of bChunks) {
+        expect(r.traceContext).toEqual(ctxB);
       }
     });
 
-    test("sends status updates via sendStatusUpdate", async () => {
+    test("sends status updates as AgentResponses", async () => {
       const adapter = createMockAdapter({
         stream: async (_prompt, hooks) => {
           hooks.onStatusUpdate({ status: "THINKING" });
@@ -458,12 +460,13 @@ describe("MessagingBridge", () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
-      expect(mockSendStatusUpdateCalls).toHaveLength(2);
-      expect(mockSendStatusUpdateCalls[0]).toEqual({
+      const statuses = mockSendAgentResponseCalls.filter((r) => r.status);
+      expect(statuses).toHaveLength(2);
+      expect(statuses[0]).toEqual({
         conversationId: "conv-1",
         status: { status: "THINKING" },
       });
-      expect(mockSendStatusUpdateCalls[1]).toEqual({
+      expect(statuses[1]).toEqual({
         conversationId: "conv-1",
         status: { status: "PROCESSING", customMessage: "Running tool" },
       });
@@ -722,14 +725,17 @@ describe("MessagingBridge", () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
-      // Verify the full sequence
+      // START is sent directly; everything after is an ordered AgentResponse.
       expect(mockSendContentChunkCalls[0].chunk.type).toBe("START");
-      expect(mockSendStatusUpdateCalls[0].status).toEqual({ status: "THINKING" });
-      expect(mockSendContentChunkCalls[1].chunk).toEqual({ type: "DELTA", content: "Hello" });
-      expect(mockSendContentChunkCalls[2].chunk).toEqual({ type: "DELTA", content: " there" });
-      expect(mockSendStatusUpdateCalls[1].status).toEqual({ status: "GENERATING" });
-      const lastChunk = mockSendContentChunkCalls[mockSendContentChunkCalls.length - 1];
-      expect(lastChunk.chunk.type).toBe("END");
+      expect(
+        mockSendAgentResponseCalls.map((r) => r.status ?? r.content),
+      ).toEqual([
+        { status: "THINKING" },
+        { type: "DELTA", content: "Hello" },
+        { type: "DELTA", content: " there" },
+        { status: "GENERATING" },
+        { type: "END", content: "" },
+      ]);
     });
   });
 
@@ -835,9 +841,9 @@ describe("MessagingBridge", () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
-      const deltas = mockSendContentChunkCalls.filter((c) => c.chunk.type === "DELTA");
+      const deltas = mockSendAgentResponseCalls.filter((r) => r.content?.type === "DELTA");
       expect(deltas).toHaveLength(1);
-      expect(deltas[0].chunk.content).toContain("don't support audio");
+      expect(deltas[0].content?.content).toContain("don't support audio");
     });
   });
 
