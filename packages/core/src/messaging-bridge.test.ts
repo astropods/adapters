@@ -337,7 +337,7 @@ describe("MessagingBridge", () => {
       };
       const adapter = createMockAdapter({
         stream: async (_prompt, hooks) => {
-          hooks.onTraceContext(traceContext);
+          hooks.onTraceContext?.(traceContext);
           hooks.onChunk("Hello");
           hooks.onFinish();
         },
@@ -391,7 +391,7 @@ describe("MessagingBridge", () => {
         stream: async (_prompt, hooks, options) => {
           call += 1;
           if (call === 1) {
-            hooks.onTraceContext({
+            hooks.onTraceContext?.({
               traceparent:
                 "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-aaaaaaaaaaaaaaaa-01",
             });
@@ -402,7 +402,7 @@ describe("MessagingBridge", () => {
             });
             return;
           }
-          hooks.onTraceContext(ctxB);
+          hooks.onTraceContext?.(ctxB);
           // Yield so turn A's abort → finally runs before B emits its chunk.
           await new Promise((r) => setTimeout(r, 10));
           hooks.onChunk("from B");

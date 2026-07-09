@@ -16,7 +16,7 @@ export type { TraceContext } from "@astropods/messaging";
 /** Lifecycle hooks called by an adapter as the agent streams a response. */
 export interface StreamHooks {
   /** W3C trace context for the current assistant turn. */
-  onTraceContext(traceContext: TraceContext): void;
+  onTraceContext?(traceContext: TraceContext): void;
   onChunk(text: string): void;
   onStatusUpdate(status: StatusUpdate): void;
   onError(error: Error): void;
