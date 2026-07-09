@@ -22,14 +22,22 @@ let mockSendContentChunkCalls: Array<{
   chunk: ContentChunk;
   response?: Pick<AgentResponse, "responseId" | "traceContext">;
 }> = [];
-let mockSendStatusUpdateCalls: Array<{ conversationId: string; status: StatusUpdate }> = [];
+let mockSendStatusUpdateCalls: Array<{
+  conversationId: string;
+  status: StatusUpdate;
+  response?: Pick<AgentResponse, "responseId" | "traceContext">;
+}> = [];
 let mockSendAgentResponseCalls: AgentResponse[] = [];
 let mockResponseHandlers: Array<(response: AgentResponse) => void> = [];
 let mockErrorHandlers: Array<(error: Error) => void> = [];
 let mockEndHandlers: Array<() => void> = [];
 let mockAudioConfigHandlers: Array<(config: AudioStreamConfig) => void> = [];
 let mockConstructorAddr: string | null = null;
-let mockSendTranscriptCalls: Array<{ conversationId: string; text: string }> = [];
+let mockSendTranscriptCalls: Array<{
+  conversationId: string;
+  text: string;
+  response?: Pick<AgentResponse, "responseId" | "traceContext">;
+}> = [];
 let mockSendAudioChunkCalls: Array<{ data: Uint8Array; done: boolean }> = [];
 let mockEndAudioCalled = false;
 
@@ -63,14 +71,24 @@ mock.module("@astropods/messaging", () => ({
         ) {
           mockSendContentChunkCalls.push({ conversationId, chunk, response });
         },
-        sendStatusUpdate(conversationId: string, status: StatusUpdate) {
-          mockSendStatusUpdateCalls.push({ conversationId, status });
+        sendStatusUpdate(
+          conversationId: string,
+          status: StatusUpdate,
+          response?: Pick<AgentResponse, "responseId" | "traceContext">,
+        ) {
+          mockSendStatusUpdateCalls.push({ conversationId, status, response });
         },
         sendAgentResponse(response: AgentResponse) {
           mockSendAgentResponseCalls.push(response);
         },
-        sendTranscript(conversationId: string, text: string) {
-          mockSendTranscriptCalls.push({ conversationId, text });
+        sendTranscript(
+          conversationId: string,
+          text: string,
+          _messageId?: string,
+          _language?: string,
+          response?: Pick<AgentResponse, "responseId" | "traceContext">,
+        ) {
+          mockSendTranscriptCalls.push({ conversationId, text, response });
         },
         sendAudioChunk(chunk: { data: Uint8Array; done: boolean }) {
           mockSendAudioChunkCalls.push(chunk);
@@ -286,16 +304,18 @@ describe("MessagingBridge", () => {
       // Allow async stream call to complete
       await new Promise((r) => setTimeout(r, 10));
 
-      // START is sent directly before the adapter runs.
+      // First call: START
       expect(mockSendContentChunkCalls[0]).toEqual({
         conversationId: "conv-1",
         chunk: { type: "START", content: "" },
+        response: undefined,
       });
-      // END is sent as an AgentResponse.
-      const lastResponse = mockSendAgentResponseCalls[mockSendAgentResponseCalls.length - 1];
-      expect(lastResponse).toEqual({
+      // Last call: END
+      const lastChunk = mockSendContentChunkCalls[mockSendContentChunkCalls.length - 1];
+      expect(lastChunk).toEqual({
         conversationId: "conv-1",
-        content: { type: "END", content: "" },
+        chunk: { type: "END", content: "" },
+        response: undefined,
       });
     });
 
@@ -323,12 +343,12 @@ describe("MessagingBridge", () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
-      const deltas = mockSendAgentResponseCalls.filter(
-        (r) => r.content?.type === "DELTA"
+      const deltas = mockSendContentChunkCalls.filter(
+        (c) => c.chunk.type === "DELTA"
       );
       expect(deltas).toHaveLength(2);
-      expect(deltas[0].content?.content).toBe("Hello");
-      expect(deltas[1].content?.content).toBe(" world");
+      expect(deltas[0].chunk.content).toBe("Hello");
+      expect(deltas[1].chunk.content).toBe(" world");
     });
 
     test("attaches trace context to content chunks once the hook fires", async () => {
@@ -358,26 +378,23 @@ describe("MessagingBridge", () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
-      // START is sent before the hook fires, so it carries no trace context and
-      // goes out as a bare content chunk. The DELTA and END that follow are sent
-      // as AgentResponses carrying the turn's trace context.
+      // START is sent before the hook fires (no trace context); the DELTA and
+      // END that follow carry it via the content sender's response arg.
       expect(mockSendContentChunkCalls).toEqual([
         {
           conversationId: "conv-1",
           chunk: { type: "START", content: "" },
           response: undefined,
         },
-      ]);
-      expect(mockSendAgentResponseCalls).toEqual([
         {
           conversationId: "conv-1",
-          traceContext,
-          content: { type: "DELTA", content: "Hello" },
+          chunk: { type: "DELTA", content: "Hello" },
+          response: { traceContext },
         },
         {
           conversationId: "conv-1",
-          traceContext,
-          content: { type: "END", content: "" },
+          chunk: { type: "END", content: "" },
+          response: { traceContext },
         },
       ]);
     });
@@ -427,16 +444,16 @@ describe("MessagingBridge", () => {
       mockResponseHandlers[0](message); // turn B: supersedes A, sets ctxB
       await new Promise((r) => setTimeout(r, 30));
 
-      const bChunks = mockSendAgentResponseCalls.filter(
-        (r) => r.content?.type === "DELTA" || r.content?.type === "END",
+      const bChunks = mockSendContentChunkCalls.filter(
+        (c) => c.chunk.type !== "START",
       );
       expect(bChunks.length).toBeGreaterThan(0);
-      for (const r of bChunks) {
-        expect(r.traceContext).toEqual(ctxB);
+      for (const c of bChunks) {
+        expect(c.response?.traceContext).toEqual(ctxB);
       }
     });
 
-    test("sends status updates as AgentResponses", async () => {
+    test("sends status updates via sendStatusUpdate", async () => {
       const adapter = createMockAdapter({
         stream: async (_prompt, hooks) => {
           hooks.onStatusUpdate({ status: "THINKING" });
@@ -460,15 +477,16 @@ describe("MessagingBridge", () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
-      const statuses = mockSendAgentResponseCalls.filter((r) => r.status);
-      expect(statuses).toHaveLength(2);
-      expect(statuses[0]).toEqual({
+      expect(mockSendStatusUpdateCalls).toHaveLength(2);
+      expect(mockSendStatusUpdateCalls[0]).toEqual({
         conversationId: "conv-1",
         status: { status: "THINKING" },
+        response: undefined,
       });
-      expect(statuses[1]).toEqual({
+      expect(mockSendStatusUpdateCalls[1]).toEqual({
         conversationId: "conv-1",
         status: { status: "PROCESSING", customMessage: "Running tool" },
+        response: undefined,
       });
     });
 
@@ -725,17 +743,14 @@ describe("MessagingBridge", () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
-      // START is sent directly; everything after is an ordered AgentResponse.
+      // Content flows through sendContentChunk, status through sendStatusUpdate.
       expect(mockSendContentChunkCalls[0].chunk.type).toBe("START");
-      expect(
-        mockSendAgentResponseCalls.map((r) => r.status ?? r.content),
-      ).toEqual([
-        { status: "THINKING" },
-        { type: "DELTA", content: "Hello" },
-        { type: "DELTA", content: " there" },
-        { status: "GENERATING" },
-        { type: "END", content: "" },
-      ]);
+      expect(mockSendStatusUpdateCalls[0].status).toEqual({ status: "THINKING" });
+      expect(mockSendContentChunkCalls[1].chunk).toEqual({ type: "DELTA", content: "Hello" });
+      expect(mockSendContentChunkCalls[2].chunk).toEqual({ type: "DELTA", content: " there" });
+      expect(mockSendStatusUpdateCalls[1].status).toEqual({ status: "GENERATING" });
+      const lastChunk = mockSendContentChunkCalls[mockSendContentChunkCalls.length - 1];
+      expect(lastChunk.chunk.type).toBe("END");
     });
   });
 
@@ -841,9 +856,9 @@ describe("MessagingBridge", () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
-      const deltas = mockSendAgentResponseCalls.filter((r) => r.content?.type === "DELTA");
+      const deltas = mockSendContentChunkCalls.filter((c) => c.chunk.type === "DELTA");
       expect(deltas).toHaveLength(1);
-      expect(deltas[0].content?.content).toContain("don't support audio");
+      expect(deltas[0].chunk.content).toContain("don't support audio");
     });
   });
 
