@@ -47,7 +47,7 @@ export class MastraAdapter implements AgentAdapter {
       spanId: stream.spanId,
     });
     if (traceparent) {
-      hooks.onTraceContext({ traceparent });
+      hooks.onTraceContext?.({ traceparent });
     }
 
     // Track tool names by call ID so we can reference them when the call ends

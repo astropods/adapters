@@ -68,7 +68,7 @@ export class LangChainAdapter implements AgentAdapter {
     // Root span carrying user/session + trace IO. OpenInference's spans nest
     // under it via the active context; a no-op span when uninstrumented.
     await tracer.startActiveSpan(this.name, async (span) => {
-      hooks.onTraceContext({ traceparent: traceparentFromSpan(span) });
+      hooks.onTraceContext?.({ traceparent: traceparentFromSpan(span) });
       span.setAttribute("langfuse.user.id", options.userId || "anonymous");
       span.setAttribute("langfuse.session.id", options.conversationId);
       span.setAttribute("langfuse.trace.input", prompt);
