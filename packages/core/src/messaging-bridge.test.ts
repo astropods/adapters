@@ -380,6 +380,60 @@ describe("MessagingBridge", () => {
       expect(mockSendAgentResponseCalls).toEqual([]);
     });
 
+    test("a superseded turn's cleanup does not wipe the new turn's trace context", async () => {
+      const ctxB = {
+        traceparent: "00-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-bbbbbbbbbbbbbbbb-01",
+      };
+      let call = 0;
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks, options) => {
+          call += 1;
+          if (call === 1) {
+            hooks.onTraceContext({
+              traceparent:
+                "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-aaaaaaaaaaaaaaaa-01",
+            });
+            // Hang until superseded; settle on abort so this turn's finally
+            // runs while turn B is mid-stream.
+            await new Promise<void>((resolve) => {
+              options.signal?.addEventListener("abort", () => resolve());
+            });
+            return;
+          }
+          hooks.onTraceContext(ctxB);
+          // Yield so turn A's abort → finally runs before B emits its chunk.
+          await new Promise((r) => setTimeout(r, 10));
+          hooks.onChunk("from B");
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      const message = {
+        conversationId: "conv-1",
+        incomingMessage: {
+          conversationId: "conv-1",
+          content: "hi",
+          platform: "slack",
+          user: { id: "user-1" },
+        },
+      };
+
+      mockResponseHandlers[0](message); // turn A: sets its context, hangs
+      await new Promise((r) => setTimeout(r, 5));
+      mockResponseHandlers[0](message); // turn B: supersedes A, sets ctxB
+      await new Promise((r) => setTimeout(r, 30));
+
+      const bChunks = mockSendContentChunkCalls.filter(
+        (c) => c.chunk.type !== "START",
+      );
+      expect(bChunks.length).toBeGreaterThan(0);
+      for (const c of bChunks) {
+        expect(c.response?.traceContext).toEqual(ctxB);
+      }
+    });
+
     test("sends status updates via sendStatusUpdate", async () => {
       const adapter = createMockAdapter({
         stream: async (_prompt, hooks) => {

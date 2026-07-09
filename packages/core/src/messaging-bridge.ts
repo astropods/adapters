@@ -459,11 +459,11 @@ export class MessagingBridge {
       })
       .finally(() => {
         // Only clear if we're still the active turn (a newer turn may have
-        // replaced us).
+        // replaced us — clearing then would wipe its trace context too).
         if (this.abortControllers.get(conversationId) === controller) {
           this.abortControllers.delete(conversationId);
+          this.traceContexts.delete(conversationId);
         }
-        this.traceContexts.delete(conversationId);
       });
   }
 
