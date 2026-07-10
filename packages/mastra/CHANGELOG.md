@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.5.0](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.4.5...@astropods/adapter-mastra@0.5.0) (2026-07-10)
+
+
+### Features
+
+* use trace context helper in framework packages ([#65](https://github.com/astropods/adapters/issues/65)) ([c6eeb37](https://github.com/astropods/adapters/commit/c6eeb379f04fcdf80fbf03c5763dcecc9c92cfca))
+
+
+
 ## [0.4.5](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.4.4...@astropods/adapter-mastra@0.4.5) (2026-07-10)
 
 
