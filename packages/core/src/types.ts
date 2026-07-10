@@ -6,10 +6,17 @@ import type {
   RenderableResponse,
   RenderKind,
   StatusUpdate,
+  TraceContext,
 } from "@astropods/messaging";
+
+// The wire type is the source of truth; re-export it so adapters get a single
+// TraceContext shared with the messaging SDK rather than a parallel copy.
+export type { TraceContext } from "@astropods/messaging";
 
 /** Lifecycle hooks called by an adapter as the agent streams a response. */
 export interface StreamHooks {
+  /** W3C trace context for the current assistant turn. */
+  onTraceContext?(traceContext: TraceContext): void;
   onChunk(text: string): void;
   onStatusUpdate(status: StatusUpdate): void;
   onError(error: Error): void;
@@ -119,6 +126,8 @@ export interface FeedbackEvent {
   conversationId: string;
   /** Platform message ID the feedback is attached to. */
   responseId: string;
+  /** Trace context for the referenced assistant response, when available. */
+  traceContext?: TraceContext;
   kind: string;
   userId: string;
   userName: string;

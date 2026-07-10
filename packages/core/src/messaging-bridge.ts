@@ -19,6 +19,7 @@ import type {
   RenderableInput,
   ServeOptions,
   StreamHooks,
+  TraceContext,
 } from "./types.js";
 import { logger } from "./logger.js";
 
@@ -241,31 +242,44 @@ export class MessagingBridge {
   private buildHooks(conversationId: string): StreamHooks {
     const stream = this.stream!;
 
+    // Per-turn, so a late-unwinding superseded turn can't tag a newer turn.
+    let traceContext: TraceContext | undefined;
+
+    // Thread the turn's trace context through the SDK's per-payload senders so
+    // the SDK owns how each response is put on the wire. Undefined until
+    // onTraceContext fires — the SDK omits the field then.
+    const trace = () => (traceContext ? { traceContext } : undefined);
+
     return {
+      onTraceContext: (tc) => {
+        if (!tc?.traceparent) return;
+        traceContext = tc;
+        debug(`[bridge] Trace context attached: conversation=${conversationId}`);
+      },
       onChunk: (text: string) => {
-        stream.sendContentChunk(conversationId, {
-          type: "DELTA",
-          content: text,
-        });
+        stream.sendContentChunk(conversationId, { type: "DELTA", content: text }, trace());
       },
       onStatusUpdate: (status) => {
-        stream.sendStatusUpdate(conversationId, status);
+        stream.sendStatusUpdate(conversationId, status, trace());
       },
+      // No dedicated sender for errors — build the AgentResponse directly.
       onError: (error: Error) => {
         logger.error({ err: error }, "Agent error");
         stream.sendAgentResponse({
           conversationId,
+          ...trace(),
           error: { code: "AGENT_ERROR", message: error.message },
         });
       },
       onFinish: () => {
-        stream.sendContentChunk(conversationId, { type: "END", content: "" });
+        stream.sendContentChunk(conversationId, { type: "END", content: "" }, trace());
         debug(`[bridge] Response complete: conversation=${conversationId}`);
       },
       onTranscript: (text: string) => {
         debug(`[bridge] Sending transcript: conversation=${conversationId} text=${JSON.stringify(text)}`);
-        stream.sendTranscript(conversationId, text);
+        stream.sendTranscript(conversationId, text, undefined, undefined, trace());
       },
+      // Audio uses ConversationRequest.audio — no trace-context slot.
       onAudioChunk: (data: Uint8Array) => {
         stream.sendAudioChunk({ data, done: false });
       },
@@ -326,6 +340,7 @@ export class MessagingBridge {
       // surfaces empty strings rather than undefined so callbacks can write
       // `event.userId` straight to a row without null-checking every field.
       responseId: fb.responseId ?? "",
+      traceContext: fb.traceContext,
       kind,
       userId: fb.user?.id ?? "",
       userName: fb.user?.username ?? "",
