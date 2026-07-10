@@ -68,7 +68,9 @@ class LangChainAdapter:
         with _tracer.start_as_current_span(self.name) as span:
             traceparent = _traceparent_from_span(span)
             if traceparent:
-                hooks.on_trace_context(TraceContext(traceparent=traceparent))
+                on_trace_context = getattr(hooks, "on_trace_context", None)
+                if callable(on_trace_context):
+                    on_trace_context(TraceContext(traceparent=traceparent))
             # Backfill so the trace lands in Insights' Unauthorized bucket,
             # not Unattributed (the latter is for cron / SDK / ingestion).
             user_id = options.user_id or "anonymous"
@@ -147,7 +149,9 @@ class LangChainAdapter:
 
             class _AccumulatingHooks:
                 def on_trace_context(self_, trace_context: TraceContext) -> None:
-                    hooks.on_trace_context(trace_context)
+                    on_trace_context = getattr(hooks, "on_trace_context", None)
+                    if callable(on_trace_context):
+                        on_trace_context(trace_context)
 
                 def on_chunk(self_, text: str) -> None:
                     text_chunks.append(text)
