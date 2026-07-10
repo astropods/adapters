@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from unittest.mock import MagicMock
 from opentelemetry.sdk.trace import TracerProvider
@@ -214,6 +216,33 @@ class TestLangChainAdapterSessionContext:
         attrs = spans[0].attributes
         assert attrs.get("langfuse.user.id") == "user-456"
         assert attrs.get("langfuse.session.id") == "conv-123"
+
+    @pytest.mark.asyncio
+    async def test_span_emits_trace_context(self, hooks, stream_options):
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        import astropods_adapter_langchain.adapter as adapter_module
+        original_tracer = adapter_module._tracer
+        adapter_module._tracer = provider.get_tracer("test")
+
+        try:
+            executor = make_executor_with_updates([make_model_update("hi")])
+            adapter = LangChainAdapter(executor)
+            await adapter.stream("hello", hooks, stream_options)
+        finally:
+            adapter_module._tracer = original_tracer
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+        ctx = spans[0].context
+        expected = f"00-{ctx.trace_id:032x}-{ctx.span_id:016x}-{int(ctx.trace_flags):02x}"
+
+        hooks.on_trace_context.assert_called_once()
+        trace_context = hooks.on_trace_context.call_args.args[0]
+        assert re.fullmatch(r"00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}", trace_context.traceparent)
+        assert trace_context.traceparent == expected
 
     @pytest.mark.asyncio
     async def test_empty_user_id_backfills_to_anonymous(self, hooks):
