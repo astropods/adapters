@@ -7,8 +7,7 @@ from typing import Any, Optional
 from langchain_core.messages import HumanMessage
 from opentelemetry import trace as otel_trace
 
-from astropods_messaging import TraceContext
-from astropods_adapter_core import create_traceparent
+from astropods_adapter_core import TraceContext, create_traceparent
 from astropods_adapter_core.types import AudioInput, StreamHooks, StreamOptions, VoiceProvider
 
 _tracer = otel_trace.get_tracer(__name__)
