@@ -1,4 +1,4 @@
-from astropods_messaging import PlatformContext
+from astropods_messaging import PlatformContext, TraceContext
 
 from .types import (
     AgentAdapter,
@@ -17,6 +17,7 @@ __all__ = [
     "AudioInput",
     "FeedbackEvent",
     "PlatformContext",
+    "TraceContext",
     "StreamHooks",
     "StreamOptions",
     "ServeOptions",
