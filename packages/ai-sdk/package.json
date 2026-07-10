@@ -1,7 +1,7 @@
 {
   "name": "@astropods/adapter-ai-sdk",
   "license": "Apache-2.0",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Vercel AI SDK adapter for the Astro messaging service. Wraps an Agent and auto-wires OpenTelemetry tracing.",
   "type": "module",
   "main": "./dist/index.js",

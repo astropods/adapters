@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.6.1...@astropods/adapter-core@0.7.0) (2026-07-10)
+
+
+### Features
+
+* **core:** agent-side render()/elicit() bridge for Renderables ([#59](https://github.com/astropods/adapters/issues/59)) ([a59d1b8](https://github.com/astropods/adapters/commit/a59d1b8330dc23ec2c6fbc0db7f04331d660e1d5))
+* supply traceparent helper in core packages ([#64](https://github.com/astropods/adapters/issues/64)) ([fc10fb9](https://github.com/astropods/adapters/commit/fc10fb9dd5186a3e404d6e5b103beaaeceeab97a))
+
+
+
 ## [0.6.1](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.6.0...@astropods/adapter-core@0.6.1) (2026-07-06)
 
 

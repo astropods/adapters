@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.4.5](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.4.4...@astropods/adapter-mastra@0.4.5) (2026-07-10)
+
+
+### Bug Fixes
+
+* **mastra:** adapt to upstream changes for @mastra/core@1.50.0 ([#57](https://github.com/astropods/adapters/issues/57)) ([d79b245](https://github.com/astropods/adapters/commit/d79b245ae641106aa510687c1a25bab3d5013986))
+
+
+
 ## [0.4.4](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.4.3...@astropods/adapter-mastra@0.4.4) (2026-07-06)
 
 
