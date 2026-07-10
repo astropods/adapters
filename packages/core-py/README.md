@@ -53,11 +53,12 @@ Call these inside `stream()` as the agent produces output:
 
 | Method | When to call |
 |--------|-------------|
-| `on_trace_context(trace_context)` | Optional — once per turn, to supply the W3C trace context of the assistant turn. The bridge stamps it on every response it emits for the turn, so a consumer can correlate any response back to its trace. Ignored if `traceparent` is empty. |
 | `on_chunk(text)` | Each text token or fragment from the LLM |
 | `on_status_update({"status": "..."})` | Agent state change — valid values: `THINKING`, `SEARCHING`, `GENERATING`, `PROCESSING`, `ANALYZING`, `CUSTOM` |
 | `on_finish()` | Response complete — call exactly once per request |
 | `on_error(exception)` | Error occurred — call instead of `on_finish` |
+
+`on_trace_context(trace_context)` is optional; call it with `getattr` when a turn has W3C trace context.
 
 For `CUSTOM` status, include `"custom_message"` in the dict:
 
@@ -80,7 +81,9 @@ traceparent = create_traceparent(
     trace_flags=int(ctx.trace_flags),
 )
 if traceparent:
-    hooks.on_trace_context(TraceContext(traceparent=traceparent))
+    on_trace_context = getattr(hooks, "on_trace_context", None)
+    if on_trace_context is not None:
+        on_trace_context(TraceContext(traceparent=traceparent))
 ```
 
 ### `StreamOptions`

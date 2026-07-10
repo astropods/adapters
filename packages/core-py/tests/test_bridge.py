@@ -8,7 +8,12 @@ from astropods_adapter_core.bridge import (
     _StreamHooksImpl,
     DEFAULT_SERVER_ADDR,
 )
-from astropods_adapter_core.types import FeedbackEvent, ServeOptions, StreamOptions
+from astropods_adapter_core.types import (
+    FeedbackEvent,
+    ServeOptions,
+    StreamHooks,
+    StreamOptions,
+)
 from astropods_messaging import (
     AudioChunk,
     ContentChunk,
@@ -23,6 +28,33 @@ from astropods_messaging import (
     TextFeedback,
     User,
 )
+
+
+class MinimalStreamHooks:
+    def on_chunk(self, text: str) -> None:
+        pass
+
+    def on_status_update(self, status: dict) -> None:
+        pass
+
+    def on_error(self, error: Exception) -> None:
+        pass
+
+    def on_finish(self) -> None:
+        pass
+
+    def on_transcript(self, text: str) -> None:
+        pass
+
+    def on_audio_chunk(self, data: bytes) -> None:
+        pass
+
+    def on_audio_end(self) -> None:
+        pass
+
+
+def test_stream_hooks_does_not_require_trace_context_hook():
+    assert isinstance(MinimalStreamHooks(), StreamHooks)
 
 
 # --- _StreamHooksImpl tests ---

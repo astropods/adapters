@@ -10,10 +10,6 @@ if TYPE_CHECKING:
 class StreamHooks(Protocol):
     """Lifecycle callbacks called by an adapter as the agent streams a response."""
 
-    def on_trace_context(self, trace_context: "TraceContext") -> None:
-        """W3C trace context for this assistant turn."""
-        ...
-
     def on_chunk(self, text: str) -> None:
         """Send a text token or fragment from the LLM."""
         ...
@@ -46,6 +42,12 @@ class StreamHooks(Protocol):
     def on_audio_end(self) -> None:
         """Signal the end of the current audio response segment."""
         ...
+
+    # Optional: adapters that can provide W3C trace context for the current
+    # assistant turn define this method. The bridge implementation supports it,
+    # and framework adapters should probe with ``getattr`` before calling it.
+    #
+    # def on_trace_context(self, trace_context: "TraceContext") -> None: ...
 
 
 @runtime_checkable
