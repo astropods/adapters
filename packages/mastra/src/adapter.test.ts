@@ -8,10 +8,15 @@ import {
 } from "@mastra/core/test-utils/llm-mock";
 import type { LanguageModelV2StreamPart } from "@ai-sdk/provider-v5";
 import type { StatusUpdate } from "@astropods/messaging";
-import type { StreamOptions } from "@astropods/adapter-core";
+import type { StreamOptions, TraceContext } from "@astropods/adapter-core";
 let mockLoggerWarnCalls: any[][] = [];
 
 mock.module("@astropods/adapter-core", () => ({
+  createTraceparent: ({ traceId, spanId, traceFlags = "01" }: { traceId?: string; spanId?: string; traceFlags?: string | number }) => {
+    if (!traceId || !spanId) return "";
+    const flags = typeof traceFlags === "number" ? traceFlags.toString(16).padStart(2, "0") : traceFlags;
+    return `00-${traceId.toLowerCase()}-${spanId.toLowerCase()}-${flags}`;
+  },
   logger: {
     info: () => {},
     debug: () => {},
@@ -33,6 +38,8 @@ function createHooks() {
     transcripts: [] as string[],
     audioChunks: [] as Uint8Array[],
     audioEndCount: 0,
+    traceContexts: [] as TraceContext[],
+    onTraceContext(traceContext: TraceContext) { result.traceContexts.push(traceContext); },
     onChunk(text: string) { result.chunks.push(text); },
     onStatusUpdate(status: StatusUpdate) { result.statuses.push(status); },
     onError(error: Error) { result.errors.push(error); },
@@ -106,6 +113,38 @@ describe("MastraAdapter", () => {
       await adapter.stream("hi", hooks, defaultOptions);
 
       expect(hooks.chunks).toEqual(["Hello", " world"]);
+    });
+
+    test("emits trace context when Mastra stream exposes trace IDs", async () => {
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model: modelFromParts(textParts(["Hello"])),
+        instructions: "test",
+      });
+      const fullStream = (async function* () {
+        yield { type: "text-delta", payload: { text: "Hello" } };
+        yield { type: "finish" };
+      })();
+      const originalStream = agent.stream.bind(agent);
+      (agent as { stream: typeof originalStream }).stream = mock(async () => ({
+        traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+        spanId: "00f067aa0ba902b7",
+        fullStream,
+      })) as unknown as typeof originalStream;
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+
+      await adapter.stream("hi", hooks, defaultOptions);
+
+      expect(hooks.traceContexts).toEqual([
+        {
+          traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+        },
+      ]);
+      expect(hooks.chunks).toEqual(["Hello"]);
+      expect(hooks.finishCount).toBe(1);
     });
 
     test("calls onFinish when stream completes", async () => {

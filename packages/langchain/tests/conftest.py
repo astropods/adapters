@@ -6,6 +6,7 @@ from astropods_adapter_core.types import StreamOptions
 @pytest.fixture
 def hooks():
     h = MagicMock()
+    h.on_trace_context = MagicMock()
     h.on_chunk = MagicMock()
     h.on_status_update = MagicMock()
     h.on_error = MagicMock()
