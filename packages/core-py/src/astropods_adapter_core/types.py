@@ -43,6 +43,13 @@ class StreamHooks(Protocol):
         """Signal the end of the current audio response segment."""
         ...
 
+    def on_file(self, name: str, mime_type: Optional[str] = None, size: Optional[int] = None) -> None:
+        """Attach a file the agent produced to the reply (rendered as a download
+        chip). Write the bytes into the agent's files dir (AGENT_FILES_DIR) first,
+        then call this with the filename; delivered on the END chunk.
+        """
+        ...
+
 
 @runtime_checkable
 class VoiceProvider(Protocol):
@@ -66,6 +73,23 @@ class AudioInput:
 
 
 @dataclass
+class AttachmentInput:
+    """A file attached to the incoming message — the user's context for this turn.
+
+    The bytes are staged on the agent's shared files volume; read them at ``path``.
+    """
+
+    key: str          # opaque files-API key
+    name: str         # original filename
+    # Absolute path on the agent's shared files volume. Present only when the
+    # message carried the storage key; None otherwise (the filename alone can't
+    # locate the on-disk blob), in which case the agent should scan its files dir.
+    path: Optional[str] = None
+    mime_type: Optional[str] = None
+    size: Optional[int] = None
+
+
+@dataclass
 class StreamOptions:
     """Per-request context passed to the adapter's stream method."""
 
@@ -76,6 +100,9 @@ class StreamOptions:
     # message did not originate from a platform adapter (e.g. playground
     # or direct gRPC). See PlatformContext in astropods_messaging.
     platform_context: Optional["PlatformContext"] = None
+    # Files the user attached to this message (the turn's immediate context).
+    # The bytes are staged on the shared files volume; read each at its ``path``.
+    attachments: list[AttachmentInput] = field(default_factory=list)
 
 
 @dataclass

@@ -291,6 +291,88 @@ describe("MessagingBridge", () => {
       });
     });
 
+    test("passes inbound FILE attachments to the adapter as StreamOptions.attachments", async () => {
+      let capturedOptions: StreamOptions | null = null;
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks, options) => {
+          capturedOptions = options;
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      mockResponseHandlers[0]({
+        conversationId: "conv-1",
+        incomingMessage: {
+          conversationId: "conv-1",
+          content: "process this",
+          platform: "web",
+          user: { id: "user-1" },
+          attachments: [
+            {
+              type: "FILE",
+              filename: "data.csv",
+              mimeType: "text/csv",
+              sizeBytes: 2044,
+              storageKey: "uuid-1",
+            },
+            // No storage key (older sidecar/proto): the filename can't locate the
+            // blob, so `path` must be omitted rather than guessed.
+            { type: "FILE", filename: "legacy.txt", mimeType: "text/plain" },
+            // A non-file attachment (e.g. image) is ignored by resolveAttachments.
+            { type: "IMAGE", filename: "pic.png" },
+          ],
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const atts = capturedOptions!.attachments ?? [];
+      expect(atts).toHaveLength(2);
+      // With a storage key, the path resolves to the on-disk blob.
+      expect(atts[0]).toEqual({
+        key: "uuid-1",
+        name: "data.csv",
+        path: "/data/files/uuid-1.blob",
+        mimeType: "text/csv",
+        size: 2044,
+      });
+      // Without a storage key, path is omitted (not a filename-based guess).
+      expect(atts[1].path).toBeUndefined();
+      expect(atts[1].key).toBe("legacy.txt");
+    });
+
+    test("delivers agent-produced files on the END chunk via onFile", async () => {
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks) => {
+          hooks.onChunk("done");
+          hooks.onFile({ name: "processed.txt", mimeType: "text/plain", size: 12 });
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      mockResponseHandlers[0]({
+        conversationId: "conv-1",
+        incomingMessage: {
+          conversationId: "conv-1",
+          content: "go",
+          platform: "web",
+          user: { id: "user-1" },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const end = mockSendContentChunkCalls.find((c) => c.chunk.type === "END");
+      expect(end).toBeDefined();
+      expect(end!.chunk.attachments).toEqual([
+        { file: { filename: "processed.txt", mimeType: "text/plain", sizeBytes: 12 } },
+      ]);
+    });
+
     test("sends DELTA chunks for each onChunk call", async () => {
       const adapter = createMockAdapter({
         stream: async (_prompt, hooks) => {

@@ -17,6 +17,42 @@ export interface StreamHooks {
   onAudioChunk(data: Uint8Array): void;
   /** Signal end of the current audio response segment. */
   onAudioEnd(): void;
+  /**
+   * Attach a file the agent produced to the reply, rendered as a download chip.
+   * The agent must first write the bytes into its files dir (AGENT_FILES_DIR),
+   * then call this with the filename; the file is delivered on the END chunk.
+   */
+  onFile(file: OutgoingFile): void;
+}
+
+/** A file attached to the incoming message — the user's context for this turn.
+ *  The bytes are staged on the agent's shared files volume. */
+export interface AttachmentInput {
+  /** Opaque files-API key. */
+  key: string;
+  /** Original filename. */
+  name: string;
+  /**
+   * Absolute path to the file on the agent's shared files volume. Present only
+   * when the message carried the storage key (i.e. the sidecar/proto supports
+   * it); omitted otherwise, since the filename alone can't locate the on-disk
+   * blob (`<key>.blob`). When absent, an agent should fall back to scanning its
+   * files dir rather than guessing a path.
+   */
+  path?: string;
+  /** MIME type, if known. */
+  mimeType?: string;
+  /** Size in bytes, if known. */
+  size?: number;
+}
+
+/** A file the agent hands back to the user (rendered as a download chip). The
+ *  agent must have written the bytes into its files dir first; `name` is the
+ *  filename there (also its files-API key). */
+export interface OutgoingFile {
+  name: string;
+  mimeType?: string;
+  size?: number;
 }
 
 /** Per-request context passed to the adapter's stream method. */
@@ -31,6 +67,12 @@ export interface StreamOptions {
    * full field set.
    */
   platformContext?: PlatformContext;
+  /**
+   * Files the user attached to this message — the immediate context for the
+   * turn. The bytes are staged on the agent's shared files volume; read them at
+   * each attachment's `path`. Empty/omitted when the message carried no files.
+   */
+  attachments?: AttachmentInput[];
   /**
    * Aborted when the user stops generation (a `StreamControl` STOP arrives for
    * this conversation, e.g. the chat "stop generating" button). Adapters should

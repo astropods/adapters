@@ -1,7 +1,9 @@
+import { join } from "node:path";
 import {
   MessagingClient,
   audioEncodingToFiletype,
   type AgentResponse,
+  type Attachment,
   type AudioStreamConfig,
   type Message,
   type ConversationStream,
@@ -10,12 +12,31 @@ import {
 
 import type {
   AgentAdapter,
+  AttachmentInput,
   AudioInput,
   FeedbackEvent,
+  OutgoingFile,
   ServeOptions,
   StreamHooks,
 } from "./types.js";
 import { logger } from "./logger.js";
+
+/** Default agent files mount, matching the K8s/compose deployer's AGENT_FILES_DIR. */
+const DEFAULT_AGENT_FILES_DIR = "/data/files";
+
+/** On-disk suffix the files store uses for API-managed uploads (see the sidecar's
+ *  FSStore). Inbound attachments are always API uploads, so the blob for key K is
+ *  at <AGENT_FILES_DIR>/<K>.blob. */
+const FILES_BLOB_SUFFIX = ".blob";
+
+/** The wire fields we read off an inbound attachment. `storageKey`/`sizeBytes`
+ *  are present at runtime (proto-loader) and declared on the SDK's Attachment as
+ *  of the storage_key proto addition; typed here so the bridge builds against a
+ *  not-yet-republished SDK too. */
+type WireAttachment = Attachment & {
+  storageKey?: string;
+  sizeBytes?: number;
+};
 
 const DEFAULT_SERVER_ADDR = "localhost:9090";
 const MAX_RETRIES = 10;
@@ -169,6 +190,12 @@ export class MessagingBridge {
   private buildHooks(conversationId: string): StreamHooks {
     const stream = this.stream!;
 
+    // Files the agent emits via onFile are buffered and delivered on the END
+    // chunk (ResponseAttachment.file), since the client renders reply download
+    // chips off the terminal chunk. The agent has already written the bytes to
+    // its files dir; only the filename (its files-API key) rides the wire.
+    const pendingFiles: OutgoingFile[] = [];
+
     return {
       onChunk: (text: string) => {
         stream.sendContentChunk(conversationId, {
@@ -186,8 +213,26 @@ export class MessagingBridge {
           error: { code: "AGENT_ERROR", message: error.message },
         });
       },
+      onFile: (file: OutgoingFile) => {
+        pendingFiles.push(file);
+      },
       onFinish: () => {
-        stream.sendContentChunk(conversationId, { type: "END", content: "" });
+        // Only attach the array when the agent produced files, so a plain reply's
+        // END chunk stays exactly `{ type, content }`.
+        const end: { type: "END"; content: string; attachments?: unknown[] } = {
+          type: "END",
+          content: "",
+        };
+        if (pendingFiles.length > 0) {
+          end.attachments = pendingFiles.map((f) => ({
+            file: {
+              filename: f.name,
+              mimeType: f.mimeType,
+              sizeBytes: f.size,
+            },
+          }));
+        }
+        stream.sendContentChunk(conversationId, end);
         debug(`[bridge] Response complete: conversation=${conversationId}`);
       },
       onTranscript: (text: string) => {
@@ -296,6 +341,38 @@ export class MessagingBridge {
     }
   }
 
+  /**
+   * Resolve inbound FILE attachments to the shape agent code consumes: the
+   * files-API key, display metadata, and an absolute path on the agent's shared
+   * files volume (AGENT_FILES_DIR). Image/audio/etc. are ignored here (audio is
+   * handled by the dedicated audio path).
+   */
+  private resolveAttachments(message: Message): AttachmentInput[] {
+    const dir = process.env.AGENT_FILES_DIR || DEFAULT_AGENT_FILES_DIR;
+    const atts = (message.attachments ?? []) as WireAttachment[];
+    const out: AttachmentInput[] = [];
+    for (const a of atts) {
+      if (a.type !== "FILE") continue;
+      const key = a.storageKey || a.filename;
+      if (!key) continue;
+      // Only resolve a path from the storage key — the filename can't locate the
+      // on-disk blob (`<key>.blob`). Without a storage key (older sidecar/proto),
+      // omit path so the agent falls back to scanning rather than reading a
+      // non-existent file.
+      const path = a.storageKey
+        ? join(dir, `${a.storageKey}${FILES_BLOB_SUFFIX}`)
+        : undefined;
+      out.push({
+        key,
+        name: a.filename || key,
+        path,
+        mimeType: a.mimeType,
+        size: a.sizeBytes,
+      });
+    }
+    return out;
+  }
+
   private handleMessage(message: Message): void {
     if (!this.stream) return;
 
@@ -318,6 +395,7 @@ export class MessagingBridge {
         // || catches empty strings too — ?? would let "" through.
         userId: message.user?.id || "anonymous",
         platformContext: message.platformContext,
+        attachments: this.resolveAttachments(message),
         signal: controller.signal,
       })
       .catch((error) => {
