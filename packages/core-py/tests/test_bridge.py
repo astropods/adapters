@@ -52,6 +52,9 @@ class MinimalStreamHooks:
     def on_audio_end(self) -> None:
         pass
 
+    def on_file(self, name: str, mime_type=None, size=None) -> None:
+        pass
+
 
 def test_stream_hooks_does_not_require_trace_context_hook():
     assert isinstance(MinimalStreamHooks(), StreamHooks)
