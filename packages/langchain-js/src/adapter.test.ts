@@ -1,9 +1,40 @@
 import { describe, test, expect } from "bun:test";
+import { trace } from "@opentelemetry/api";
+import type { Span, Tracer, TracerProvider } from "@opentelemetry/api";
 import type { StatusUpdate } from "@astropods/messaging";
-import type { StreamOptions } from "@astropods/adapter-core";
+import type { StreamOptions, TraceContext } from "@astropods/adapter-core";
 
 import { LangChainAdapter } from "./adapter";
 import type { LangChainAgent } from "./adapter";
+
+// The adapter reads the active span's context to build the traceparent. Register
+// a global provider whose span reports fixed IDs so the emitted traceparent is
+// deterministic; the returned fn clears the global provider afterward.
+function installStubTracer(traceId: string, spanId: string): () => void {
+  const span = {
+    spanContext: () => ({ traceId, spanId, traceFlags: 1 }),
+    setAttribute: () => span,
+    setStatus: () => span,
+    recordException: () => {},
+    end: () => {},
+    isRecording: () => true,
+  } as unknown as Span;
+  const tracer = {
+    startActiveSpan: (...args: unknown[]) => {
+      const fn = args.find((a) => typeof a === "function") as
+        | ((s: Span) => unknown)
+        | undefined;
+      return fn?.(span);
+    },
+  } as unknown as Tracer;
+  const registered = trace.setGlobalTracerProvider({
+    getTracer: () => tracer,
+  } as TracerProvider);
+  if (!registered) {
+    throw new Error("could not register stub tracer provider");
+  }
+  return () => trace.disable();
+}
 
 function createHooks() {
   const result = {
@@ -11,6 +42,10 @@ function createHooks() {
     statuses: [] as StatusUpdate[],
     errors: [] as Error[],
     finishCount: 0,
+    traceContexts: [] as TraceContext[],
+    onTraceContext(traceContext: TraceContext) {
+      result.traceContexts.push(traceContext);
+    },
     onChunk(text: string) {
       result.chunks.push(text);
     },
@@ -84,6 +119,27 @@ describe("LangChainAdapter", () => {
 
       expect(hooks.chunks).toEqual(["Hello", " world"]);
       expect(hooks.finishCount).toBe(1);
+    });
+
+    test("emits trace context built from the active span", async () => {
+      const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+      const spanId = "00f067aa0ba902b7";
+      const restore = installStubTracer(traceId, spanId);
+      try {
+        const agent = fakeAgent([
+          ["messages", [aiMessage([{ type: "text", text: "Hello" }]), {}]],
+        ]);
+        const adapter = new LangChainAdapter(agent);
+        const hooks = createHooks();
+
+        await adapter.stream("hi", hooks, defaultOptions);
+
+        expect(hooks.traceContexts).toEqual([
+          { traceparent: `00-${traceId}-${spanId}-01` },
+        ]);
+      } finally {
+        restore();
+      }
     });
 
     test("ignores non-assistant messages (tool results) in messages mode", async () => {

@@ -8,7 +8,11 @@ import {
   type Message,
   type ConversationStream,
   type PlatformFeedback,
+  type Renderable,
+  type RenderableAction,
+  type RenderableResponse,
 } from "@astropods/messaging";
+import { randomUUID } from "node:crypto";
 
 import type {
   AgentAdapter,
@@ -16,8 +20,10 @@ import type {
   AudioInput,
   FeedbackEvent,
   OutgoingFile,
+  RenderableInput,
   ServeOptions,
   StreamHooks,
+  TraceContext,
 } from "./types.js";
 import { logger } from "./logger.js";
 
@@ -43,8 +49,58 @@ const MAX_RETRIES = 10;
 const INITIAL_DELAY_MS = 500;
 const MAX_DELAY_MS = 15000;
 
+// Plain render() default: an escapable submit form.
+const DEFAULT_ALLOWED_ACTIONS: RenderableAction[] = [
+  "RENDERABLE_ACTION_SUBMIT",
+  "RENDERABLE_ACTION_CANCEL",
+];
+
+// elicit() is MCP-elicitation-shaped, whose native action set is
+// accept / decline / cancel, so it surfaces DECLINE as well as CANCEL.
+const DEFAULT_ELICIT_ACTIONS: RenderableAction[] = [
+  "RENDERABLE_ACTION_SUBMIT",
+  "RENDERABLE_ACTION_DECLINE",
+  "RENDERABLE_ACTION_CANCEL",
+];
+
+const ACTION_BY_NUMBER: Record<number, RenderableAction> = {
+  0: "RENDERABLE_ACTION_UNSPECIFIED",
+  1: "RENDERABLE_ACTION_SUBMIT",
+  2: "RENDERABLE_ACTION_DECLINE",
+  3: "RENDERABLE_ACTION_CANCEL",
+  4: "RENDERABLE_ACTION_RESPOND",
+  5: "RENDERABLE_ACTION_UNSUPPORTED",
+};
+
+// proto-loader may surface an enum as its name, numeric value, or numeric
+// string (the StreamControl STOP handling defends the same way). Normalize any
+// representation to the canonical name so comparisons are representation-safe.
+function normalizeAction(
+  action: RenderableAction | number | string
+): RenderableAction {
+  if (typeof action === "number") {
+    return ACTION_BY_NUMBER[action] ?? "RENDERABLE_ACTION_UNSPECIFIED";
+  }
+  if (/^\d+$/.test(action)) {
+    return ACTION_BY_NUMBER[Number(action)] ?? "RENDERABLE_ACTION_UNSPECIFIED";
+  }
+  return action as RenderableAction;
+}
+
 function debug(msg: string) {
   if (process.env.DEBUG) logger.debug(msg);
+}
+
+/**
+ * Rejection for a strict Renderable (no RESPOND) that reached a surface which
+ * cannot render it. Lets out-of-loop callers tell "couldn't ask" apart from a
+ * user DECLINE / CANCEL.
+ */
+export class UnsupportedRenderableError extends Error {
+  constructor(public readonly renderableId: string) {
+    super(`Renderable ${renderableId} could not be rendered on the target surface`);
+    this.name = "UnsupportedRenderableError";
+  }
 }
 
 export class MessagingBridge {
@@ -55,6 +111,16 @@ export class MessagingBridge {
   private shutdownHandler: (() => void) | null = null;
   // In-flight model call per conversation, so a StreamControl STOP can abort it.
   private abortControllers = new Map<string, AbortController>();
+  // Live awaiters for blocking Renderables, keyed by Renderable.id. In-process
+  // only: correctness across restarts rests on the durable store, not this map.
+  private pendingRenderables = new Map<
+    string,
+    {
+      conversationId: string;
+      resolve: (r: RenderableResponse) => void;
+      reject: (e: Error) => void;
+    }
+  >();
 
   constructor(adapter: AgentAdapter, options?: ServeOptions) {
     this.adapter = adapter;
@@ -109,6 +175,13 @@ export class MessagingBridge {
     // Listen for incoming messages
     this.stream.on("response", (response: AgentResponse) => {
       if (response.feedback) {
+        if (response.feedback.renderableResponse) {
+          this.handleRenderableResponse(
+            response.feedback.conversationId,
+            response.feedback.renderableResponse
+          );
+          return;
+        }
         this.maybeAbortOnStreamControl(response.feedback);
         this.dispatchFeedback(response.feedback);
         return;
@@ -196,20 +269,32 @@ export class MessagingBridge {
     // its files dir; only the filename (its files-API key) rides the wire.
     const pendingFiles: OutgoingFile[] = [];
 
+    // Per-turn, so a late-unwinding superseded turn can't tag a newer turn.
+    let traceContext: TraceContext | undefined;
+
+    // Thread the turn's trace context through the SDK's per-payload senders so
+    // the SDK owns how each response is put on the wire. Undefined until
+    // onTraceContext fires — the SDK omits the field then.
+    const trace = () => (traceContext ? { traceContext } : undefined);
+
     return {
+      onTraceContext: (tc) => {
+        if (!tc?.traceparent) return;
+        traceContext = tc;
+        debug(`[bridge] Trace context attached: conversation=${conversationId}`);
+      },
       onChunk: (text: string) => {
-        stream.sendContentChunk(conversationId, {
-          type: "DELTA",
-          content: text,
-        });
+        stream.sendContentChunk(conversationId, { type: "DELTA", content: text }, trace());
       },
       onStatusUpdate: (status) => {
-        stream.sendStatusUpdate(conversationId, status);
+        stream.sendStatusUpdate(conversationId, status, trace());
       },
+      // No dedicated sender for errors — build the AgentResponse directly.
       onError: (error: Error) => {
         logger.error({ err: error }, "Agent error");
         stream.sendAgentResponse({
           conversationId,
+          ...trace(),
           error: { code: "AGENT_ERROR", message: error.message },
         });
       },
@@ -232,13 +317,14 @@ export class MessagingBridge {
             },
           }));
         }
-        stream.sendContentChunk(conversationId, end);
+        stream.sendContentChunk(conversationId, end, trace());
         debug(`[bridge] Response complete: conversation=${conversationId}`);
       },
       onTranscript: (text: string) => {
         debug(`[bridge] Sending transcript: conversation=${conversationId} text=${JSON.stringify(text)}`);
-        stream.sendTranscript(conversationId, text);
+        stream.sendTranscript(conversationId, text, undefined, undefined, trace());
       },
+      // Audio uses ConversationRequest.audio — no trace-context slot.
       onAudioChunk: (data: Uint8Array) => {
         stream.sendAudioChunk({ data, done: false });
       },
@@ -299,6 +385,7 @@ export class MessagingBridge {
       // surfaces empty strings rather than undefined so callbacks can write
       // `event.userId` straight to a row without null-checking every field.
       responseId: fb.responseId ?? "",
+      traceContext: fb.traceContext,
       kind,
       userId: fb.user?.id ?? "",
       userName: fb.user?.username ?? "",
@@ -338,6 +425,23 @@ export class MessagingBridge {
     if (existing) {
       existing.abort();
       this.abortControllers.delete(conversationId);
+    }
+    // Settle any renderable the aborted turn was blocked on, so `render()` does
+    // not hang and the map entry does not leak. The rejection unwinds the
+    // adapter's stream() into the aborted-turn path (it checks signal.aborted);
+    // the durable store still holds the interaction for redelivery / resume.
+    this.rejectPendingRenderables(
+      conversationId,
+      new Error("Interaction aborted: the turn was stopped or superseded")
+    );
+  }
+
+  private rejectPendingRenderables(conversationId: string, error: Error): void {
+    for (const [id, waiter] of this.pendingRenderables) {
+      if (waiter.conversationId === conversationId) {
+        this.pendingRenderables.delete(id);
+        waiter.reject(error);
+      }
     }
   }
 
@@ -397,6 +501,18 @@ export class MessagingBridge {
         platformContext: message.platformContext,
         attachments: this.resolveAttachments(message),
         signal: controller.signal,
+        render: (input) =>
+          this.sendRenderable(conversationId, this.buildRenderable(input)),
+        elicit: (elicitMessage, dataSchema, opts) =>
+          this.sendRenderable(
+            conversationId,
+            this.buildRenderable({
+              message: elicitMessage,
+              dataSchema,
+              ...opts,
+              allowedActions: opts?.allowedActions ?? DEFAULT_ELICIT_ACTIONS,
+            })
+          ),
       })
       .catch((error) => {
         // A user stop aborts the model call — that's expected; end quietly
@@ -423,6 +539,106 @@ export class MessagingBridge {
           this.abortControllers.delete(conversationId);
         }
       });
+  }
+
+  /** Build a wire Renderable from the friendly render() input, filling defaults. */
+  private buildRenderable(input: RenderableInput): Renderable {
+    return {
+      id: input.id || randomUUID(),
+      kind: input.kind ?? "RENDER_KIND_FORM",
+      message: input.message,
+      dataSchemaJson: JSON.stringify(input.dataSchema),
+      valueJson:
+        input.value === undefined ? undefined : JSON.stringify(input.value),
+      allowedActions: input.allowedActions ?? DEFAULT_ALLOWED_ACTIONS,
+      intent: input.intent,
+    };
+  }
+
+  /**
+   * Emit a blocking Renderable and return a promise that settles when the
+   * user's response arrives (resolve) or a strict ask cannot be rendered
+   * (reject with UnsupportedRenderableError). Correlation is by Renderable.id.
+   * The promise is in-process only; cross-restart delivery rests on the durable
+   * store and the adapter's onResume hook.
+   */
+  sendRenderable(
+    conversationId: string,
+    renderable: Renderable
+  ): Promise<RenderableResponse> {
+    return new Promise<RenderableResponse>((resolve, reject) => {
+      if (!this.stream) {
+        reject(new Error("Cannot send a Renderable before the stream is open"));
+        return;
+      }
+      // Every blocking Renderable must offer an escape so a thread can never
+      // wedge (spec: allowed_actions must include CANCEL or DECLINE).
+      const actions = renderable.allowedActions.map(normalizeAction);
+      if (
+        !actions.includes("RENDERABLE_ACTION_CANCEL") &&
+        !actions.includes("RENDERABLE_ACTION_DECLINE")
+      ) {
+        reject(
+          new Error(
+            "A blocking Renderable must offer CANCEL or DECLINE so the user can always escape"
+          )
+        );
+        return;
+      }
+      this.pendingRenderables.set(renderable.id, {
+        conversationId,
+        resolve,
+        reject,
+      });
+      try {
+        this.stream.sendAgentResponse({ conversationId, renderable });
+      } catch (err) {
+        this.pendingRenderables.delete(renderable.id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  /**
+   * Route an inbound RenderableResponse: settle the live awaiter if one exists
+   * (UNSUPPORTED rejects, everything else resolves), otherwise hand it to the
+   * adapter's optional onResume (checkpointed frameworks / recovery). We do NOT
+   * await onResume, mirroring dispatchFeedback.
+   */
+  private handleRenderableResponse(
+    conversationId: string,
+    response: RenderableResponse
+  ): void {
+    const waiter = this.pendingRenderables.get(response.id);
+    if (waiter) {
+      this.pendingRenderables.delete(response.id);
+      const action = normalizeAction(response.action);
+      if (action === "RENDERABLE_ACTION_UNSUPPORTED") {
+        waiter.reject(new UnsupportedRenderableError(response.id));
+      } else {
+        // Hand the adapter the canonical string action even if it arrived numeric.
+        waiter.resolve({ ...response, action });
+      }
+      return;
+    }
+
+    if (this.adapter.onResume) {
+      try {
+        const result = this.adapter.onResume(conversationId, response);
+        if (result && typeof (result as Promise<void>).catch === "function") {
+          (result as Promise<void>).catch((err) =>
+            logger.error({ err }, "onResume rejected; dropping response")
+          );
+        }
+      } catch (err) {
+        logger.error({ err }, "onResume threw; dropping response");
+      }
+      return;
+    }
+
+    logger.warn(
+      `Renderable response ${response.id} has no in-process awaiter and no onResume handler; dropping`
+    );
   }
 
   private handleAudio(audioInput: AudioInput, conversationId: string, userId?: string): void {
@@ -453,6 +669,23 @@ export class MessagingBridge {
   }
 
   stop(): void {
+    // Abort in-flight turns first so an adapter blocked on render() unwinds
+    // through the quiet aborted-turn path (stream().catch checks signal.aborted)
+    // rather than emitting an AGENT_ERROR on a stream we're about to close.
+    for (const controller of this.abortControllers.values()) {
+      controller.abort();
+    }
+    this.abortControllers.clear();
+
+    // Fail any in-flight awaiters so a caller blocked on render() doesn't hang
+    // past shutdown. The durable store keeps the interaction for redelivery.
+    for (const waiter of this.pendingRenderables.values()) {
+      waiter.reject(
+        new Error("Messaging bridge stopped before the interaction was answered")
+      );
+    }
+    this.pendingRenderables.clear();
+
     if (this.shutdownHandler) {
       process.removeListener("SIGINT", this.shutdownHandler);
       process.removeListener("SIGTERM", this.shutdownHandler);

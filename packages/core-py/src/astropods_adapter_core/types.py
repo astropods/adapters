@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from astropods_messaging import PlatformContext
+    from astropods_messaging import PlatformContext, TraceContext
 
 
 @runtime_checkable
@@ -49,6 +49,12 @@ class StreamHooks(Protocol):
         then call this with the filename; delivered on the END chunk.
         """
         ...
+
+    # Optional: adapters that can provide W3C trace context for the current
+    # assistant turn define this method. The bridge implementation supports it,
+    # and framework adapters should probe with ``getattr`` before calling it.
+    #
+    # def on_trace_context(self, trace_context: "TraceContext") -> None: ...
 
 
 @runtime_checkable
@@ -130,6 +136,7 @@ class FeedbackEvent:
     conversation_id: str
     response_id: str             # platform message ID the feedback is attached to
     kind: str
+    trace_context: Optional["TraceContext"] = None
     user_id: str = ""
     user_name: str = ""
     text: Optional[str] = None   # populated for "text" and "reaction"

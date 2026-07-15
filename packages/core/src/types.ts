@@ -2,11 +2,21 @@ import type {
   AgentConfig as MessagingAgentConfig,
   AudioStreamConfig,
   PlatformContext,
+  RenderableAction,
+  RenderableResponse,
+  RenderKind,
   StatusUpdate,
+  TraceContext,
 } from "@astropods/messaging";
+
+// The wire type is the source of truth; re-export it so adapters get a single
+// TraceContext shared with the messaging SDK rather than a parallel copy.
+export type { TraceContext } from "@astropods/messaging";
 
 /** Lifecycle hooks called by an adapter as the agent streams a response. */
 export interface StreamHooks {
+  /** W3C trace context for the current assistant turn. */
+  onTraceContext?(traceContext: TraceContext): void;
   onChunk(text: string): void;
   onStatusUpdate(status: StatusUpdate): void;
   onError(error: Error): void;
@@ -55,6 +65,36 @@ export interface OutgoingFile {
   size?: number;
 }
 
+/**
+ * Input to {@link StreamOptions.render}. A friendlier shape than the wire
+ * `Renderable`: pass the data schema and value as objects and the bridge
+ * serializes them, generates a correlation `id`, and fills defaults.
+ */
+export interface RenderableInput {
+  /** Correlation id. Auto-generated when omitted. */
+  id?: string;
+  /** Render strategy. Defaults to a declarative form. */
+  kind?: RenderKind;
+  /** Prompt / title text (markdown where the surface supports it). */
+  message: string;
+  /** JSON Schema describing the expected response. */
+  dataSchema: object;
+  /** Proposed / prefilled data for edit-in-place. */
+  value?: unknown;
+  /** Response actions offered. Defaults to submit + cancel. */
+  allowedActions?: RenderableAction[];
+  /** Open-vocabulary tag; "tool_permission" is recognized. */
+  intent?: string;
+}
+
+/** Options for {@link StreamOptions.elicit}, the MCP-elicitation-shaped convenience. */
+export interface ElicitOptions {
+  value?: unknown;
+  allowedActions?: RenderableAction[];
+  intent?: string;
+  id?: string;
+}
+
 /** Per-request context passed to the adapter's stream method. */
 export interface StreamOptions {
   conversationId: string;
@@ -81,6 +121,27 @@ export interface StreamOptions {
    * in telemetry (and can resurface on reload).
    */
   signal?: AbortSignal;
+  /**
+   * Emit a blocking Renderable and resolve with the user's response: SUBMIT,
+   * DECLINE, CANCEL, or (when allowed) RESPOND. A strict ask that reaches a
+   * surface which cannot render it rejects with `UnsupportedRenderableError`.
+   * Provided by the bridge on the text-message path; optional so non-bridge
+   * callers may omit it. Audio surfaces do not render forms in v1.
+   *
+   * Await (or attach `.catch` to) the returned promise: it also rejects if the
+   * turn is stopped, superseded, or the bridge shuts down before a response
+   * arrives, so a fire-and-forget call risks an unhandled rejection.
+   */
+  render?(input: RenderableInput): Promise<RenderableResponse>;
+  /**
+   * MCP-elicitation-shaped convenience over {@link render}. When `allowedActions`
+   * is omitted it defaults to the MCP triple: submit / decline / cancel.
+   */
+  elicit?(
+    message: string,
+    dataSchema: object,
+    opts?: ElicitOptions
+  ): Promise<RenderableResponse>;
 }
 
 /**
@@ -107,6 +168,8 @@ export interface FeedbackEvent {
   conversationId: string;
   /** Platform message ID the feedback is attached to. */
   responseId: string;
+  /** Trace context for the referenced assistant response, when available. */
+  traceContext?: TraceContext;
   kind: string;
   userId: string;
   userName: string;
@@ -161,6 +224,17 @@ export interface AgentAdapter {
    * stream reader on slow IO.
    */
   onFeedback?(feedback: FeedbackEvent): void | Promise<void>;
+
+  /**
+   * Apply a Renderable response that arrived with no live in-process awaiter:
+   * a checkpointed framework that yielded the turn, or recovery after a
+   * restart. Optional; when absent, an orphaned response is logged and
+   * dropped. The bridge does not await the result.
+   */
+  onResume?(
+    conversationId: string,
+    response: RenderableResponse
+  ): void | Promise<void>;
 }
 
 /** Options for the serve() entry point and MessagingBridge. */

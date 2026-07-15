@@ -58,10 +58,32 @@ Call these inside `stream()` as the agent produces output:
 | `on_finish()` | Response complete — call exactly once per request |
 | `on_error(exception)` | Error occurred — call instead of `on_finish` |
 
+`on_trace_context(trace_context)` is optional; call it with `getattr` when a turn has W3C trace context.
+
 For `CUSTOM` status, include `"custom_message"` in the dict:
 
 ```python
 hooks.on_status_update({"status": "CUSTOM", "custom_message": "Fetching data..."})
+```
+
+### `create_traceparent(*, trace_id, span_id, trace_flags="01")`
+
+Formats a native trace/span ID pair into a W3C `traceparent` string to hand to `on_trace_context`. Returns `""` for invalid or all-zero IDs, so it's safe to pass raw OpenTelemetry span context. `trace_flags` accepts an int or hex string and defaults to `"01"` (sampled).
+
+```python
+from astropods_messaging import TraceContext
+from astropods_adapter_core import create_traceparent
+
+ctx = span.get_span_context()
+traceparent = create_traceparent(
+    trace_id=f"{ctx.trace_id:032x}",
+    span_id=f"{ctx.span_id:016x}",
+    trace_flags=int(ctx.trace_flags),
+)
+if traceparent:
+    on_trace_context = getattr(hooks, "on_trace_context", None)
+    if on_trace_context is not None:
+        on_trace_context(TraceContext(traceparent=traceparent))
 ```
 
 ### `StreamOptions`
