@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.8.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.7.0...@astropods/adapter-core@0.8.0) (2026-07-16)
+
+
+### Features
+
+* message attachments + onFile output hook (agent SDK) ([#66](https://github.com/astropods/adapters/issues/66)) ([f71ebc5](https://github.com/astropods/adapters/commit/f71ebc550c7f26023588c0f0c4b15a6f57e6b88f))
+
+
+
 ## [0.7.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.6.1...@astropods/adapter-core@0.7.0) (2026-07-10)
 
 
