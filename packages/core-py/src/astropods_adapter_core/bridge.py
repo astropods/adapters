@@ -31,12 +31,18 @@ from astropods_messaging import (
 
 from .types import (
     AgentAdapter,
+    AttachmentInput,
     AudioInput,
     FeedbackEvent,
     ServeOptions,
     StreamHooks,
     StreamOptions,
 )
+
+# Agent files mount (matches the K8s/compose deployer's AGENT_FILES_DIR) and the
+# files store's on-disk blob suffix for API-managed uploads.
+DEFAULT_AGENT_FILES_DIR = "/data/files"
+FILES_BLOB_SUFFIX = ".blob"
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +85,8 @@ class _StreamHooksImpl:
         self._conversation_id = conversation_id
         self._write_queue = write_queue
         self._finished = False
+        # Files the agent emits via on_file, delivered on the END chunk.
+        self._pending_files: list[dict] = []
         self._trace_context: Optional[TraceContext] = None
 
     def _enqueue(self, request: ConversationRequest) -> None:
@@ -130,6 +138,11 @@ class _StreamHooksImpl:
         self._enqueue(ConversationRequest(agent_response=response))
         logger.error("Agent error: %s", error)
 
+    def on_file(self, name: str, mime_type: Optional[str] = None, size: Optional[int] = None) -> None:
+        if self._finished or not name:
+            return
+        self._pending_files.append({"name": name, "mime_type": mime_type, "size": size})
+
     def on_finish(self) -> None:
         if self._finished:
             return
@@ -138,6 +151,15 @@ class _StreamHooksImpl:
             type=ContentChunk.ChunkType.Value("END"),
             content="",
         )
+        # Attach agent-produced files (rendered as reply download chips). Use the
+        # repeated field's add() so we don't import the ResponseAttachment types.
+        for f in self._pending_files:
+            ra = chunk.attachments.add()
+            ra.file.filename = f["name"]
+            if f.get("mime_type"):
+                ra.file.mime_type = f["mime_type"]
+            if f.get("size") is not None:
+                ra.file.size_bytes = f["size"]
         response = self._response(content=chunk)
         self._enqueue(ConversationRequest(agent_response=response))
         _debug("[bridge] Response complete: conversation=%s", self._conversation_id)
@@ -414,6 +436,41 @@ class MessagingBridge:
         except Exception as exc:
             logger.exception("on_feedback raised; dropping event: %s", exc)
 
+    def _resolve_attachments(self, message: Message) -> list[AttachmentInput]:
+        """Resolve inbound FILE attachments to the agent-facing shape: files-API
+        key, metadata, and an absolute path on the shared files volume. Requires
+        the messaging proto to expose ``storage_key`` (regenerate the Python SDK
+        proto); a user upload's filename is the display name, not the key, so we
+        fall back to it only when storage_key is unavailable."""
+        files_dir = os.environ.get("AGENT_FILES_DIR", DEFAULT_AGENT_FILES_DIR)
+        out: list[AttachmentInput] = []
+        for a in message.attachments:
+            if a.type != a.Type.Value("FILE"):
+                continue
+            storage_key = getattr(a, "storage_key", "")
+            key = storage_key or a.filename
+            if not key:
+                continue
+            # Only resolve a path from the storage key — the filename can't locate
+            # the on-disk blob (``<key>.blob``). Without a storage key (older
+            # sidecar, or a Python proto not yet regenerated with storage_key),
+            # leave path=None so the agent scans rather than reading a bad path.
+            path = (
+                os.path.join(files_dir, f"{storage_key}{FILES_BLOB_SUFFIX}")
+                if storage_key
+                else None
+            )
+            out.append(
+                AttachmentInput(
+                    key=key,
+                    name=a.filename or key,
+                    path=path,
+                    mime_type=a.mime_type or None,
+                    size=a.size_bytes or None,
+                )
+            )
+        return out
+
     def _maybe_abort_on_stream_control(self, fb_proto) -> None:
         """Cancel the in-flight turn when a StreamControl STOP feedback arrives.
 
@@ -483,6 +540,7 @@ class MessagingBridge:
             platform_context=(
                 message.platform_context if message.HasField("platform_context") else None
             ),
+            attachments=self._resolve_attachments(message),
         )
 
         try:
