@@ -56,6 +56,23 @@ export interface AttachmentInput {
   size?: number;
 }
 
+/** An image the user attached to the incoming message, delivered inline so the
+ *  adapter can hand it straight to the model as visual context. Unlike
+ *  {@link AttachmentInput} (files staged on the shared volume by path), an image
+ *  carries its bytes in `url` as a data URI (`data:<mime>;base64,…`) — or a
+ *  directly fetchable image URL — so no files volume or platform token is
+ *  needed on the agent side. */
+export interface ImageInput {
+  /** Original filename, when known. */
+  name: string;
+  /** Data URI (`data:<mime>;base64,…`) or a fetchable image URL. */
+  url: string;
+  /** MIME type, if known. */
+  mimeType?: string;
+  /** Size in bytes, if known. */
+  size?: number;
+}
+
 /** A file the agent hands back to the user (rendered as a download chip). The
  *  agent must have written the bytes into its files dir first; `name` is the
  *  filename there (also its files-API key). */
@@ -113,6 +130,14 @@ export interface StreamOptions {
    * each attachment's `path`. Empty/omitted when the message carried no files.
    */
   attachments?: AttachmentInput[];
+  /**
+   * Images the user attached to this message, delivered inline (bytes in each
+   * image's `url` data URI) so the adapter can pass them to the model as visual
+   * content in the same turn. Distinct from `attachments`, which are files
+   * staged on the shared volume by path. Empty/omitted when the message carried
+   * no images.
+   */
+  images?: ImageInput[];
   /**
    * Aborted when the user stops generation (a `StreamControl` STOP arrives for
    * this conversation, e.g. the chat "stop generating" button). Adapters should

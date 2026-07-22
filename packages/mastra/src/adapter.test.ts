@@ -147,6 +147,73 @@ describe("MastraAdapter", () => {
       expect(hooks.finishCount).toBe(1);
     });
 
+    test("builds a multimodal message when the turn carries images", async () => {
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model: modelFromParts(textParts(["ok"])),
+        instructions: "test",
+      });
+      let capturedInput: unknown;
+      const fullStream = (async function* () {
+        yield { type: "finish" };
+      })();
+      const originalStream = agent.stream.bind(agent);
+      (agent as { stream: typeof originalStream }).stream = mock(
+        async (input: unknown) => {
+          capturedInput = input;
+          return { fullStream } as unknown as Awaited<ReturnType<typeof originalStream>>;
+        }
+      ) as unknown as typeof originalStream;
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+
+      await adapter.stream("what is this?", hooks, {
+        ...defaultOptions,
+        images: [
+          { name: "shot.png", url: "data:image/png;base64,AAAA", mimeType: "image/png" },
+        ],
+      });
+
+      expect(capturedInput).toEqual([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", image: "data:image/png;base64,AAAA" },
+          ],
+        },
+      ]);
+    });
+
+    test("passes a plain string prompt when the turn has no images", async () => {
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model: modelFromParts(textParts(["ok"])),
+        instructions: "test",
+      });
+      let capturedInput: unknown;
+      const fullStream = (async function* () {
+        yield { type: "finish" };
+      })();
+      const originalStream = agent.stream.bind(agent);
+      (agent as { stream: typeof originalStream }).stream = mock(
+        async (input: unknown) => {
+          capturedInput = input;
+          return { fullStream } as unknown as Awaited<ReturnType<typeof originalStream>>;
+        }
+      ) as unknown as typeof originalStream;
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+
+      await adapter.stream("just text", hooks, defaultOptions);
+
+      expect(capturedInput).toBe("just text");
+    });
+
     test("calls onFinish when stream completes", async () => {
       const agent = new Agent({
         id: "test",
