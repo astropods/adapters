@@ -1,7 +1,7 @@
 # Contributing to adapters
 
 Framework adapters that connect agents (Mastra, AI SDK, Claude Agent SDK,
-LangChain, …) to the Astro messaging bridge. A Bun + Lerna monorepo of
+LangChain, …) to the Astro messaging bridge. A Bun + Lerna workspace of
 independently-versioned TypeScript and Python packages.
 
 ## Packages
@@ -27,9 +27,12 @@ Python (`packages/`):
 
 ## Setup & build
 
+`bun install` pulls everything you need, including the gRPC types
+(`@astropods/messaging`) from public npm.
+
 ```sh
 bun install
-bunx lerna run build            # build all TS packages (or: moon run adapters:build)
+bunx lerna run build            # build all TS packages
 ```
 
 Per package / focused:
@@ -77,4 +80,4 @@ Publishing is manual (`.github/workflows/publish.yml`, `workflow_dispatch`):
 `lerna version` then `lerna publish from-package`, and only from `main` or
 `release/*` (`lerna.json` `allowBranch`). Python packages publish via the
 `publish-pypi*.yml` workflows. For a local end-to-end check, publish to a local
-Verdaccio registry (`localhost:4873`) with `moon run adapters:publish-local`.
+Verdaccio registry (`localhost:4873`) with `bash scripts/publish-local.sh`.
