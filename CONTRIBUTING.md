@@ -79,5 +79,4 @@ an existing adapter (e.g. `packages/mastra`).
 Publishing is manual (`.github/workflows/publish.yml`, `workflow_dispatch`):
 `lerna version` then `lerna publish from-package`, and only from `main` or
 `release/*` (`lerna.json` `allowBranch`). Python packages publish via the
-`publish-pypi*.yml` workflows. For a local end-to-end check, publish to a local
-Verdaccio registry (`localhost:4873`) with `bash scripts/publish-local.sh`.
+`publish-pypi*.yml` workflows.
