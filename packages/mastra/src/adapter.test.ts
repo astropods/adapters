@@ -181,7 +181,45 @@ describe("MastraAdapter", () => {
           role: "user",
           content: [
             { type: "text", text: "what is this?" },
-            { type: "image", image: "data:image/png;base64,AAAA" },
+            { type: "image", image: "data:image/png;base64,AAAA", mediaType: "image/png" },
+          ],
+        },
+      ]);
+    });
+
+    test("derives image mediaType from the data URI when mimeType is absent", async () => {
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model: modelFromParts(textParts(["ok"])),
+        instructions: "test",
+      });
+      let capturedInput: unknown;
+      const fullStream = (async function* () {
+        yield { type: "finish" };
+      })();
+      const originalStream = agent.stream.bind(agent);
+      (agent as { stream: typeof originalStream }).stream = mock(
+        async (input: unknown) => {
+          capturedInput = input;
+          return { fullStream } as unknown as Awaited<ReturnType<typeof originalStream>>;
+        }
+      ) as unknown as typeof originalStream;
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+
+      await adapter.stream("what is this?", hooks, {
+        ...defaultOptions,
+        images: [{ name: "shot.webp", url: "data:image/webp;base64,AAAA" }],
+      });
+
+      expect(capturedInput).toEqual([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", image: "data:image/webp;base64,AAAA", mediaType: "image/webp" },
           ],
         },
       ]);
