@@ -26,7 +26,33 @@ export class MastraAdapter implements AgentAdapter {
     // Backfill the langfuse trace user_id only (Unauthorized bucket, not
     // Unattributed); memory.resource keeps the original to scope memory.
     const traceUserId = options.userId || "anonymous";
-    const stream = await this.agent.stream(prompt, {
+
+    // When the message carried images, hand the model a single user message
+    // whose content mixes the prompt text with image parts (bytes ride in each
+    // image's data-URI `url`). Otherwise pass the plain prompt string so the
+    // common text path is untouched.
+    const images = options.images ?? [];
+    const input =
+      images.length > 0
+        ? [
+            {
+              role: "user" as const,
+              content: [
+                ...(prompt ? [{ type: "text" as const, text: prompt }] : []),
+                ...images.map((img) => ({
+                  type: "image" as const,
+                  image: img.url,
+                  // Set mediaType explicitly; a missing one defaults to
+                  // image/jpeg, which the model rejects for non-JPEG bytes.
+                  mediaType:
+                    img.mimeType ?? /^data:([^;,]+)[;,]/.exec(img.url)?.[1],
+                })),
+              ],
+            },
+          ]
+        : prompt;
+
+    const stream = await this.agent.stream(input, {
       memory: {
         thread: options.conversationId,
         resource: options.userId,

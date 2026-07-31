@@ -371,6 +371,56 @@ describe("MessagingBridge", () => {
       expect(atts[1].key).toBe("legacy.txt");
     });
 
+    test("passes inbound IMAGE attachments to the adapter as StreamOptions.images", async () => {
+      let capturedOptions: StreamOptions | null = null;
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks, options) => {
+          capturedOptions = options;
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      mockResponseHandlers[0]({
+        conversationId: "conv-1",
+        incomingMessage: {
+          conversationId: "conv-1",
+          content: "what's in this image?",
+          platform: "slack",
+          user: { id: "user-1" },
+          attachments: [
+            {
+              type: "IMAGE",
+              filename: "shot.png",
+              mimeType: "image/png",
+              sizeBytes: 123,
+              url: "data:image/png;base64,AAAA",
+            },
+            // An image without a url can't be forwarded inline, so it's skipped.
+            { type: "IMAGE", filename: "no-url.png", mimeType: "image/png" },
+            // Files go to attachments, never images.
+            { type: "FILE", filename: "data.csv", storageKey: "uuid-1" },
+          ],
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const imgs = capturedOptions!.images ?? [];
+      expect(imgs).toHaveLength(1);
+      expect(imgs[0]).toEqual({
+        name: "shot.png",
+        url: "data:image/png;base64,AAAA",
+        mimeType: "image/png",
+        size: 123,
+      });
+      // Files still resolve to attachments, not images.
+      expect((capturedOptions!.attachments ?? []).map((a) => a.key)).toEqual([
+        "uuid-1",
+      ]);
+    });
+
     test("delivers agent-produced files on the END chunk via onFile", async () => {
       const adapter = createMockAdapter({
         stream: async (_prompt, hooks) => {

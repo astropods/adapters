@@ -19,6 +19,7 @@ import type {
   AttachmentInput,
   AudioInput,
   FeedbackEvent,
+  ImageInput,
   OutgoingFile,
   RenderableInput,
   ServeOptions,
@@ -42,6 +43,7 @@ const FILES_BLOB_SUFFIX = ".blob";
 type WireAttachment = Attachment & {
   storageKey?: string;
   sizeBytes?: number;
+  url?: string;
 };
 
 const DEFAULT_SERVER_ADDR = "localhost:9090";
@@ -477,6 +479,28 @@ export class MessagingBridge {
     return out;
   }
 
+  /**
+   * Resolve inbound IMAGE attachments to the shape the adapter passes to the
+   * model. Images arrive inline (bytes in a `data:` URI on `url`), so unlike
+   * files there is no volume round trip: the adapter forwards `url` straight to
+   * the model as visual content. Attachments without a `url` are skipped.
+   */
+  private resolveImages(message: Message): ImageInput[] {
+    const atts = (message.attachments ?? []) as WireAttachment[];
+    const out: ImageInput[] = [];
+    for (const a of atts) {
+      if (a.type !== "IMAGE") continue;
+      if (!a.url) continue;
+      out.push({
+        name: a.filename || "image",
+        url: a.url,
+        mimeType: a.mimeType,
+        size: a.sizeBytes,
+      });
+    }
+    return out;
+  }
+
   private handleMessage(message: Message): void {
     if (!this.stream) return;
 
@@ -500,6 +524,7 @@ export class MessagingBridge {
         userId: message.user?.id || "anonymous",
         platformContext: message.platformContext,
         attachments: this.resolveAttachments(message),
+        images: this.resolveImages(message),
         signal: controller.signal,
         render: (input) =>
           this.sendRenderable(conversationId, this.buildRenderable(input)),
