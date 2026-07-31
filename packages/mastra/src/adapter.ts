@@ -42,6 +42,10 @@ export class MastraAdapter implements AgentAdapter {
                 ...images.map((img) => ({
                   type: "image" as const,
                   image: img.url,
+                  // Set mediaType explicitly; a missing one defaults to
+                  // image/jpeg, which the model rejects for non-JPEG bytes.
+                  mediaType:
+                    img.mimeType ?? /^data:([^;,]+)[;,]/.exec(img.url)?.[1],
                 })),
               ],
             },
