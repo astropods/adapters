@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.5.4](https://github.com/astropods/adapters/compare/@astropods/adapter-claude-agent-sdk@0.5.3...@astropods/adapter-claude-agent-sdk@0.5.4) (2026-07-31)
+
+**Note:** Version bump only for package @astropods/adapter-claude-agent-sdk
+
+
+
+
+
 ## [0.5.3](https://github.com/astropods/adapters/compare/@astropods/adapter-claude-agent-sdk@0.5.2...@astropods/adapter-claude-agent-sdk@0.5.3) (2026-07-16)
 
 **Note:** Version bump only for package @astropods/adapter-claude-agent-sdk

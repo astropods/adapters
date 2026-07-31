@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.9.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.8.0...@astropods/adapter-core@0.9.0) (2026-07-31)
+
+
+### Features
+
+* **adapters:** forward inbound images to the model (StreamOptions.images + Mastra multimodal) ([#71](https://github.com/astropods/adapters/issues/71)) ([274a484](https://github.com/astropods/adapters/commit/274a484ff4a0aad24e608fb0bc87ab88d7093edf))
+
+
+
 ## [0.8.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.7.0...@astropods/adapter-core@0.8.0) (2026-07-16)
 
 
