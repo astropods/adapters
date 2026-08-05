@@ -21,6 +21,7 @@ export type {
 
 export { serve } from "./serve.js";
 export { MessagingBridge, UnsupportedRenderableError } from "./messaging-bridge.js";
+export { AgentCoreServer } from "./agentcore-server.js";
 export { logger } from "./logger.js";
 export { createTraceparent } from "./trace.js";
 export type { TraceparentInput } from "./trace.js";
