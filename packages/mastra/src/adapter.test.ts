@@ -11,12 +11,20 @@ import type { StatusUpdate } from "@astropods/messaging";
 import type { StreamOptions, TraceContext } from "@astropods/adapter-core";
 let mockLoggerWarnCalls: any[][] = [];
 
+class UnsupportedRenderableError extends Error {
+  constructor(public readonly renderableId: string) {
+    super(`Renderable ${renderableId} could not be rendered`);
+    this.name = "UnsupportedRenderableError";
+  }
+}
+
 mock.module("@astropods/adapter-core", () => ({
   createTraceparent: ({ traceId, spanId, traceFlags = "01" }: { traceId?: string; spanId?: string; traceFlags?: string | number }) => {
     if (!traceId || !spanId) return "";
     const flags = typeof traceFlags === "number" ? traceFlags.toString(16).padStart(2, "0") : traceFlags;
     return `00-${traceId.toLowerCase()}-${spanId.toLowerCase()}-${flags}`;
   },
+  UnsupportedRenderableError,
   logger: {
     info: () => {},
     debug: () => {},
@@ -81,6 +89,23 @@ function modelFromParts(parts: LanguageModelV2StreamPart[]) {
     doStream: async () => ({ stream: streamFromParts(parts) }),
   });
 }
+
+// A stand-in for a Mastra stream segment: the runId used to resume, and a
+// fullStream yielding the given chunks. Used to drive the approval/suspend
+// paths without a live model.
+function segment(runId: string | undefined, chunks: Array<{ type: string; payload?: any }>) {
+  return {
+    runId,
+    fullStream: (async function* () {
+      for (const chunk of chunks) yield chunk;
+    })(),
+  };
+}
+
+const textThenFinish = (text: string) => [
+  { type: "text-delta", payload: { text } },
+  { type: "finish", payload: {} },
+];
 
 // --- Tests ---
 
@@ -778,6 +803,206 @@ describe("MastraAdapter", () => {
       expect(hooks.chunks).toEqual(["first"]);
       expect(hooks.finishCount).toBe(0);
       expect(hooks.errors).toEqual([]);
+    });
+  });
+
+  describe("tool permission (approval)", () => {
+    function agentWithApproval(pausePayload: Record<string, any>, continuation: any[]) {
+      const agent = new Agent({
+        id: "t", name: "T", model: modelFromParts(textParts(["x"])), instructions: "t",
+      });
+      const streamMock = mock(async () =>
+        segment("run-1", [{ type: "tool-call-approval", payload: pausePayload }])
+      );
+      const approve = mock(async () => segment("run-1", continuation));
+      const decline = mock(async () => segment("run-1", continuation));
+      (agent as any).stream = streamMock;
+      (agent as any).approveToolCall = approve;
+      (agent as any).declineToolCall = decline;
+      return { agent, approve, decline };
+    }
+
+    const payload = { toolCallId: "tc-1", toolName: "deleteRecord", args: { id: "abc" }, resumeSchema: "" };
+
+    test("renders a tool_permission Renderable and approves on SUBMIT", async () => {
+      const { agent, approve, decline } = agentWithApproval(payload, textThenFinish("deleted"));
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const render = mock(async () => ({ id: "r", action: "RENDERABLE_ACTION_SUBMIT" }));
+
+      await adapter.stream("delete abc", hooks, { ...defaultOptions, render });
+
+      expect(render).toHaveBeenCalledTimes(1);
+      const input = render.mock.calls[0][0] as any;
+      expect(input.intent).toBe("tool_permission");
+      expect(input.value).toEqual({ id: "abc" });
+      // Tool name → schema title (client heading); args → plain-text subtext.
+      expect(input.dataSchema.title).toBe("deleteRecord");
+      expect(input.message).toContain("id: abc");
+      expect(input.allowedActions).toEqual(["RENDERABLE_ACTION_SUBMIT", "RENDERABLE_ACTION_DECLINE"]);
+      expect(approve).toHaveBeenCalledTimes(1);
+      expect(approve.mock.calls[0][0]).toMatchObject({ runId: "run-1", toolCallId: "tc-1" });
+      expect(decline).not.toHaveBeenCalled();
+      expect(hooks.chunks).toEqual(["deleted"]);
+      expect(hooks.finishCount).toBe(1);
+    });
+
+    test("declines on DECLINE, letting the agent continue", async () => {
+      const { agent, approve, decline } = agentWithApproval(payload, textThenFinish("won't do it"));
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const render = mock(async () => ({ id: "r", action: "RENDERABLE_ACTION_DECLINE" }));
+
+      await adapter.stream("delete abc", hooks, { ...defaultOptions, render });
+
+      expect(decline).toHaveBeenCalledTimes(1);
+      expect(decline.mock.calls[0][0]).toMatchObject({ runId: "run-1", toolCallId: "tc-1" });
+      expect(approve).not.toHaveBeenCalled();
+      expect(hooks.chunks).toEqual(["won't do it"]);
+      expect(hooks.finishCount).toBe(1);
+    });
+
+    test("treats CANCEL as a decline", async () => {
+      const { agent, approve, decline } = agentWithApproval(payload, textThenFinish("ok"));
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const render = mock(async () => ({ id: "r", action: "RENDERABLE_ACTION_CANCEL" }));
+
+      await adapter.stream("delete abc", hooks, { ...defaultOptions, render });
+
+      expect(decline).toHaveBeenCalledTimes(1);
+      expect(approve).not.toHaveBeenCalled();
+    });
+
+    test("declines when no render surface is available", async () => {
+      const { agent, approve, decline } = agentWithApproval(payload, textThenFinish("ok"));
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+
+      await adapter.stream("delete abc", hooks, defaultOptions);
+
+      expect(decline).toHaveBeenCalledTimes(1);
+      expect(approve).not.toHaveBeenCalled();
+    });
+
+    test("declines when the surface cannot render (UnsupportedRenderableError)", async () => {
+      const { agent, approve, decline } = agentWithApproval(payload, textThenFinish("ok"));
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const render = mock(async () => { throw new UnsupportedRenderableError("r"); });
+
+      await adapter.stream("delete abc", hooks, { ...defaultOptions, render });
+
+      expect(decline).toHaveBeenCalledTimes(1);
+      expect(approve).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("input elicitation (suspend)", () => {
+    const resumeSchema = JSON.stringify({ type: "object", properties: { city: { type: "string" } } });
+    function agentWithSuspend(pausePayload: Record<string, any>, continuation: any[]) {
+      const agent = new Agent({
+        id: "t", name: "T", model: modelFromParts(textParts(["x"])), instructions: "t",
+      });
+      (agent as any).stream = mock(async () =>
+        segment("run-2", [{ type: "tool-call-suspended", payload: pausePayload }])
+      );
+      const resume = mock(async () => segment("run-2", continuation));
+      (agent as any).resumeStream = resume;
+      return { agent, resume };
+    }
+
+    const payload = {
+      toolCallId: "tc-9", toolName: "weather", args: {},
+      suspendPayload: { message: "Which city?" }, resumeSchema,
+    };
+
+    test("elicits with the tool's resumeSchema and resumes on SUBMIT", async () => {
+      const { agent, resume } = agentWithSuspend(payload, textThenFinish("72F"));
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const elicit = mock(async () => ({
+        id: "e", action: "RENDERABLE_ACTION_SUBMIT", contentJson: JSON.stringify({ city: "SF" }),
+      }));
+
+      await adapter.stream("weather", hooks, { ...defaultOptions, elicit });
+
+      expect(elicit).toHaveBeenCalledTimes(1);
+      expect(elicit.mock.calls[0][0]).toBe("Which city?");
+      expect(elicit.mock.calls[0][1]).toMatchObject({ type: "object", properties: { city: { type: "string" } } });
+      // A "write your own reply" option is offered alongside the form.
+      expect(elicit.mock.calls[0][2].allowedActions).toContain("RENDERABLE_ACTION_RESPOND");
+      expect(resume).toHaveBeenCalledTimes(1);
+      expect(resume.mock.calls[0][0]).toEqual({ city: "SF" });
+      expect(resume.mock.calls[0][1]).toMatchObject({ runId: "run-2", toolCallId: "tc-9" });
+      expect(hooks.chunks).toEqual(["72F"]);
+      expect(hooks.finishCount).toBe(1);
+    });
+
+    test("aborts the turn on CANCEL without resuming", async () => {
+      const { agent, resume } = agentWithSuspend(payload, textThenFinish("unused"));
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const elicit = mock(async () => ({ id: "e", action: "RENDERABLE_ACTION_CANCEL" }));
+
+      await adapter.stream("weather", hooks, { ...defaultOptions, elicit });
+
+      expect(resume).not.toHaveBeenCalled();
+      expect(hooks.chunks).toEqual([]);
+      expect(hooks.finishCount).toBe(1);
+    });
+
+    test("falls back to a generic prompt when suspendPayload carries no message", async () => {
+      const { agent } = agentWithSuspend({ ...payload, suspendPayload: {} }, textThenFinish("x"));
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const elicit = mock(async () => ({ id: "e", action: "RENDERABLE_ACTION_CANCEL" }));
+
+      await adapter.stream("weather", hooks, { ...defaultOptions, elicit });
+
+      expect(elicit.mock.calls[0][0]).toBe("The agent needs more information to continue.");
+    });
+
+    test("aborts the turn when no elicit surface is available", async () => {
+      const { agent, resume } = agentWithSuspend(payload, textThenFinish("unused"));
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+
+      await adapter.stream("weather", hooks, defaultOptions);
+
+      expect(resume).not.toHaveBeenCalled();
+      expect(hooks.finishCount).toBe(1);
+    });
+
+    test("on RESPOND, feeds the free text back through agent.stream (not resumeStream)", async () => {
+      const agent = new Agent({
+        id: "t", name: "T", model: modelFromParts(textParts(["x"])), instructions: "t",
+      });
+      // First stream() suspends; the second (the RESPOND re-feed) continues.
+      let calls = 0;
+      const streamMock = mock(async () => {
+        calls += 1;
+        return calls === 1
+          ? segment("run-2", [{ type: "tool-call-suspended", payload }])
+          : segment("run-2", textThenFinish("resumed from prose"));
+      });
+      const resume = mock(async () => segment("run-2", textThenFinish("unused")));
+      (agent as any).stream = streamMock;
+      (agent as any).resumeStream = resume;
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const elicit = mock(async () => ({
+        id: "e", action: "RENDERABLE_ACTION_RESPOND", text: "Tuesday at 2pm for 4",
+      }));
+
+      await adapter.stream("schedule", hooks, { ...defaultOptions, elicit });
+
+      expect(resume).not.toHaveBeenCalled();
+      expect(streamMock).toHaveBeenCalledTimes(2);
+      expect(streamMock.mock.calls[1][0]).toBe("Tuesday at 2pm for 4");
+      expect(hooks.chunks).toEqual(["resumed from prose"]);
+      expect(hooks.finishCount).toBe(1);
     });
   });
 });
