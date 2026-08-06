@@ -319,16 +319,11 @@ export class MastraAdapter implements AgentAdapter {
         const resumeData = response.contentJson ? JSON.parse(response.contentJson) : {};
         return this.agent.resumeStream(resumeData, { runId, toolCallId, abortSignal: options.signal });
       }
-      case "RENDERABLE_ACTION_RESPOND":
-        // The user answered in their own words rather than the form. Feed it
-        // back as a message on the same thread; with autoResumeSuspendedTools
-        // the model maps the prose onto the tool's resumeSchema and resumes it.
-        return this.agent.stream(response.text ?? "", {
-          memory: { thread: options.conversationId, resource: options.userId },
-          abortSignal: options.signal,
-        });
       default:
-        return abort(); // CANCEL / DECLINE
+        // RESPOND / CANCEL / DECLINE all end this turn. For RESPOND the surface
+        // starts a fresh turn with the user's prose, so the adapter must not re-feed
+        // it here — doing so would double the turn.
+        return abort();
     }
   }
 

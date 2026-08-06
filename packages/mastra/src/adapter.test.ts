@@ -974,18 +974,13 @@ describe("MastraAdapter", () => {
       expect(hooks.finishCount).toBe(1);
     });
 
-    test("on RESPOND, feeds the free text back through agent.stream (not resumeStream)", async () => {
+    test("does not re-feed on RESPOND — the surface owns the follow-up turn", async () => {
       const agent = new Agent({
         id: "t", name: "T", model: modelFromParts(textParts(["x"])), instructions: "t",
       });
-      // First stream() suspends; the second (the RESPOND re-feed) continues.
-      let calls = 0;
-      const streamMock = mock(async () => {
-        calls += 1;
-        return calls === 1
-          ? segment("run-2", [{ type: "tool-call-suspended", payload }])
-          : segment("run-2", textThenFinish("resumed from prose"));
-      });
+      const streamMock = mock(async () =>
+        segment("run-2", [{ type: "tool-call-suspended", payload }])
+      );
       const resume = mock(async () => segment("run-2", textThenFinish("unused")));
       (agent as any).stream = streamMock;
       (agent as any).resumeStream = resume;
@@ -998,10 +993,11 @@ describe("MastraAdapter", () => {
 
       await adapter.stream("schedule", hooks, { ...defaultOptions, elicit });
 
+      // RESPOND aborts this turn; the surface re-injects the prose as a new turn,
+      // so the adapter must not re-feed (no second stream, no resume).
+      expect(streamMock).toHaveBeenCalledTimes(1);
       expect(resume).not.toHaveBeenCalled();
-      expect(streamMock).toHaveBeenCalledTimes(2);
-      expect(streamMock.mock.calls[1][0]).toBe("Tuesday at 2pm for 4");
-      expect(hooks.chunks).toEqual(["resumed from prose"]);
+      expect(hooks.chunks).toEqual([]);
       expect(hooks.finishCount).toBe(1);
     });
   });
