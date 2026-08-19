@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.0](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.6.1...@astropods/adapter-mastra@0.7.0) (2026-08-19)
+
+
+### Features
+
+* **mastra:** interactive rendering support in the Mastra adapter ([#72](https://github.com/astropods/adapters/issues/72)) ([cd0c657](https://github.com/astropods/adapters/commit/cd0c6578ee5f5fe633a040966d99ec39d73e0ed9))
+
+
+
 ## [0.6.1](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.6.0...@astropods/adapter-mastra@0.6.1) (2026-08-10)
 
 **Note:** Version bump only for package @astropods/adapter-mastra
