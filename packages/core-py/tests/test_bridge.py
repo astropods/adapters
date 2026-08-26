@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch, call
 
 from astropods_adapter_core.bridge import (
     MessagingBridge,
+    _agent_config,
     _StreamHooksImpl,
     DEFAULT_SERVER_ADDR,
 )
@@ -15,6 +16,7 @@ from astropods_adapter_core.types import (
     StreamOptions,
 )
 from astropods_messaging import (
+    Attachment,
     AudioChunk,
     ContentChunk,
     StatusUpdate,
@@ -703,3 +705,83 @@ class TestStopGeneration:
         # No in-flight turn: must not raise and must not fabricate state.
         bridge._maybe_abort_on_stream_control(_stop_feedback("ghost"))
         assert bridge._inflight == {}
+
+
+class TestImageResolution:
+    def _bridge(self):
+        return MessagingBridge(MagicMock(), ServeOptions())
+
+    def _image(self, url="data:image/png;base64,iVBORw0KGgo=", filename="shot.png"):
+        return Message(
+            conversation_id="c1",
+            content="what is this?",
+            attachments=[
+                Attachment(
+                    type=Attachment.Type.IMAGE,
+                    url=url,
+                    filename=filename,
+                    mime_type="image/png",
+                    size_bytes=12,
+                )
+            ],
+        )
+
+    def test_inline_image_reaches_the_agent(self):
+        images = self._bridge()._resolve_images(self._image())
+
+        assert len(images) == 1
+        assert images[0].url.startswith("data:image/png;base64,")
+        assert images[0].name == "shot.png"
+        assert images[0].mime_type == "image/png"
+        assert images[0].size == 12
+
+    def test_image_without_bytes_is_skipped(self):
+        assert self._bridge()._resolve_images(self._image(url="")) == []
+
+    def test_file_attachment_is_not_an_image(self):
+        message = Message(
+            conversation_id="c1",
+            content="hi",
+            attachments=[
+                Attachment(
+                    type=Attachment.Type.FILE,
+                    filename="notes.txt",
+                    storage_key="k1",
+                    mime_type="text/plain",
+                )
+            ],
+        )
+
+        assert self._bridge()._resolve_images(message) == []
+        assert len(self._bridge()._resolve_attachments(message)) == 1
+
+    def test_image_is_not_a_file_attachment(self):
+        assert self._bridge()._resolve_attachments(self._image()) == []
+
+    @pytest.mark.asyncio
+    async def test_images_reach_the_adapter_via_stream_options(self):
+        captured: list[StreamOptions] = []
+
+        async def stream(prompt, hooks, options):
+            captured.append(options)
+
+        adapter = MagicMock()
+        adapter.stream = stream
+        bridge = MessagingBridge(adapter, ServeOptions())
+
+        await bridge._handle_message(self._image())
+
+        assert len(captured) == 1
+        assert [i.name for i in captured[0].images] == ["shot.png"]
+        assert captured[0].images[0].url.startswith("data:image/png;base64,")
+
+
+class TestAgentConfigCapabilities:
+    def test_declared_file_support_reaches_the_wire(self):
+        config = _agent_config({"system_prompt": "sp", "supports_files": True}, [])
+
+        assert config.supports_files is True
+        assert config.system_prompt == "sp"
+
+    def test_file_support_defaults_off(self):
+        assert _agent_config({"system_prompt": "sp"}, []).supports_files is False

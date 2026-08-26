@@ -119,8 +119,6 @@ describe("MastraAdapter", () => {
         instructions: "be helpful",
       });
 
-    // Defaulting to true would offer an upload to every agent that ignores
-    // attachments, which then silently drops the file.
     test("does not declare file support by default", () => {
       expect(new MastraAdapter(configAgent()).getConfig().supportsFiles).toBe(false);
     });

@@ -96,6 +96,14 @@ class AttachmentInput:
 
 
 @dataclass
+class ImageInput:
+    name: str
+    url: str          # data:<mime>;base64,<...>
+    mime_type: Optional[str] = None
+    size: Optional[int] = None
+
+
+@dataclass
 class StreamOptions:
     """Per-request context passed to the adapter's stream method."""
 
@@ -109,6 +117,7 @@ class StreamOptions:
     # Files the user attached to this message (the turn's immediate context).
     # The bytes are staged on the shared files volume; read each at its ``path``.
     attachments: list[AttachmentInput] = field(default_factory=list)
+    images: list[ImageInput] = field(default_factory=list)
 
 
 @dataclass

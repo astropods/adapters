@@ -26,13 +26,6 @@ export type { MastraAdapterOptions } from "./adapter";
  *
  * serve(agent);
  * ```
- *
- * Pass `supportsFiles: true` when the agent reads attachments, so the chat
- * client offers its upload affordance:
- *
- * ```typescript
- * serve(agent, { supportsFiles: true });
- * ```
  */
 export function serve(
   agent: Agent,

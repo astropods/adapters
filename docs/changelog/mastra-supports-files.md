@@ -1,28 +1,52 @@
 # Summary
 
-A Mastra agent could not accept file uploads. `MastraAdapter.getConfig()`
-returned only `systemPrompt` and `tools`, so `supports_files` defaulted to
-false, the sidecar reported `capabilities.files: false`, and the chat client
-hid its upload affordance. `serve()` took only `ServeOptions`, whose single
-field is `serverAddress`, so there was no way to opt in short of writing a
-custom adapter.
+Neither a Mastra (TS) nor a LangChain (Python) agent could accept file uploads,
+and neither could see an inline image.
+
+A custom adapter has always been able to opt in, because it writes `getConfig()`
+itself. The packaged adapters could not: `MastraAdapter.getConfig()` returned a
+fixed `{ systemPrompt, tools }`, `LangChainAdapter.get_config()` returned a
+fixed `{ system_prompt, tools }`, and neither `serve()` accepted a capability.
+So the chat client hid its upload affordance for every agent built on them.
+
+The Python path had a second gap. `core-py` carried `attachments` but no
+`images`, dropped inbound IMAGE attachments entirely, and omitted
+`supports_files` when building the `AgentConfig` it sends at startup. A Python
+agent therefore could not receive an image even if it declared the capability.
 
 # Design
 
-`serve(agent, { supportsFiles: true })` declares the capability, and
-`MastraAdapter` accepts the same option directly for callers that construct it
-themselves. `getConfig()` reports it on every call.
+Both adapters take the capability as a constructor or `serve()` option and
+report it from their config:
 
-The default stays false. The capability describes what the agent does with a
-file, which the adapter cannot infer from the Mastra agent: declaring it for
-everyone would offer an upload button on agents that ignore attachments and
-drop them silently.
+```ts
+serve(agent, { supportsFiles: true });
+```
 
-`@astropods/messaging` moves to `^0.1.2`, the first release carrying
-`supportsFiles` on `AgentConfig`.
+```python
+LangChainAdapter(executor, supports_files=True)
+```
+
+The default stays false in both. The capability describes what the agent does
+with a file, which an adapter cannot infer from a Mastra agent or a LangGraph
+executor; declaring it for everyone would show an upload button on agents that
+ignore attachments and drop them silently.
+
+`core-py` gains `ImageInput` and `StreamOptions.images`, resolved from IMAGE
+attachments the same way the TS bridge does: bytes arrive inline as a `data:`
+URI, so there is no volume round trip and an attachment without a url is
+skipped. Its bridge now forwards `supports_files` onto the wire.
+
+`LangChainAdapter` sends a multimodal user message when the turn carried
+images, mixing `image_url` blocks with the prompt text. A text-only turn keeps
+its plain-string content so existing behaviour is untouched.
+
+Dependency floors move to the first releases carrying `supports_files` on
+`AgentConfig`: `@astropods/messaging` `^0.1.2` for Mastra, and
+`astropods-messaging>=0.1.2` for `core-py`.
 
 # Migration
 
 None for existing agents; they keep reporting no file support. An agent that
-reads `StreamOptions.attachments` or `StreamOptions.images` should pass
-`supportsFiles: true` to `serve()`.
+reads attachments or images should pass the capability to `serve()` (TS) or the
+adapter constructor (Python).

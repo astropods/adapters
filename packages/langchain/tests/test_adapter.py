@@ -360,3 +360,57 @@ class TestLangChainAdapterGetConfig:
         assert config["tools"][0]["name"] == "calculator"
         assert config["tools"][0]["description"] == "Does math"
         assert config["tools"][0]["type"] == "other"
+
+
+def _capturing_executor():
+    executor = MagicMock()
+    executor.inputs = []
+
+    async def astream(state, *args, **kwargs):
+        executor.inputs.append(state)
+        for u in [make_model_update("ok")]:
+            yield u
+
+    executor.astream = astream
+    return executor
+
+
+class TestLangChainAdapterImages:
+    @pytest.mark.asyncio
+    async def test_text_only_turn_sends_a_plain_prompt(self, hooks, stream_options):
+        executor = _capturing_executor()
+        adapter = LangChainAdapter(executor)
+
+        await adapter.stream("hi", hooks, stream_options)
+
+        assert executor.inputs[0]["messages"][0].content == "hi"
+
+    @pytest.mark.asyncio
+    async def test_images_ride_the_user_message_as_blocks(self, hooks, stream_options):
+        from astropods_adapter_core.types import ImageInput
+
+        stream_options.images = [
+            ImageInput(name="shot.png", url="data:image/png;base64,AAA", mime_type="image/png")
+        ]
+        executor = _capturing_executor()
+        adapter = LangChainAdapter(executor)
+
+        await adapter.stream("what is this?", hooks, stream_options)
+
+        content = executor.inputs[0]["messages"][0].content
+        assert isinstance(content, list)
+        assert content[0] == {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,AAA"},
+        }
+        assert content[-1] == {"type": "text", "text": "what is this?"}
+
+
+class TestLangChainAdapterFileCapability:
+    def test_file_support_defaults_off(self):
+        assert LangChainAdapter(MagicMock()).get_config()["supports_files"] is False
+
+    def test_declares_file_support_when_opted_in(self):
+        adapter = LangChainAdapter(MagicMock(), supports_files=True)
+
+        assert adapter.get_config()["supports_files"] is True

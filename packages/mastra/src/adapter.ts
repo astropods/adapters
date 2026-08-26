@@ -62,13 +62,7 @@ function argsSummary(args: unknown): string {
     .join("\n");
 }
 
-/** Agent capabilities a Mastra agent opts into; see {@link serve}. */
 export interface MastraAdapterOptions {
-  /**
-   * Declare that the agent consumes file attachments. The chat client hides
-   * its upload affordance until an agent says yes, so one that reads
-   * `StreamOptions.attachments` or `images` is never sent a file without this.
-   */
   supportsFiles?: boolean;
 }
 
