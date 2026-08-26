@@ -22,7 +22,8 @@ from astropods_messaging import (
     MessageReaction,
     HealthCheckRequest,
     Message,
-    SaveConversation,
+    SaveConversationRequest,
+    SaveConversationResponse,
     SavedMessage,
     StatusUpdate,
     StreamControl,
@@ -45,6 +46,12 @@ from .types import (
 
 # Agent files mount (matches the K8s/compose deployer's AGENT_FILES_DIR) and the
 # files store's on-disk blob suffix for API-managed uploads.
+_ON_CONFLICT = {
+    "SKIP": SaveConversationRequest.SKIP,
+    "REPLACE": SaveConversationRequest.REPLACE,
+    "APPEND": SaveConversationRequest.APPEND,
+}
+
 DEFAULT_AGENT_FILES_DIR = "/data/files"
 FILES_BLOB_SUFFIX = ".blob"
 
@@ -440,15 +447,17 @@ class MessagingBridge:
         except Exception as exc:
             logger.exception("on_feedback raised; dropping event: %s", exc)
 
-    def _save_conversation(
+    async def _save_conversation(
         self, turn_user_id: str, inp: SaveConversationInput
-    ) -> str:
+    ) -> SaveConversationResponse:
         """Copy an external conversation into a user's chat history.
 
         Defaults the owner to whoever sent the message being handled, which is
         the common case: the person who asked is the person who gets it.
         """
-        user_id = inp.user_id or turn_user_id
+        if self._stub is None:
+            raise RuntimeError("save_conversation called before the bridge connected")
+
         messages = []
         for m in inp.messages:
             saved = SavedMessage(role=m.role, author=m.author, content=m.content)
@@ -456,22 +465,17 @@ class MessagingBridge:
                 saved.timestamp.FromDatetime(m.timestamp)
             messages.append(saved)
 
-        self._write_queue.put_nowait(
-            ConversationRequest(
-                agent_response=AgentResponse(
-                    conversation_id="",
-                    save_conversation=SaveConversation(
-                        user_id=user_id,
-                        idempotency_key=inp.idempotency_key,
-                        title=inp.title,
-                        source_label=inp.source_label,
-                        source_url=inp.source_url,
-                        messages=messages,
-                    ),
-                )
+        return await self._stub.SaveConversation(
+            SaveConversationRequest(
+                user_id=inp.user_id or turn_user_id,
+                idempotency_key=inp.idempotency_key,
+                title=inp.title,
+                source_label=inp.source_label,
+                source_url=inp.source_url,
+                messages=messages,
+                on_conflict=_ON_CONFLICT[inp.on_conflict],
             )
         )
-        return derive_saved_conversation_id(user_id, inp.idempotency_key)
 
     def _resolve_attachments(self, message: Message) -> list[AttachmentInput]:
         """Resolve inbound FILE attachments to the agent-facing shape: files-API
@@ -580,7 +584,7 @@ class MessagingBridge:
             attachments=self._resolve_attachments(message),
             save_conversation=lambda inp: self._save_conversation(
                 (message.user.id if message.user else ""), inp
-            ),
+            ),  # noqa: E731
         )
 
         try:

@@ -23,6 +23,7 @@ import type {
   OutgoingFile,
   RenderableInput,
   SaveConversationInput,
+  SaveConversationResponse,
   ServeOptions,
   StreamHooks,
   TraceContext,
@@ -574,19 +575,20 @@ export class MessagingBridge {
    * it lands on. Defaults the owner to whoever sent the message being handled,
    * which is the common case: the person who asked is the person who gets it.
    */
-  private sendSaveConversation(
+  private async sendSaveConversation(
     turnUserId: string,
     input: SaveConversationInput
-  ): string {
-    if (!this.stream) {
-      throw new Error("saveConversation called with no active stream");
+  ): Promise<SaveConversationResponse> {
+    if (!this.client) {
+      throw new Error("saveConversation called before the bridge connected");
     }
-    return this.stream.sendSaveConversation({
+    return this.client.saveConversation({
       userId: input.userId || turnUserId,
       idempotencyKey: input.idempotencyKey,
       title: input.title,
       sourceLabel: input.sourceLabel,
       sourceUrl: input.sourceUrl,
+      onConflict: input.onConflict,
       messages: input.messages.map((m) => ({
         role: m.role,
         author: m.author,

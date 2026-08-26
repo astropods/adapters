@@ -57,6 +57,10 @@ mock.module("@astropods/messaging", () => ({
       mockHealthCheckCalled = true;
       return { status: "SERVING" };
     }
+    async saveConversation(request: any) {
+      mockSendSaveConversationCalls.push(request);
+      return { conversationId: "derived-conversation-id", status: "CREATED" };
+    }
     createConversationStream() {
       return {
         sendAgentConfig(config: AgentConfig) {
@@ -93,10 +97,6 @@ mock.module("@astropods/messaging", () => ({
         },
         sendAudioChunk(chunk: { data: Uint8Array; done: boolean }) {
           mockSendAudioChunkCalls.push(chunk);
-        },
-        sendSaveConversation(save: any) {
-          mockSendSaveConversationCalls.push(save);
-          return "derived-conversation-id";
         },
         endAudio() {
           mockEndAudioCalled = true;
@@ -1679,12 +1679,12 @@ describe("saveConversation", () => {
   beforeEach(resetMockState);
 
   async function runTurn(
-    call: (options: StreamOptions) => void,
+    call: (options: StreamOptions) => void | Promise<void>,
     user: { id: string } | undefined = { id: "user_from_turn" }
   ) {
     const adapter = createMockAdapter({
       stream: async (_p, hooks, options) => {
-        call(options);
+        await call(options);
         hooks.onFinish();
       },
     });
@@ -1702,10 +1702,10 @@ describe("saveConversation", () => {
     await new Promise((r) => setTimeout(r, 10));
   }
 
-  test("forwards the copy and returns the derived id", async () => {
-    let returned: string | undefined;
-    await runTurn((options) => {
-      returned = options.saveConversation!({
+  test("forwards the copy and returns the id with its status", async () => {
+    let returned: any;
+    await runTurn(async (options) => {
+      returned = await options.saveConversation!({
         idempotencyKey: "slack:C1:111.0001",
         title: "Thread",
         sourceLabel: "#eng",
@@ -1717,7 +1717,8 @@ describe("saveConversation", () => {
       });
     });
 
-    expect(returned).toBe("derived-conversation-id");
+    expect(returned.conversationId).toBe("derived-conversation-id");
+    expect(returned.status).toBe("CREATED");
     expect(mockSendSaveConversationCalls).toHaveLength(1);
     const sent = mockSendSaveConversationCalls[0];
     expect(sent.idempotencyKey).toBe("slack:C1:111.0001");
@@ -1728,20 +1729,33 @@ describe("saveConversation", () => {
   // The person who asked is the person who gets the copy, so an agent that omits
   // userId must not silently address it to nobody.
   test("defaults the owner to the sender of the message being handled", async () => {
-    await runTurn((options) => {
-      options.saveConversation!({ idempotencyKey: "k", messages: [] });
+    await runTurn(async (options) => {
+      await options.saveConversation!({ idempotencyKey: "k", messages: [] });
     });
     expect(mockSendSaveConversationCalls[0].userId).toBe("user_from_turn");
   });
 
   test("an explicit userId wins over the turn's sender", async () => {
-    await runTurn((options) => {
-      options.saveConversation!({
+    await runTurn(async (options) => {
+      await options.saveConversation!({
         userId: "user_explicit",
         idempotencyKey: "k",
         messages: [],
       });
     });
     expect(mockSendSaveConversationCalls[0].userId).toBe("user_explicit");
+  });
+
+  // The platform refuses to destroy the user's own turns; choosing to anyway is
+  // the agent's call, so the policy has to reach the wire unchanged.
+  test("passes the conflict policy through so the agent owns it", async () => {
+    await runTurn(async (options) => {
+      await options.saveConversation!({
+        idempotencyKey: "k",
+        onConflict: "APPEND",
+        messages: [{ role: "user", content: "new turn" }],
+      });
+    });
+    expect(mockSendSaveConversationCalls[0].onConflict).toBe("APPEND");
   });
 });

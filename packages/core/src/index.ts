@@ -5,6 +5,8 @@ export type {
   FeedbackEvent,
   RenderableInput,
   SaveConversationInput,
+  SaveConversationResponse,
+  SaveConversationStatus,
   SavedMessageInput,
   TraceContext,
   StreamHooks,

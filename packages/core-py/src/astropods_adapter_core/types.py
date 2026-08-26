@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import (
     TYPE_CHECKING,
     Any,
+    Awaitable,
     Callable,
     Optional,
     Protocol,
@@ -11,7 +12,11 @@ from typing import (
 )
 
 if TYPE_CHECKING:
-    from astropods_messaging import PlatformContext, TraceContext
+    from astropods_messaging import (
+        PlatformContext,
+        SaveConversationResponse,
+        TraceContext,
+    )
 
 
 @runtime_checkable
@@ -130,6 +135,11 @@ class SaveConversationInput:
     source_label: str = ""
     # Deep link back to the source.
     source_url: str = ""
+    # What to do when the copy already exists. "SKIP" (default) refreshes a copy
+    # the user has not touched and leaves a diverged one alone. "APPEND" adds
+    # these messages after whatever is there. "REPLACE" overwrites, throwing away
+    # the user's own turns.
+    on_conflict: str = "SKIP"
 
 
 @dataclass
@@ -154,9 +164,11 @@ class StreamOptions:
     # deletions. A copy the user deleted is never recreated, which is how they
     # stop an agent that saves on every source message.
     #
-    # Synchronous because there is no acknowledgement to wait for: the id is
-    # derived locally and the sidecar drops a save it rejects.
-    save_conversation: Optional[Callable[[SaveConversationInput], str]] = None
+    # Await the status. A copy can be deleted, or the user can have replied in
+    # it, and only the agent can decide what to do about either.
+    save_conversation: Optional[
+        Callable[[SaveConversationInput], Awaitable["SaveConversationResponse"]]
+    ] = None
 
 
 @dataclass
