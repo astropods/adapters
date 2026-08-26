@@ -4,6 +4,8 @@ export type {
   ElicitOptions,
   FeedbackEvent,
   RenderableInput,
+  SaveConversationInput,
+  SavedMessageInput,
   TraceContext,
   StreamHooks,
   StreamOptions,

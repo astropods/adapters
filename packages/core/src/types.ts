@@ -104,6 +104,31 @@ export interface RenderableInput {
   intent?: string;
 }
 
+/** One turn of an external conversation being copied in. */
+export interface SavedMessageInput {
+  role: "user" | "assistant";
+  /** Original sender's display name. Set it when the copy has several speakers,
+   *  or every turn renders as the owner's own. */
+  author?: string;
+  content: string;
+  /** When the turn happened at the source. Defaults to now. */
+  timestamp?: Date;
+}
+
+/** Input to {@link StreamOptions.saveConversation}. */
+export interface SaveConversationInput {
+  /** Astro user id that owns the copy. Defaults to this turn's `userId`. */
+  userId?: string;
+  /** Stable per source conversation and user, e.g. `slack:C123:1699.0001`. */
+  idempotencyKey: string;
+  title?: string;
+  /** Shown with the copy, e.g. "#eng-support". */
+  sourceLabel?: string;
+  /** Deep link back to the source. */
+  sourceUrl?: string;
+  messages: SavedMessageInput[];
+}
+
 /** Options for {@link StreamOptions.elicit}, the MCP-elicitation-shaped convenience. */
 export interface ElicitOptions {
   value?: unknown;
@@ -167,6 +192,19 @@ export interface StreamOptions {
     dataSchema: object,
     opts?: ElicitOptions
   ): Promise<RenderableResponse>;
+  /**
+   * Copy a conversation from somewhere else (a Slack thread, an email chain)
+   * into a user's Astro chat history, and return the id it lands on.
+   *
+   * Saving again under the same `idempotencyKey` replaces the copy, so an agent
+   * that re-reads its whole source and re-sends it propagates edits and
+   * deletions. A copy the user deleted is never recreated, which is how they
+   * stop an agent that saves on every source message.
+   *
+   * Synchronous because there is no acknowledgement to wait for: the id is
+   * derived locally and the sidecar drops a save it rejects.
+   */
+  saveConversation?(input: SaveConversationInput): string;
 }
 
 /**

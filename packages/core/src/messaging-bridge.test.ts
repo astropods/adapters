@@ -40,6 +40,7 @@ let mockSendTranscriptCalls: Array<{
 }> = [];
 let mockSendAudioChunkCalls: Array<{ data: Uint8Array; done: boolean }> = [];
 let mockEndAudioCalled = false;
+let mockSendSaveConversationCalls: Array<any> = [];
 
 // --- Mock messaging SDK ---
 
@@ -92,6 +93,10 @@ mock.module("@astropods/messaging", () => ({
         },
         sendAudioChunk(chunk: { data: Uint8Array; done: boolean }) {
           mockSendAudioChunkCalls.push(chunk);
+        },
+        sendSaveConversation(save: any) {
+          mockSendSaveConversationCalls.push(save);
+          return "derived-conversation-id";
         },
         endAudio() {
           mockEndAudioCalled = true;
@@ -159,6 +164,7 @@ function resetMockState() {
   mockHealthCheckCalled = false;
   mockCloseCalled = false;
   mockStreamEndCalled = false;
+  mockSendSaveConversationCalls = [];
   mockSendAgentConfigArgs = null;
   mockSendMessageArgs = null;
   mockSendContentChunkCalls = [];
@@ -1666,5 +1672,76 @@ describe("MessagingBridge", () => {
       const errors = mockSendAgentResponseCalls.filter((r) => (r as any).error);
       expect(errors).toHaveLength(0);
     });
+  });
+});
+
+describe("saveConversation", () => {
+  beforeEach(resetMockState);
+
+  async function runTurn(
+    call: (options: StreamOptions) => void,
+    user: { id: string } | undefined = { id: "user_from_turn" }
+  ) {
+    const adapter = createMockAdapter({
+      stream: async (_p, hooks, options) => {
+        call(options);
+        hooks.onFinish();
+      },
+    });
+    const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+    await bridge.start();
+    mockResponseHandlers[0]({
+      conversationId: "conv-1",
+      incomingMessage: {
+        conversationId: "conv-1",
+        content: "save this",
+        platform: "slack",
+        user,
+      },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+  }
+
+  test("forwards the copy and returns the derived id", async () => {
+    let returned: string | undefined;
+    await runTurn((options) => {
+      returned = options.saveConversation!({
+        idempotencyKey: "slack:C1:111.0001",
+        title: "Thread",
+        sourceLabel: "#eng",
+        sourceUrl: "https://slack/x",
+        messages: [
+          { role: "user", author: "Ada", content: "hello" },
+          { role: "assistant", content: "hi" },
+        ],
+      });
+    });
+
+    expect(returned).toBe("derived-conversation-id");
+    expect(mockSendSaveConversationCalls).toHaveLength(1);
+    const sent = mockSendSaveConversationCalls[0];
+    expect(sent.idempotencyKey).toBe("slack:C1:111.0001");
+    expect(sent.sourceLabel).toBe("#eng");
+    expect(sent.messages[0].author).toBe("Ada");
+  });
+
+  // The person who asked is the person who gets the copy, so an agent that omits
+  // userId must not silently address it to nobody.
+  test("defaults the owner to the sender of the message being handled", async () => {
+    await runTurn((options) => {
+      options.saveConversation!({ idempotencyKey: "k", messages: [] });
+    });
+    expect(mockSendSaveConversationCalls[0].userId).toBe("user_from_turn");
+  });
+
+  test("an explicit userId wins over the turn's sender", async () => {
+    await runTurn((options) => {
+      options.saveConversation!({
+        userId: "user_explicit",
+        idempotencyKey: "k",
+        messages: [],
+      });
+    });
+    expect(mockSendSaveConversationCalls[0].userId).toBe("user_explicit");
   });
 });

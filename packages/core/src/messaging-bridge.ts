@@ -22,6 +22,7 @@ import type {
   ImageInput,
   OutgoingFile,
   RenderableInput,
+  SaveConversationInput,
   ServeOptions,
   StreamHooks,
   TraceContext,
@@ -538,6 +539,8 @@ export class MessagingBridge {
               allowedActions: opts?.allowedActions ?? DEFAULT_ELICIT_ACTIONS,
             })
           ),
+        saveConversation: (input) =>
+          this.sendSaveConversation(message.user?.id ?? "", input),
       })
       .catch((error) => {
         // A user stop aborts the model call — that's expected; end quietly
@@ -564,6 +567,33 @@ export class MessagingBridge {
           this.abortControllers.delete(conversationId);
         }
       });
+  }
+
+  /**
+   * Copy an external conversation into a user's chat history and return the id
+   * it lands on. Defaults the owner to whoever sent the message being handled,
+   * which is the common case: the person who asked is the person who gets it.
+   */
+  private sendSaveConversation(
+    turnUserId: string,
+    input: SaveConversationInput
+  ): string {
+    if (!this.stream) {
+      throw new Error("saveConversation called with no active stream");
+    }
+    return this.stream.sendSaveConversation({
+      userId: input.userId || turnUserId,
+      idempotencyKey: input.idempotencyKey,
+      title: input.title,
+      sourceLabel: input.sourceLabel,
+      sourceUrl: input.sourceUrl,
+      messages: input.messages.map((m) => ({
+        role: m.role,
+        author: m.author,
+        content: m.content,
+        timestamp: m.timestamp,
+      })),
+    });
   }
 
   /** Build a wire Renderable from the friendly render() input, filling defaults. */
