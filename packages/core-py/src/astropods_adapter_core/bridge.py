@@ -451,6 +451,7 @@ class MessagingBridge:
                 continue
             out.append(
                 ImageInput(
+                    key=getattr(a, "storage_key", "") or None,
                     name=a.filename or "image",
                     url=a.url,
                     mime_type=a.mime_type or None,

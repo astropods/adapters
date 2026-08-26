@@ -163,10 +163,23 @@ describe("MastraAdapter", () => {
     test("does not repeat an image that was inlined", async () => {
       const sent = await promptSentFor(
         [{ key: "k1", name: "shot.png", path: "/data/files/k1.blob" }],
-        [{ name: "shot.png", url: "data:image/png;base64,AAA" }],
+        [{ key: "k1", name: "shot.png", url: "data:image/png;base64,AAA" }],
       );
 
       expect(sent).toBe("summarise it");
+    });
+
+    test("names a same-named upload the model cannot see", async () => {
+      const sent = await promptSentFor(
+        [
+          { key: "k1", name: "shot.png", path: "/data/files/k1.blob" },
+          { key: "k2", name: "shot.png", path: "/data/files/k2.blob" },
+        ],
+        [{ key: "k1", name: "shot.png", url: "data:image/png;base64,AAA" }],
+      );
+
+      expect(sent).toContain("/data/files/k2.blob");
+      expect(sent).not.toContain("/data/files/k1.blob");
     });
   });
 

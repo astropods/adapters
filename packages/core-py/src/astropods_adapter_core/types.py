@@ -99,6 +99,8 @@ class AttachmentInput:
 class ImageInput:
     name: str
     url: str          # data:<mime>;base64,<...>
+    # Files-API key of the same upload, when the message carried one.
+    key: Optional[str] = None
     mime_type: Optional[str] = None
     size: Optional[int] = None
 

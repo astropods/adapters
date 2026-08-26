@@ -66,8 +66,8 @@ function attachmentNote(
   attachments: NonNullable<StreamOptions["attachments"]>,
   images: NonNullable<StreamOptions["images"]>
 ): string {
-  const shown = new Set(images.map((i) => i.name));
-  const files = attachments.filter((a) => a.path && !shown.has(a.name));
+  const shown = new Set(images.map((i) => i.key).filter(Boolean));
+  const files = attachments.filter((a) => a.path && !shown.has(a.key));
   if (files.length === 0) return "";
   const list = files.map((f) => `${f.name} (${f.path})`).join(", ");
   return `The user attached these files, readable at these paths: ${list}`;

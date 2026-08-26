@@ -492,6 +492,7 @@ export class MessagingBridge {
       if (a.type !== "IMAGE") continue;
       if (!a.url) continue;
       out.push({
+        key: a.storageKey || undefined,
         name: a.filename || "image",
         url: a.url,
         mimeType: a.mimeType,

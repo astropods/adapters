@@ -211,8 +211,8 @@ class LangChainAdapter:
 
 
 def _attachment_note(attachments: list, images: list) -> str:
-    shown = {image.name for image in images}
-    files = [a for a in attachments if a.path and a.name not in shown]
+    shown = {image.key for image in images if image.key}
+    files = [a for a in attachments if a.path and a.key not in shown]
     if not files:
         return ""
     listing = ", ".join(f"{a.name} ({a.path})" for a in files)

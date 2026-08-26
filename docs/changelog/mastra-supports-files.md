@@ -44,9 +44,14 @@ its plain-string content so existing behaviour is untouched.
 A packaged adapter owns `stream()`, so an agent author never sees
 `StreamOptions` and cannot reach a non-image attachment. Both adapters therefore
 append a line to the turn's text naming each such file and its path, which a
-tool can read. An image already delivered inline is not repeated, and a file
-with no resolvable path is skipped: naming a path the agent cannot open would
-only invite a failed tool call.
+tool can read. A file with no resolvable path is skipped: naming a path the
+agent cannot open would only invite a failed tool call.
+
+Suppressing the copy of an image already delivered inline matches on the
+files-API key, not the filename, so `ImageInput` now carries `key` alongside the
+attachment it came from. Two uploads can share a display name while only one
+fits the inline budget, and matching on the name would have hidden the one the
+model cannot see.
 
 Dependency floors move to the first releases carrying `supports_files` on
 `AgentConfig`: `@astropods/messaging` `^0.1.2` for Mastra, and

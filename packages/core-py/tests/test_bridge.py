@@ -726,6 +726,22 @@ class TestImageResolution:
             ],
         )
 
+    def test_inline_image_carries_its_files_api_key(self):
+        message = Message(
+            conversation_id="c1",
+            content="what is this?",
+            attachments=[
+                Attachment(
+                    type=Attachment.Type.IMAGE,
+                    url="data:image/png;base64,iVBORw0KGgo=",
+                    filename="shot.png",
+                    storage_key="k1",
+                )
+            ],
+        )
+
+        assert self._bridge()._resolve_images(message)[0].key == "k1"
+
     def test_inline_image_reaches_the_agent(self):
         images = self._bridge()._resolve_images(self._image())
 
