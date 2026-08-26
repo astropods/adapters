@@ -216,7 +216,10 @@ def _attachment_note(attachments: list, images: list) -> str:
     if not files:
         return ""
     listing = ", ".join(f"{a.name} ({a.path})" for a in files)
-    return f"The user attached these files, readable at these paths: {listing}"
+    return (
+        "The user attached these files. Open them with a file-reading tool at "
+        f"the paths below. Do not guess their contents. {listing}"
+    )
 
 
 def _user_message(prompt: str, images: list, attachments: list) -> HumanMessage:

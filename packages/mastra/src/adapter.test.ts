@@ -152,6 +152,8 @@ describe("MastraAdapter", () => {
       expect(sent).toContain("summarise it");
       expect(sent).toContain("report.pdf");
       expect(sent).toContain("/data/files/k1.blob");
+      expect(sent).toContain("file-reading tool");
+      expect(sent).toContain("Do not guess");
     });
 
     test("skips a file with no resolvable path", async () => {

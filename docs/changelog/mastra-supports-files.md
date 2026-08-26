@@ -47,6 +47,11 @@ append a line to the turn's text naming each such file and its path, which a
 tool can read. A file with no resolvable path is skipped: naming a path the
 agent cannot open would only invite a failed tool call.
 
+The note tells the model to use a file-reading tool and not to guess. An agent
+with no such tool otherwise treats a named path as licence to invent the file's
+contents, which turns a silent drop into a confident wrong answer. Give an agent
+that accepts documents a tool that reads a path.
+
 Suppressing the copy of an image already delivered inline matches on the
 files-API key, not the filename, so `ImageInput` now carries `key` alongside the
 attachment it came from. Two uploads can share a display name while only one

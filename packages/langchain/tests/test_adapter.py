@@ -432,6 +432,8 @@ class TestLangChainAdapterFileAttachments:
         assert "summarise it" in content
         assert "report.pdf" in content
         assert "/data/files/k1.blob" in content
+        assert "file-reading tool" in content
+        assert "Do not guess" in content
 
     @pytest.mark.asyncio
     async def test_a_file_without_a_path_is_not_named(self, hooks, stream_options):

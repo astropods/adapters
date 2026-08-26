@@ -70,7 +70,7 @@ function attachmentNote(
   const files = attachments.filter((a) => a.path && !shown.has(a.key));
   if (files.length === 0) return "";
   const list = files.map((f) => `${f.name} (${f.path})`).join(", ");
-  return `The user attached these files, readable at these paths: ${list}`;
+  return `The user attached these files. Open them with a file-reading tool at the paths below. Do not guess their contents. ${list}`;
 }
 
 export interface MastraAdapterOptions {
