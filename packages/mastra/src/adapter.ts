@@ -62,6 +62,16 @@ function argsSummary(args: unknown): string {
     .join("\n");
 }
 
+/** Agent capabilities a Mastra agent opts into; see {@link serve}. */
+export interface MastraAdapterOptions {
+  /**
+   * Declare that the agent consumes file attachments. The chat client hides
+   * its upload affordance until an agent says yes, so one that reads
+   * `StreamOptions.attachments` or `images` is never sent a file without this.
+   */
+  supportsFiles?: boolean;
+}
+
 /**
  * Adapts a Mastra Agent to the Astro messaging protocol.
  *
@@ -72,9 +82,11 @@ function argsSummary(args: unknown): string {
  */
 export class MastraAdapter implements AgentAdapter {
   readonly name: string;
+  private readonly supportsFiles: boolean;
 
-  constructor(private agent: Agent) {
+  constructor(private agent: Agent, options: MastraAdapterOptions = {}) {
     this.name = agent.name;
+    this.supportsFiles = options.supportsFiles ?? false;
   }
 
   async stream(
@@ -445,6 +457,7 @@ export class MastraAdapter implements AgentAdapter {
     return {
       systemPrompt,
       tools: toolConfigs,
+      supportsFiles: this.supportsFiles,
     };
   }
 }

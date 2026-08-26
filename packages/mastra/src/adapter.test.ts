@@ -110,6 +110,34 @@ const textThenFinish = (text: string) => [
 // --- Tests ---
 
 describe("MastraAdapter", () => {
+  describe("getConfig", () => {
+    const configAgent = () =>
+      new Agent({
+        id: "cfg",
+        name: "Cfg",
+        model: modelFromParts(textParts(["hi"])),
+        instructions: "be helpful",
+      });
+
+    // Defaulting to true would offer an upload to every agent that ignores
+    // attachments, which then silently drops the file.
+    test("does not declare file support by default", () => {
+      expect(new MastraAdapter(configAgent()).getConfig().supportsFiles).toBe(false);
+    });
+
+    test("declares file support when the agent opts in", () => {
+      const adapter = new MastraAdapter(configAgent(), { supportsFiles: true });
+
+      expect(adapter.getConfig().supportsFiles).toBe(true);
+    });
+
+    test("keeps reporting the system prompt alongside the capability", () => {
+      const config = new MastraAdapter(configAgent(), { supportsFiles: true }).getConfig();
+
+      expect(config.systemPrompt).toBe("be helpful");
+    });
+  });
+
   describe("name", () => {
     test("is set from the Mastra agent name", () => {
       const agent = new Agent({
