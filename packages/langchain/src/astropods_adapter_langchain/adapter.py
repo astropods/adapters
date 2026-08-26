@@ -85,7 +85,7 @@ class LangChainAdapter:
     ) -> None:
         try:
             async for chunk in self._executor.astream(
-                {"messages": [_user_message(prompt, options.images)]},
+                {"messages": [_user_message(prompt, options.images, options.attachments)]},
                 config={"configurable": {"thread_id": options.conversation_id}},
                 stream_mode="updates",
             ):
@@ -210,13 +210,24 @@ class LangChainAdapter:
         }
 
 
-def _user_message(prompt: str, images: list) -> HumanMessage:
+def _attachment_note(attachments: list, images: list) -> str:
+    shown = {image.name for image in images}
+    files = [a for a in attachments if a.path and a.name not in shown]
+    if not files:
+        return ""
+    listing = ", ".join(f"{a.name} ({a.path})" for a in files)
+    return f"The user attached these files, readable at these paths: {listing}"
+
+
+def _user_message(prompt: str, images: list, attachments: list) -> HumanMessage:
+    note = _attachment_note(attachments, images)
+    text = f"{prompt}\n\n{note}" if note and prompt else (note or prompt)
     if not images:
-        return HumanMessage(content=prompt)
+        return HumanMessage(content=text)
     blocks: list[dict] = [
         {"type": "image_url", "image_url": {"url": image.url}} for image in images
     ]
-    blocks.append({"type": "text", "text": prompt})
+    blocks.append({"type": "text", "text": text})
     return HumanMessage(content=blocks)
 
 

@@ -414,3 +414,62 @@ class TestLangChainAdapterFileCapability:
         adapter = LangChainAdapter(MagicMock(), supports_files=True)
 
         assert adapter.get_config()["supports_files"] is True
+
+
+class TestLangChainAdapterFileAttachments:
+    @pytest.mark.asyncio
+    async def test_non_image_files_are_named_for_the_model(self, hooks, stream_options):
+        from astropods_adapter_core.types import AttachmentInput
+
+        stream_options.attachments = [
+            AttachmentInput(key="k1", name="report.pdf", path="/data/files/k1.blob")
+        ]
+        executor = _capturing_executor()
+
+        await LangChainAdapter(executor).stream("summarise it", hooks, stream_options)
+
+        content = executor.inputs[0]["messages"][0].content
+        assert "summarise it" in content
+        assert "report.pdf" in content
+        assert "/data/files/k1.blob" in content
+
+    @pytest.mark.asyncio
+    async def test_a_file_without_a_path_is_not_named(self, hooks, stream_options):
+        from astropods_adapter_core.types import AttachmentInput
+
+        stream_options.attachments = [AttachmentInput(key="k1", name="report.pdf")]
+        executor = _capturing_executor()
+
+        await LangChainAdapter(executor).stream("hi", hooks, stream_options)
+
+        assert executor.inputs[0]["messages"][0].content == "hi"
+
+    @pytest.mark.asyncio
+    async def test_an_inlined_image_is_not_repeated_as_a_file(self, hooks, stream_options):
+        from astropods_adapter_core.types import AttachmentInput, ImageInput
+
+        stream_options.images = [
+            ImageInput(name="shot.png", url="data:image/png;base64,AAA")
+        ]
+        stream_options.attachments = [
+            AttachmentInput(key="k1", name="shot.png", path="/data/files/k1.blob")
+        ]
+        executor = _capturing_executor()
+
+        await LangChainAdapter(executor).stream("what is it?", hooks, stream_options)
+
+        blocks = executor.inputs[0]["messages"][0].content
+        assert blocks[-1] == {"type": "text", "text": "what is it?"}
+
+    @pytest.mark.asyncio
+    async def test_an_oversized_image_is_named_as_a_file(self, hooks, stream_options):
+        from astropods_adapter_core.types import AttachmentInput
+
+        stream_options.attachments = [
+            AttachmentInput(key="k1", name="huge.png", path="/data/files/k1.blob")
+        ]
+        executor = _capturing_executor()
+
+        await LangChainAdapter(executor).stream("describe it", hooks, stream_options)
+
+        assert "huge.png" in executor.inputs[0]["messages"][0].content

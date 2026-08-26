@@ -62,6 +62,17 @@ function argsSummary(args: unknown): string {
     .join("\n");
 }
 
+function attachmentNote(
+  attachments: NonNullable<StreamOptions["attachments"]>,
+  images: NonNullable<StreamOptions["images"]>
+): string {
+  const shown = new Set(images.map((i) => i.name));
+  const files = attachments.filter((a) => a.path && !shown.has(a.name));
+  if (files.length === 0) return "";
+  const list = files.map((f) => `${f.name} (${f.path})`).join(", ");
+  return `The user attached these files, readable at these paths: ${list}`;
+}
+
 export interface MastraAdapterOptions {
   supportsFiles?: boolean;
 }
@@ -97,13 +108,15 @@ export class MastraAdapter implements AgentAdapter {
     // image's data-URI `url`). Otherwise pass the plain prompt string so the
     // common text path is untouched.
     const images = options.images ?? [];
+    const note = attachmentNote(options.attachments ?? [], images);
+    const text = note ? (prompt ? `${prompt}\n\n${note}` : note) : prompt;
     const input =
       images.length > 0
         ? [
             {
               role: "user" as const,
               content: [
-                ...(prompt ? [{ type: "text" as const, text: prompt }] : []),
+                ...(text ? [{ type: "text" as const, text }] : []),
                 ...images.map((img) => ({
                   type: "image" as const,
                   image: img.url,
@@ -115,7 +128,7 @@ export class MastraAdapter implements AgentAdapter {
               ],
             },
           ]
-        : prompt;
+        : text;
 
     const stream = await this.agent.stream(input, {
       memory: {
