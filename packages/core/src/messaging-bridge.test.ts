@@ -41,6 +41,7 @@ let mockSendTranscriptCalls: Array<{
 let mockSendAudioChunkCalls: Array<{ data: Uint8Array; done: boolean }> = [];
 let mockEndAudioCalled = false;
 let mockSendSaveConversationCalls: Array<any> = [];
+let mockThreadHistoryCalls: Array<{ conversationId: string; maxMessages: number }> = [];
 
 // --- Mock messaging SDK ---
 
@@ -56,6 +57,16 @@ mock.module("@astropods/messaging", () => ({
     async healthCheck() {
       mockHealthCheckCalled = true;
       return { status: "SERVING" };
+    }
+    async getThreadHistory(conversationId: string, maxMessages: number) {
+      mockThreadHistoryCalls.push({ conversationId, maxMessages });
+      return {
+        conversationId,
+        messages: [
+          { messageId: "1.0001", user: { id: "U1", username: "Ada" }, content: "first" },
+          { messageId: "2.0001", user: { id: "U2", username: "Bo" }, content: "second" },
+        ],
+      };
     }
     async saveConversation(request: any) {
       mockSendSaveConversationCalls.push(request);
@@ -165,6 +176,7 @@ function resetMockState() {
   mockCloseCalled = false;
   mockStreamEndCalled = false;
   mockSendSaveConversationCalls = [];
+  mockThreadHistoryCalls = [];
   mockSendAgentConfigArgs = null;
   mockSendMessageArgs = null;
   mockSendContentChunkCalls = [];
@@ -1757,5 +1769,39 @@ describe("saveConversation", () => {
       });
     });
     expect(mockSendSaveConversationCalls[0].onConflict).toBe("APPEND");
+  });
+});
+
+describe("getThreadHistory", () => {
+  beforeEach(resetMockState);
+
+  // The prompt carries only the message that triggered the turn. Without this an
+  // agent asked to act on a thread has no way to read the rest of it.
+  test("reads the source thread for the turn's conversation", async () => {
+    let messages: any[] = [];
+    const adapter = createMockAdapter({
+      stream: async (_p, hooks, options) => {
+        messages = await options.getThreadHistory!(25);
+        hooks.onFinish();
+      },
+    });
+    const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+    await bridge.start();
+    mockResponseHandlers[0]({
+      conversationId: "C1-111.0001",
+      incomingMessage: {
+        conversationId: "C1-111.0001",
+        content: "save this thread",
+        platform: "slack",
+        user: { id: "user_1" },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(mockThreadHistoryCalls).toEqual([
+      { conversationId: "C1-111.0001", maxMessages: 25 },
+    ]);
+    expect(messages.map((m) => m.content)).toEqual(["first", "second"]);
+    expect(messages[0].user.username).toBe("Ada");
   });
 });

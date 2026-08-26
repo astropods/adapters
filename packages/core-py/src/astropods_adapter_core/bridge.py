@@ -26,6 +26,7 @@ from astropods_messaging import (
     SaveConversationResponse,
     SavedMessage,
     StatusUpdate,
+    ThreadHistoryRequest,
     StreamControl,
     TraceContext,
     Transcript,
@@ -447,6 +448,19 @@ class MessagingBridge:
         except Exception as exc:
             logger.exception("on_feedback raised; dropping event: %s", exc)
 
+    async def _get_thread_history(self, conversation_id: str, max_messages: int = 50):
+        """Read the source thread, hydrating it from the platform when stale."""
+        if self._stub is None:
+            raise RuntimeError("get_thread_history called before the bridge connected")
+        response = await self._stub.GetThreadHistory(
+            ThreadHistoryRequest(
+                conversation_id=conversation_id,
+                max_messages=max_messages,
+                include_edited=True,
+            )
+        )
+        return list(response.messages)
+
     async def _save_conversation(
         self, turn_user_id: str, inp: SaveConversationInput
     ) -> SaveConversationResponse:
@@ -585,6 +599,9 @@ class MessagingBridge:
             save_conversation=lambda inp: self._save_conversation(
                 (message.user.id if message.user else ""), inp
             ),  # noqa: E731
+            get_thread_history=lambda max_messages=50: self._get_thread_history(
+                conversation_id, max_messages
+            ),
         )
 
         try:

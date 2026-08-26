@@ -25,6 +25,7 @@ import type {
   SaveConversationInput,
   SaveConversationResponse,
   ServeOptions,
+  ThreadMessage,
   StreamHooks,
   TraceContext,
 } from "./types.js";
@@ -542,6 +543,8 @@ export class MessagingBridge {
           ),
         saveConversation: (input) =>
           this.sendSaveConversation(message.user?.id ?? "", input),
+        getThreadHistory: (maxMessages) =>
+          this.fetchThreadHistory(conversationId, maxMessages),
       })
       .catch((error) => {
         // A user stop aborts the model call — that's expected; end quietly
@@ -568,6 +571,21 @@ export class MessagingBridge {
           this.abortControllers.delete(conversationId);
         }
       });
+  }
+
+  /** Read the source thread, hydrating it from the platform when stale. */
+  private async fetchThreadHistory(
+    conversationId: string,
+    maxMessages?: number
+  ): Promise<ThreadMessage[]> {
+    if (!this.client) {
+      throw new Error("getThreadHistory called before the bridge connected");
+    }
+    const response = await this.client.getThreadHistory(
+      conversationId,
+      maxMessages ?? 50
+    );
+    return response.messages ?? [];
   }
 
   /**

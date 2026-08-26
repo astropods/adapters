@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from astropods_messaging import (
         PlatformContext,
         SaveConversationResponse,
+        ThreadMessage,
         TraceContext,
     )
 
@@ -168,6 +169,12 @@ class StreamOptions:
     # it, and only the agent can decide what to do about either.
     save_conversation: Optional[
         Callable[[SaveConversationInput], Awaitable["SaveConversationResponse"]]
+    ] = None
+    # Read the source thread this turn belongs to, hydrated from the platform so
+    # edits and deletions are reflected. The prompt only carries the message that
+    # triggered the turn; this is how an agent sees the rest of the conversation.
+    get_thread_history: Optional[
+        Callable[[int], Awaitable[list["ThreadMessage"]]]
     ] = None
 
 

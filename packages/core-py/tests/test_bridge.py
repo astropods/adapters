@@ -6,6 +6,8 @@ import pytest
 from astropods_messaging import (
     SaveConversationRequest,
     SaveConversationResponse,
+    ThreadHistoryResponse,
+    ThreadMessage,
 )
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
@@ -809,3 +811,40 @@ class TestSaveConversation:
             )
         )
         assert sent[0].on_conflict == SaveConversationRequest.APPEND
+
+
+class TestGetThreadHistory:
+    """The prompt carries only the message that triggered the turn. Without this
+    an agent asked to act on a thread has no way to read the rest of it."""
+
+    @pytest.mark.asyncio
+    async def test_reads_the_source_thread_for_the_turns_conversation(self):
+        asked: list = []
+        got: list = []
+
+        class FakeStub:
+            async def GetThreadHistory(self, request):
+                asked.append(request)
+                return ThreadHistoryResponse(
+                    conversation_id=request.conversation_id,
+                    messages=[
+                        ThreadMessage(message_id="1.0001", content="first"),
+                        ThreadMessage(message_id="2.0001", content="second"),
+                    ],
+                )
+
+        async def stream(prompt, hooks, options):
+            got.extend(await options.get_thread_history(25))
+
+        adapter = MagicMock()
+        adapter.stream = stream
+        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+        bridge._stub = FakeStub()
+        await bridge._handle_message(
+            Message(conversation_id="C1-111.0001", content="save this", platform="slack")
+        )
+
+        assert len(asked) == 1
+        assert asked[0].conversation_id == "C1-111.0001"
+        assert asked[0].max_messages == 25
+        assert [m.content for m in got] == ["first", "second"]

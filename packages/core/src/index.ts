@@ -8,6 +8,7 @@ export type {
   SaveConversationResponse,
   SaveConversationStatus,
   SavedMessageInput,
+  ThreadMessage,
   TraceContext,
   StreamHooks,
   StreamOptions,

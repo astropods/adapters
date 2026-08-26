@@ -1,5 +1,6 @@
 import type {
   SaveConversationResponse,
+  ThreadMessage,
   AgentConfig as MessagingAgentConfig,
   AudioStreamConfig,
   PlatformContext,
@@ -17,6 +18,7 @@ export type { TraceContext } from "@astropods/messaging";
 export type {
   SaveConversationResponse,
   SaveConversationStatus,
+  ThreadMessage,
 } from "@astropods/messaging";
 
 /** Lifecycle hooks called by an adapter as the agent streams a response. */
@@ -220,6 +222,12 @@ export interface StreamOptions {
   saveConversation?(
     input: SaveConversationInput
   ): Promise<SaveConversationResponse>;
+  /**
+   * Read the source thread this turn belongs to, hydrated from the platform so
+   * edits and deletions are reflected. The prompt only carries the message that
+   * triggered the turn; this is how an agent sees the rest of the conversation.
+   */
+  getThreadHistory?(maxMessages?: number): Promise<ThreadMessage[]>;
 }
 
 /**
