@@ -1,6 +1,9 @@
 import asyncio
 import os
+from datetime import datetime, timezone
+
 import pytest
+from astropods_messaging import derive_saved_conversation_id
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
 from astropods_adapter_core.bridge import (
@@ -12,6 +15,8 @@ from astropods_adapter_core.types import (
     FeedbackEvent,
     ServeOptions,
     StreamHooks,
+    SaveConversationInput,
+    SavedMessageInput,
     StreamOptions,
 )
 from astropods_messaging import (
@@ -703,3 +708,88 @@ class TestStopGeneration:
         # No in-flight turn: must not raise and must not fabricate state.
         bridge._maybe_abort_on_stream_control(_stop_feedback("ghost"))
         assert bridge._inflight == {}
+
+
+# --- save_conversation ---
+
+class TestSaveConversation:
+    """An agent copies a conversation in from elsewhere by calling
+    options.save_conversation. The id comes back derived locally, so the agent
+    can link to the copy without waiting for the sidecar."""
+
+    async def _run_turn(self, call, user=User(id="user_from_turn")):
+        captured: list[str] = []
+
+        async def stream(prompt, hooks, options):
+            captured.append(call(options))
+
+        adapter = MagicMock()
+        adapter.stream = stream
+        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+        await bridge._handle_message(
+            Message(conversation_id="conv-1", content="save this", platform="slack", user=user)
+        )
+        saves = [
+            r.agent_response.save_conversation
+            for r in _drain(bridge._write_queue)
+            if r.HasField("agent_response")
+            and r.agent_response.HasField("save_conversation")
+        ]
+        return captured[0] if captured else None, saves
+
+    @pytest.mark.asyncio
+    async def test_forwards_the_copy_and_returns_the_derived_id(self):
+        returned, saves = await self._run_turn(
+            lambda o: o.save_conversation(
+                SaveConversationInput(
+                    idempotency_key="slack:C1:111.0001",
+                    title="Thread",
+                    source_label="#eng",
+                    source_url="https://slack/x",
+                    messages=[
+                        SavedMessageInput(role="user", author="Ada", content="hello"),
+                        SavedMessageInput(role="assistant", content="hi"),
+                    ],
+                )
+            )
+        )
+
+        assert len(saves) == 1
+        sent = saves[0]
+        assert sent.idempotency_key == "slack:C1:111.0001"
+        assert sent.source_label == "#eng"
+        assert sent.messages[0].author == "Ada"
+        assert returned == derive_saved_conversation_id(
+            "user_from_turn", "slack:C1:111.0001"
+        )
+
+    @pytest.mark.asyncio
+    async def test_defaults_the_owner_to_the_sender_of_the_message(self):
+        """The person who asked is the person who gets the copy, so an agent
+        that omits user_id must not address it to nobody."""
+        _, saves = await self._run_turn(
+            lambda o: o.save_conversation(SaveConversationInput(idempotency_key="k"))
+        )
+        assert saves[0].user_id == "user_from_turn"
+
+    @pytest.mark.asyncio
+    async def test_explicit_user_id_wins(self):
+        _, saves = await self._run_turn(
+            lambda o: o.save_conversation(
+                SaveConversationInput(idempotency_key="k", user_id="user_explicit")
+            )
+        )
+        assert saves[0].user_id == "user_explicit"
+
+    @pytest.mark.asyncio
+    async def test_source_timestamps_survive(self):
+        when = datetime(2026, 8, 20, 12, 30, 0, tzinfo=timezone.utc)
+        _, saves = await self._run_turn(
+            lambda o: o.save_conversation(
+                SaveConversationInput(
+                    idempotency_key="k",
+                    messages=[SavedMessageInput(role="user", content="old", timestamp=when)],
+                )
+            )
+        )
+        assert saves[0].messages[0].timestamp.ToDatetime(tzinfo=timezone.utc) == when

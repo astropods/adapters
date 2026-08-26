@@ -22,11 +22,14 @@ from astropods_messaging import (
     MessageReaction,
     HealthCheckRequest,
     Message,
+    SaveConversation,
+    SavedMessage,
     StatusUpdate,
     StreamControl,
     TraceContext,
     Transcript,
     User,
+    derive_saved_conversation_id,
 )
 
 from .types import (
@@ -34,6 +37,7 @@ from .types import (
     AttachmentInput,
     AudioInput,
     FeedbackEvent,
+    SaveConversationInput,
     ServeOptions,
     StreamHooks,
     StreamOptions,
@@ -436,6 +440,39 @@ class MessagingBridge:
         except Exception as exc:
             logger.exception("on_feedback raised; dropping event: %s", exc)
 
+    def _save_conversation(
+        self, turn_user_id: str, inp: SaveConversationInput
+    ) -> str:
+        """Copy an external conversation into a user's chat history.
+
+        Defaults the owner to whoever sent the message being handled, which is
+        the common case: the person who asked is the person who gets it.
+        """
+        user_id = inp.user_id or turn_user_id
+        messages = []
+        for m in inp.messages:
+            saved = SavedMessage(role=m.role, author=m.author, content=m.content)
+            if m.timestamp is not None:
+                saved.timestamp.FromDatetime(m.timestamp)
+            messages.append(saved)
+
+        self._write_queue.put_nowait(
+            ConversationRequest(
+                agent_response=AgentResponse(
+                    conversation_id="",
+                    save_conversation=SaveConversation(
+                        user_id=user_id,
+                        idempotency_key=inp.idempotency_key,
+                        title=inp.title,
+                        source_label=inp.source_label,
+                        source_url=inp.source_url,
+                        messages=messages,
+                    ),
+                )
+            )
+        )
+        return derive_saved_conversation_id(user_id, inp.idempotency_key)
+
     def _resolve_attachments(self, message: Message) -> list[AttachmentInput]:
         """Resolve inbound FILE attachments to the agent-facing shape: files-API
         key, metadata, and an absolute path on the shared files volume. Requires
@@ -541,6 +578,9 @@ class MessagingBridge:
                 message.platform_context if message.HasField("platform_context") else None
             ),
             attachments=self._resolve_attachments(message),
+            save_conversation=lambda inp: self._save_conversation(
+                (message.user.id if message.user else ""), inp
+            ),
         )
 
         try:
@@ -578,6 +618,7 @@ class MessagingBridge:
         options = StreamOptions(
             conversation_id=conversation_id,
             user_id=config.user_id or "anonymous",
+            save_conversation=lambda inp: self._save_conversation(config.user_id, inp),
         )
 
         try:
