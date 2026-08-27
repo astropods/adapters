@@ -55,12 +55,14 @@ class LangChainAdapter:
         system_prompt: str = "",
         tools: Optional[list] = None,
         voice: Optional[VoiceProvider] = None,
+        supports_files: bool = False,
     ) -> None:
         self.name = name
         self._executor = executor
         self._system_prompt = system_prompt
         self._tools = tools or []
         self._voice = voice
+        self._supports_files = supports_files
 
     async def stream(
         self, prompt: str, hooks: StreamHooks, options: StreamOptions
@@ -83,7 +85,7 @@ class LangChainAdapter:
     ) -> None:
         try:
             async for chunk in self._executor.astream(
-                {"messages": [HumanMessage(content=prompt)]},
+                {"messages": [_user_message(prompt, options.images, options.attachments)]},
                 config={"configurable": {"thread_id": options.conversation_id}},
                 stream_mode="updates",
             ):
@@ -204,7 +206,32 @@ class LangChainAdapter:
         return {
             "system_prompt": self._system_prompt,
             "tools": tool_configs,
+            "supports_files": self._supports_files,
         }
+
+
+def _attachment_note(attachments: list, images: list) -> str:
+    shown = {image.key for image in images if image.key}
+    files = [a for a in attachments if a.path and a.key not in shown]
+    if not files:
+        return ""
+    listing = ", ".join(f"{a.name} ({a.path})" for a in files)
+    return (
+        "The user attached these files. Open them with a file-reading tool at "
+        f"the paths below. Do not guess their contents. {listing}"
+    )
+
+
+def _user_message(prompt: str, images: list, attachments: list) -> HumanMessage:
+    note = _attachment_note(attachments, images)
+    text = f"{prompt}\n\n{note}" if note and prompt else (note or prompt)
+    if not images:
+        return HumanMessage(content=text)
+    blocks: list[dict] = [
+        {"type": "image_url", "image_url": {"url": image.url}} for image in images
+    ]
+    blocks.append({"type": "text", "text": text})
+    return HumanMessage(content=blocks)
 
 
 def _traceparent_from_span(span: Any) -> str:

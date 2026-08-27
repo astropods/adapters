@@ -62,6 +62,21 @@ function argsSummary(args: unknown): string {
     .join("\n");
 }
 
+function attachmentNote(
+  attachments: NonNullable<StreamOptions["attachments"]>,
+  images: NonNullable<StreamOptions["images"]>
+): string {
+  const shown = new Set(images.map((i) => i.key).filter(Boolean));
+  const files = attachments.filter((a) => a.path && !shown.has(a.key));
+  if (files.length === 0) return "";
+  const list = files.map((f) => `${f.name} (${f.path})`).join(", ");
+  return `The user attached these files. Open them with a file-reading tool at the paths below. Do not guess their contents. ${list}`;
+}
+
+export interface MastraAdapterOptions {
+  supportsFiles?: boolean;
+}
+
 /**
  * Adapts a Mastra Agent to the Astro messaging protocol.
  *
@@ -72,9 +87,11 @@ function argsSummary(args: unknown): string {
  */
 export class MastraAdapter implements AgentAdapter {
   readonly name: string;
+  private readonly supportsFiles: boolean;
 
-  constructor(private agent: Agent) {
+  constructor(private agent: Agent, options: MastraAdapterOptions = {}) {
     this.name = agent.name;
+    this.supportsFiles = options.supportsFiles ?? false;
   }
 
   async stream(
@@ -91,13 +108,15 @@ export class MastraAdapter implements AgentAdapter {
     // image's data-URI `url`). Otherwise pass the plain prompt string so the
     // common text path is untouched.
     const images = options.images ?? [];
+    const note = attachmentNote(options.attachments ?? [], images);
+    const text = note ? (prompt ? `${prompt}\n\n${note}` : note) : prompt;
     const input =
       images.length > 0
         ? [
             {
               role: "user" as const,
               content: [
-                ...(prompt ? [{ type: "text" as const, text: prompt }] : []),
+                ...(text ? [{ type: "text" as const, text }] : []),
                 ...images.map((img) => ({
                   type: "image" as const,
                   image: img.url,
@@ -109,7 +128,7 @@ export class MastraAdapter implements AgentAdapter {
               ],
             },
           ]
-        : prompt;
+        : text;
 
     const stream = await this.agent.stream(input, {
       memory: {
@@ -429,11 +448,14 @@ export class MastraAdapter implements AgentAdapter {
         .join("\n\n");
     }
 
-    // listTools() is sync when tools are static (the common case).
-    const tools = this.agent.listTools();
+    // listTools() is always async in @mastra/core >=1.63.0, so use the
+    // synchronous raw-field snapshot instead. Dynamic (function-based) tools
+    // are skipped here — getConfig() is a sync introspection call.
+    const rawTools = (this.agent as unknown as { __getOverridableFields?(): { tools?: unknown } })
+      .__getOverridableFields?.()?.tools;
     let toolConfigs: MessagingAgentConfig["tools"] = [];
-    if (tools && typeof tools === "object" && !("then" in tools)) {
-      toolConfigs = Object.entries(tools).map(([name, tool]) => ({
+    if (rawTools && typeof rawTools === "object" && typeof rawTools !== "function") {
+      toolConfigs = Object.entries(rawTools as Record<string, unknown>).map(([name, tool]) => ({
         name,
         title: name,
         description:
@@ -445,6 +467,7 @@ export class MastraAdapter implements AgentAdapter {
     return {
       systemPrompt,
       tools: toolConfigs,
+      supportsFiles: this.supportsFiles,
     };
   }
 }

@@ -30,7 +30,7 @@
   },
   "dependencies": {
     "@astropods/adapter-core": "workspace:*",
-    "@astropods/messaging": "latest",
+    "@astropods/messaging": "^0.1.2",
     "@mastra/observability": "^1.5.0",
     "@mastra/otel-exporter": "^1.0.7",
     "@opentelemetry/exporter-trace-otlp-proto": "^0.200.0"
@@ -44,7 +44,7 @@
     }
   },
   "devDependencies": {
-    "@mastra/core": "^1.50.0",
+    "@mastra/core": "^1.63.0",
     "@types/bun": "^1.3.5",
     "typescript": "^5.3.0",
     "zod": "^4.3.6"

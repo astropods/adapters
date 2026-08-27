@@ -110,6 +110,16 @@ class AttachmentInput:
 
 
 @dataclass
+class ImageInput:
+    name: str
+    url: str          # data:<mime>;base64,<...>
+    # Files-API key of the same upload, when the message carried one.
+    key: Optional[str] = None
+    mime_type: Optional[str] = None
+    size: Optional[int] = None
+
+
+@dataclass
 class SavedMessageInput:
     """One turn of an external conversation being copied in."""
 
@@ -157,6 +167,7 @@ class StreamOptions:
     # Files the user attached to this message (the turn's immediate context).
     # The bytes are staged on the shared files volume; read each at its ``path``.
     attachments: list[AttachmentInput] = field(default_factory=list)
+    images: list[ImageInput] = field(default_factory=list)
     # Copy a conversation from somewhere else (a Slack thread, an email chain)
     # into a user's Astro chat history, returning the id it lands on.
     #

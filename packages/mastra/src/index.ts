@@ -2,9 +2,11 @@ import type { Agent } from "@mastra/core/agent";
 import { serve as serveAdapter } from "@astropods/adapter-core";
 import type { ServeOptions } from "@astropods/adapter-core";
 import { MastraAdapter } from "./adapter";
+import type { MastraAdapterOptions } from "./adapter";
 import { setupObservability } from "./observability";
 
 export { MastraAdapter } from "./adapter";
+export type { MastraAdapterOptions } from "./adapter";
 
 /**
  * Connect a Mastra Agent to the Astro messaging service and start listening.
@@ -25,8 +27,13 @@ export { MastraAdapter } from "./adapter";
  * serve(agent);
  * ```
  */
-export function serve(agent: Agent, options?: ServeOptions): void {
+export function serve(
+  agent: Agent,
+  options?: ServeOptions & MastraAdapterOptions
+): void {
   setupObservability(agent);
-  const adapter = new MastraAdapter(agent);
+  const adapter = new MastraAdapter(agent, {
+    supportsFiles: options?.supportsFiles,
+  });
   serveAdapter(adapter, options);
 }

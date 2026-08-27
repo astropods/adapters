@@ -2,8 +2,10 @@ from astropods_messaging import PlatformContext, TraceContext
 
 from .types import (
     AgentAdapter,
+    AttachmentInput,
     AudioInput,
     FeedbackEvent,
+    ImageInput,
     SaveConversationInput,
     SavedMessageInput,
     StreamHooks,
@@ -16,7 +18,9 @@ from .trace import create_traceparent
 
 __all__ = [
     "AgentAdapter",
+    "AttachmentInput",
     "AudioInput",
+    "ImageInput",
     "FeedbackEvent",
     "SaveConversationInput",
     "SavedMessageInput",

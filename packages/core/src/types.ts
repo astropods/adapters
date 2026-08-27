@@ -71,6 +71,8 @@ export interface AttachmentInput {
  *  directly fetchable image URL — so no files volume or platform token is
  *  needed on the agent side. */
 export interface ImageInput {
+  /** Files-API key of the same upload, when the message carried one. */
+  key?: string;
   /** Original filename, when known. */
   name: string;
   /** Data URI (`data:<mime>;base64,…`) or a fetchable image URL. */
