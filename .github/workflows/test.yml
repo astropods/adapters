@@ -84,6 +84,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      # A sibling in this repo is normally ahead of its last PyPI release, so
+      # resolving it from the index fails until a publish catches up.
+      - name: Install sibling packages from the checkout
+        run: pip install -e packages/core-py
+
       - name: Install package and dev dependencies
         working-directory: ${{ matrix.package.path }}
         run: pip install -e ".[dev]"
