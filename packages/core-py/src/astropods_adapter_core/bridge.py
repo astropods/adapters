@@ -32,6 +32,7 @@ from astropods_messaging import (
 from .types import (
     AgentAdapter,
     AttachmentInput,
+    ImageInput,
     AudioInput,
     FeedbackEvent,
     ServeOptions,
@@ -183,6 +184,14 @@ class _StreamHooksImpl:
         self._enqueue(ConversationRequest(agent_response=response))
 
 
+def _agent_config(config_dict: dict, tool_configs: list) -> AgentConfig:
+    return AgentConfig(
+        system_prompt=config_dict.get("system_prompt", ""),
+        tools=tool_configs,
+        supports_files=bool(config_dict.get("supports_files", False)),
+    )
+
+
 class MessagingBridge:
     """Connects an agent adapter to the Astro messaging service via gRPC."""
 
@@ -268,10 +277,7 @@ class MessagingBridge:
             )
             for t in config_dict.get("tools", [])
         ]
-        agent_config = AgentConfig(
-            system_prompt=config_dict.get("system_prompt", ""),
-            tools=tool_configs,
-        )
+        agent_config = _agent_config(config_dict, tool_configs)
         await self._write_queue.put(ConversationRequest(agent_config=agent_config))
         logger.info("Agent config sent")
 
@@ -436,6 +442,24 @@ class MessagingBridge:
         except Exception as exc:
             logger.exception("on_feedback raised; dropping event: %s", exc)
 
+    def _resolve_images(self, message: Message) -> list[ImageInput]:
+        out: list[ImageInput] = []
+        for a in message.attachments:
+            if a.type != a.Type.Value("IMAGE"):
+                continue
+            if not a.url:
+                continue
+            out.append(
+                ImageInput(
+                    key=getattr(a, "storage_key", "") or None,
+                    name=a.filename or "image",
+                    url=a.url,
+                    mime_type=a.mime_type or None,
+                    size=a.size_bytes or None,
+                )
+            )
+        return out
+
     def _resolve_attachments(self, message: Message) -> list[AttachmentInput]:
         """Resolve inbound FILE attachments to the agent-facing shape: files-API
         key, metadata, and an absolute path on the shared files volume. Requires
@@ -541,6 +565,7 @@ class MessagingBridge:
                 message.platform_context if message.HasField("platform_context") else None
             ),
             attachments=self._resolve_attachments(message),
+            images=self._resolve_images(message),
         )
 
         try:

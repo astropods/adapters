@@ -110,6 +110,107 @@ const textThenFinish = (text: string) => [
 // --- Tests ---
 
 describe("MastraAdapter", () => {
+  describe("file attachments", () => {
+    async function promptSentFor(
+      attachments: unknown[],
+      images: unknown[] = [],
+    ): Promise<string> {
+      const agent = new Agent({
+        id: "files",
+        name: "Files",
+        model: modelFromParts(textParts(["ok"])),
+        instructions: "test",
+      });
+      let captured = "";
+      const original = agent.stream.bind(agent);
+      (agent as unknown as { stream: unknown }).stream = async (
+        input: unknown,
+        opts: unknown,
+      ) => {
+        captured =
+          typeof input === "string"
+            ? input
+            : ((input as { content: { type: string; text?: string }[] }[])[0].content.find(
+                (p) => p.type === "text",
+              )?.text ?? "");
+        return original(input as never, opts as never);
+      };
+      const adapter = new MastraAdapter(agent);
+      await adapter.stream("summarise it", createHooks(), {
+        ...defaultOptions,
+        attachments,
+        images,
+      } as never);
+      return captured;
+    }
+
+    test("names a non-image file and its path for the model", async () => {
+      const sent = await promptSentFor([
+        { key: "k1", name: "report.pdf", path: "/data/files/k1.blob" },
+      ]);
+
+      expect(sent).toContain("summarise it");
+      expect(sent).toContain("report.pdf");
+      expect(sent).toContain("/data/files/k1.blob");
+      expect(sent).toContain("file-reading tool");
+      expect(sent).toContain("Do not guess");
+    });
+
+    test("skips a file with no resolvable path", async () => {
+      const sent = await promptSentFor([{ key: "k1", name: "report.pdf" }]);
+
+      expect(sent).toBe("summarise it");
+    });
+
+    test("does not repeat an image that was inlined", async () => {
+      const sent = await promptSentFor(
+        [{ key: "k1", name: "shot.png", path: "/data/files/k1.blob" }],
+        [{ key: "k1", name: "shot.png", url: "data:image/png;base64,AAA" }],
+      );
+
+      expect(sent).toBe("summarise it");
+    });
+
+    test("names a same-named upload the model cannot see", async () => {
+      const sent = await promptSentFor(
+        [
+          { key: "k1", name: "shot.png", path: "/data/files/k1.blob" },
+          { key: "k2", name: "shot.png", path: "/data/files/k2.blob" },
+        ],
+        [{ key: "k1", name: "shot.png", url: "data:image/png;base64,AAA" }],
+      );
+
+      expect(sent).toContain("/data/files/k2.blob");
+      expect(sent).not.toContain("/data/files/k1.blob");
+    });
+  });
+
+  describe("getConfig", () => {
+    const configAgent = () =>
+      new Agent({
+        id: "cfg",
+        name: "Cfg",
+        model: modelFromParts(textParts(["hi"])),
+        instructions: "be helpful",
+      });
+
+    test("does not declare file support by default", () => {
+      expect(new MastraAdapter(configAgent()).getConfig().supportsFiles).toBe(false);
+    });
+
+    test("declares file support when the agent opts in", () => {
+      const adapter = new MastraAdapter(configAgent(), { supportsFiles: true });
+
+      expect(adapter.getConfig().supportsFiles).toBe(true);
+    });
+
+    test("keeps reporting the system prompt alongside the capability", () => {
+      const config = new MastraAdapter(configAgent(), { supportsFiles: true }).getConfig();
+
+      expect(config.systemPrompt).toBe("be helpful");
+    });
+  });
+
   describe("name", () => {
     test("is set from the Mastra agent name", () => {
       const agent = new Agent({

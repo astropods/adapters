@@ -97,7 +97,7 @@
       "version": "0.7.0",
       "dependencies": {
         "@astropods/adapter-core": "workspace:*",
-        "@astropods/messaging": "latest",
+        "@astropods/messaging": "^0.1.2",
         "@mastra/observability": "^1.5.0",
         "@mastra/otel-exporter": "^1.0.7",
         "@opentelemetry/exporter-trace-otlp-proto": "^0.200.0",
@@ -177,7 +177,7 @@
 
     "@astropods/adapter-mastra": ["@astropods/adapter-mastra@workspace:packages/mastra"],
 
-    "@astropods/messaging": ["@astropods/messaging@0.1.1", "", { "dependencies": { "@grpc/grpc-js": "^1.9.0", "@grpc/proto-loader": "^0.7.10" } }, "sha512-wBSi2R9yOLgoP/VWQA1QTrKX+gjaFA59l9apX5RRqAXsqFOPGtNao8/yqLAt66vsv1uhIuQ9LNkUuvTD1Dx0sg=="],
+    "@astropods/messaging": ["@astropods/messaging@0.1.2", "", { "dependencies": { "@grpc/grpc-js": "^1.9.0", "@grpc/proto-loader": "^0.7.10" } }, "sha512-BTXorjZS3txK7J9B2EuLz0uN7aCh+1fjFgRCAcE86FagGHi5arQkofm5WCsttz7mkDJyjYXITef0FMosqA34sg=="],
 
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
 
