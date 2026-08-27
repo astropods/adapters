@@ -1,9 +1,23 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
+from datetime import datetime
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Optional,
+    Protocol,
+    runtime_checkable,
+)
 
 if TYPE_CHECKING:
-    from astropods_messaging import PlatformContext, TraceContext
+    from astropods_messaging import (
+        PlatformContext,
+        SaveConversationResponse,
+        ThreadMessage,
+        TraceContext,
+    )
 
 
 @runtime_checkable
@@ -106,6 +120,40 @@ class ImageInput:
 
 
 @dataclass
+class SavedMessageInput:
+    """One turn of an external conversation being copied in."""
+
+    role: str  # "user" or "assistant"
+    content: str
+    # Original sender's display name. Set it when the copy has several speakers,
+    # or every turn renders as the owner's own.
+    author: str = ""
+    # When the turn happened at the source. Defaults to now.
+    timestamp: Optional[datetime] = None
+
+
+@dataclass
+class SaveConversationInput:
+    """Input to ``StreamOptions.save_conversation``."""
+
+    # Stable per source conversation and user, e.g. "slack:C123:1699.0001".
+    idempotency_key: str
+    messages: list[SavedMessageInput] = field(default_factory=list)
+    # Astro user id that owns the copy. Defaults to this turn's user_id.
+    user_id: str = ""
+    title: str = ""
+    # Shown with the copy, e.g. "#eng-support".
+    source_label: str = ""
+    # Deep link back to the source.
+    source_url: str = ""
+    # What to do when the copy already exists. "SKIP" (default) refreshes a copy
+    # the user has not touched and leaves a diverged one alone. "APPEND" adds
+    # these messages after whatever is there. "REPLACE" overwrites, throwing away
+    # the user's own turns.
+    on_conflict: str = "SKIP"
+
+
+@dataclass
 class StreamOptions:
     """Per-request context passed to the adapter's stream method."""
 
@@ -120,6 +168,25 @@ class StreamOptions:
     # The bytes are staged on the shared files volume; read each at its ``path``.
     attachments: list[AttachmentInput] = field(default_factory=list)
     images: list[ImageInput] = field(default_factory=list)
+    # Copy a conversation from somewhere else (a Slack thread, an email chain)
+    # into a user's Astro chat history, returning the id it lands on.
+    #
+    # Saving again under the same idempotency_key replaces the copy, so an agent
+    # that re-reads its whole source and re-sends it propagates edits and
+    # deletions. A copy the user deleted is never recreated, which is how they
+    # stop an agent that saves on every source message.
+    #
+    # Await the status. A copy can be deleted, or the user can have replied in
+    # it, and only the agent can decide what to do about either.
+    save_conversation: Optional[
+        Callable[[SaveConversationInput], Awaitable["SaveConversationResponse"]]
+    ] = None
+    # Read the source thread this turn belongs to, hydrated from the platform so
+    # edits and deletions are reflected. The prompt only carries the message that
+    # triggered the turn; this is how an agent sees the rest of the conversation.
+    get_thread_history: Optional[
+        Callable[[int], Awaitable[list["ThreadMessage"]]]
+    ] = None
 
 
 @dataclass

@@ -22,7 +22,10 @@ import type {
   ImageInput,
   OutgoingFile,
   RenderableInput,
+  SaveConversationInput,
+  SaveConversationResponse,
   ServeOptions,
+  ThreadMessage,
   StreamHooks,
   TraceContext,
 } from "./types.js";
@@ -539,6 +542,10 @@ export class MessagingBridge {
               allowedActions: opts?.allowedActions ?? DEFAULT_ELICIT_ACTIONS,
             })
           ),
+        saveConversation: (input) =>
+          this.sendSaveConversation(message.user?.id ?? "", input),
+        getThreadHistory: (maxMessages) =>
+          this.fetchThreadHistory(conversationId, maxMessages),
       })
       .catch((error) => {
         // A user stop aborts the model call — that's expected; end quietly
@@ -565,6 +572,49 @@ export class MessagingBridge {
           this.abortControllers.delete(conversationId);
         }
       });
+  }
+
+  /** Read the source thread, hydrating it from the platform when stale. */
+  private async fetchThreadHistory(
+    conversationId: string,
+    maxMessages?: number
+  ): Promise<ThreadMessage[]> {
+    if (!this.client) {
+      throw new Error("getThreadHistory called before the bridge connected");
+    }
+    const response = await this.client.getThreadHistory(
+      conversationId,
+      maxMessages ?? 50
+    );
+    return response.messages ?? [];
+  }
+
+  /**
+   * Copy an external conversation into a user's chat history and return the id
+   * it lands on. Defaults the owner to whoever sent the message being handled,
+   * which is the common case: the person who asked is the person who gets it.
+   */
+  private async sendSaveConversation(
+    turnUserId: string,
+    input: SaveConversationInput
+  ): Promise<SaveConversationResponse> {
+    if (!this.client) {
+      throw new Error("saveConversation called before the bridge connected");
+    }
+    return this.client.saveConversation({
+      userId: input.userId || turnUserId,
+      idempotencyKey: input.idempotencyKey,
+      title: input.title,
+      sourceLabel: input.sourceLabel,
+      sourceUrl: input.sourceUrl,
+      onConflict: input.onConflict,
+      messages: input.messages.map((m) => ({
+        role: m.role,
+        author: m.author,
+        content: m.content,
+        timestamp: m.timestamp,
+      })),
+    });
   }
 
   /** Build a wire Renderable from the friendly render() input, filling defaults. */

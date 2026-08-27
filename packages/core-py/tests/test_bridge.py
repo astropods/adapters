@@ -1,6 +1,14 @@
 import asyncio
 import os
+from datetime import datetime, timezone
+
 import pytest
+from astropods_messaging import (
+    SaveConversationRequest,
+    SaveConversationResponse,
+    ThreadHistoryResponse,
+    ThreadMessage,
+)
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
 from astropods_adapter_core.bridge import (
@@ -13,6 +21,8 @@ from astropods_adapter_core.types import (
     FeedbackEvent,
     ServeOptions,
     StreamHooks,
+    SaveConversationInput,
+    SavedMessageInput,
     StreamOptions,
 )
 from astropods_messaging import (
@@ -705,6 +715,141 @@ class TestStopGeneration:
         # No in-flight turn: must not raise and must not fabricate state.
         bridge._maybe_abort_on_stream_control(_stop_feedback("ghost"))
         assert bridge._inflight == {}
+
+
+# --- save_conversation ---
+
+class TestSaveConversation:
+    """An agent copies a conversation in from elsewhere by calling
+    options.save_conversation. The status comes back so it can react to a copy
+    the user deleted or replied in."""
+
+    async def _run_turn(self, call, user=User(id="user_from_turn")):
+        captured: list = []
+        sent: list = []
+
+        class FakeStub:
+            async def SaveConversation(self, request):
+                sent.append(request)
+                return SaveConversationResponse(
+                    conversation_id="derived-id",
+                    status=SaveConversationResponse.CREATED,
+                )
+
+        async def stream(prompt, hooks, options):
+            captured.append(await call(options))
+
+        adapter = MagicMock()
+        adapter.stream = stream
+        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+        bridge._stub = FakeStub()
+        await bridge._handle_message(
+            Message(conversation_id="conv-1", content="save this", platform="slack", user=user)
+        )
+        return (captured[0] if captured else None), sent
+
+    @pytest.mark.asyncio
+    async def test_forwards_the_copy_and_returns_the_status(self):
+        returned, sent = await self._run_turn(
+            lambda o: o.save_conversation(
+                SaveConversationInput(
+                    idempotency_key="slack:C1:111.0001",
+                    title="Thread",
+                    source_label="#eng",
+                    source_url="https://slack/x",
+                    messages=[
+                        SavedMessageInput(role="user", author="Ada", content="hello"),
+                        SavedMessageInput(role="assistant", content="hi"),
+                    ],
+                )
+            )
+        )
+
+        assert len(sent) == 1
+        assert sent[0].idempotency_key == "slack:C1:111.0001"
+        assert sent[0].source_label == "#eng"
+        assert sent[0].messages[0].author == "Ada"
+        assert returned.status == SaveConversationResponse.CREATED
+        assert returned.conversation_id == "derived-id"
+
+    @pytest.mark.asyncio
+    async def test_defaults_the_owner_to_the_sender_of_the_message(self):
+        """The person who asked is the person who gets the copy, so an agent
+        that omits user_id must not address it to nobody."""
+        _, sent = await self._run_turn(
+            lambda o: o.save_conversation(SaveConversationInput(idempotency_key="k"))
+        )
+        assert sent[0].user_id == "user_from_turn"
+
+    @pytest.mark.asyncio
+    async def test_explicit_user_id_wins(self):
+        _, sent = await self._run_turn(
+            lambda o: o.save_conversation(
+                SaveConversationInput(idempotency_key="k", user_id="user_explicit")
+            )
+        )
+        assert sent[0].user_id == "user_explicit"
+
+    @pytest.mark.asyncio
+    async def test_source_timestamps_survive(self):
+        when = datetime(2026, 8, 20, 12, 30, 0, tzinfo=timezone.utc)
+        _, sent = await self._run_turn(
+            lambda o: o.save_conversation(
+                SaveConversationInput(
+                    idempotency_key="k",
+                    messages=[SavedMessageInput(role="user", content="old", timestamp=when)],
+                )
+            )
+        )
+        assert sent[0].messages[0].timestamp.ToDatetime(tzinfo=timezone.utc) == when
+
+    @pytest.mark.asyncio
+    async def test_conflict_policy_reaches_the_wire(self):
+        """The platform refuses to destroy the user's own turns; choosing to
+        anyway is the agent's call, so the policy must survive translation."""
+        _, sent = await self._run_turn(
+            lambda o: o.save_conversation(
+                SaveConversationInput(idempotency_key="k", on_conflict="APPEND")
+            )
+        )
+        assert sent[0].on_conflict == SaveConversationRequest.APPEND
+
+
+class TestGetThreadHistory:
+    """The prompt carries only the message that triggered the turn. Without this
+    an agent asked to act on a thread has no way to read the rest of it."""
+
+    @pytest.mark.asyncio
+    async def test_reads_the_source_thread_for_the_turns_conversation(self):
+        asked: list = []
+        got: list = []
+
+        class FakeStub:
+            async def GetThreadHistory(self, request):
+                asked.append(request)
+                return ThreadHistoryResponse(
+                    conversation_id=request.conversation_id,
+                    messages=[
+                        ThreadMessage(message_id="1.0001", content="first"),
+                        ThreadMessage(message_id="2.0001", content="second"),
+                    ],
+                )
+
+        async def stream(prompt, hooks, options):
+            got.extend(await options.get_thread_history(25))
+
+        adapter = MagicMock()
+        adapter.stream = stream
+        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+        bridge._stub = FakeStub()
+        await bridge._handle_message(
+            Message(conversation_id="C1-111.0001", content="save this", platform="slack")
+        )
+
+        assert len(asked) == 1
+        assert asked[0].conversation_id == "C1-111.0001"
+        assert asked[0].max_messages == 25
+        assert [m.content for m in got] == ["first", "second"]
 
 
 class TestImageResolution:

@@ -1,4 +1,6 @@
 import type {
+  SaveConversationResponse,
+  ThreadMessage,
   AgentConfig as MessagingAgentConfig,
   AudioStreamConfig,
   PlatformContext,
@@ -12,6 +14,12 @@ import type {
 // The wire type is the source of truth; re-export it so adapters get a single
 // TraceContext shared with the messaging SDK rather than a parallel copy.
 export type { TraceContext } from "@astropods/messaging";
+// The wire status is the source of truth; re-export so adapters switch on one type.
+export type {
+  SaveConversationResponse,
+  SaveConversationStatus,
+  ThreadMessage,
+} from "@astropods/messaging";
 
 /** Lifecycle hooks called by an adapter as the agent streams a response. */
 export interface StreamHooks {
@@ -106,6 +114,38 @@ export interface RenderableInput {
   intent?: string;
 }
 
+/** One turn of an external conversation being copied in. */
+export interface SavedMessageInput {
+  role: "user" | "assistant";
+  /** Original sender's display name. Set it when the copy has several speakers,
+   *  or every turn renders as the owner's own. */
+  author?: string;
+  content: string;
+  /** When the turn happened at the source. Defaults to now. */
+  timestamp?: Date;
+}
+
+/** Input to {@link StreamOptions.saveConversation}. */
+export interface SaveConversationInput {
+  /** Astro user id that owns the copy. Defaults to this turn's `userId`. */
+  userId?: string;
+  /** Stable per source conversation and user, e.g. `slack:C123:1699.0001`. */
+  idempotencyKey: string;
+  title?: string;
+  /** Shown with the copy, e.g. "#eng-support". */
+  sourceLabel?: string;
+  /** Deep link back to the source. */
+  sourceUrl?: string;
+  messages: SavedMessageInput[];
+  /**
+   * What to do when the copy already exists. Defaults to `SKIP`, which refreshes
+   * a copy the user has not touched and leaves a diverged one alone. `APPEND`
+   * adds these messages after whatever is there. `REPLACE` overwrites, throwing
+   * away the user's own turns.
+   */
+  onConflict?: "SKIP" | "REPLACE" | "APPEND";
+}
+
 /** Options for {@link StreamOptions.elicit}, the MCP-elicitation-shaped convenience. */
 export interface ElicitOptions {
   value?: unknown;
@@ -169,6 +209,27 @@ export interface StreamOptions {
     dataSchema: object,
     opts?: ElicitOptions
   ): Promise<RenderableResponse>;
+  /**
+   * Copy a conversation from somewhere else (a Slack thread, an email chain)
+   * into a user's Astro chat history, and return the id it lands on.
+   *
+   * Saving again under the same `idempotencyKey` replaces the copy, so an agent
+   * that re-reads its whole source and re-sends it propagates edits and
+   * deletions. A copy the user deleted is never recreated, which is how they
+   * stop an agent that saves on every source message.
+   *
+   * Await the status. A copy can be deleted, or the user can have replied in
+   * it, and only the agent can decide what to do about either.
+   */
+  saveConversation?(
+    input: SaveConversationInput
+  ): Promise<SaveConversationResponse>;
+  /**
+   * Read the source thread this turn belongs to, hydrated from the platform so
+   * edits and deletions are reflected. The prompt only carries the message that
+   * triggered the turn; this is how an agent sees the rest of the conversation.
+   */
+  getThreadHistory?(maxMessages?: number): Promise<ThreadMessage[]>;
 }
 
 /**

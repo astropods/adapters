@@ -40,6 +40,8 @@ let mockSendTranscriptCalls: Array<{
 }> = [];
 let mockSendAudioChunkCalls: Array<{ data: Uint8Array; done: boolean }> = [];
 let mockEndAudioCalled = false;
+let mockSendSaveConversationCalls: Array<any> = [];
+let mockThreadHistoryCalls: Array<{ conversationId: string; maxMessages: number }> = [];
 
 // --- Mock messaging SDK ---
 
@@ -55,6 +57,20 @@ mock.module("@astropods/messaging", () => ({
     async healthCheck() {
       mockHealthCheckCalled = true;
       return { status: "SERVING" };
+    }
+    async getThreadHistory(conversationId: string, maxMessages: number) {
+      mockThreadHistoryCalls.push({ conversationId, maxMessages });
+      return {
+        conversationId,
+        messages: [
+          { messageId: "1.0001", user: { id: "U1", username: "Ada" }, content: "first" },
+          { messageId: "2.0001", user: { id: "U2", username: "Bo" }, content: "second" },
+        ],
+      };
+    }
+    async saveConversation(request: any) {
+      mockSendSaveConversationCalls.push(request);
+      return { conversationId: "derived-conversation-id", status: "CREATED" };
     }
     createConversationStream() {
       return {
@@ -159,6 +175,8 @@ function resetMockState() {
   mockHealthCheckCalled = false;
   mockCloseCalled = false;
   mockStreamEndCalled = false;
+  mockSendSaveConversationCalls = [];
+  mockThreadHistoryCalls = [];
   mockSendAgentConfigArgs = null;
   mockSendMessageArgs = null;
   mockSendContentChunkCalls = [];
@@ -1666,5 +1684,124 @@ describe("MessagingBridge", () => {
       const errors = mockSendAgentResponseCalls.filter((r) => (r as any).error);
       expect(errors).toHaveLength(0);
     });
+  });
+});
+
+describe("saveConversation", () => {
+  beforeEach(resetMockState);
+
+  async function runTurn(
+    call: (options: StreamOptions) => void | Promise<void>,
+    user: { id: string } | undefined = { id: "user_from_turn" }
+  ) {
+    const adapter = createMockAdapter({
+      stream: async (_p, hooks, options) => {
+        await call(options);
+        hooks.onFinish();
+      },
+    });
+    const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+    await bridge.start();
+    mockResponseHandlers[0]({
+      conversationId: "conv-1",
+      incomingMessage: {
+        conversationId: "conv-1",
+        content: "save this",
+        platform: "slack",
+        user,
+      },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+  }
+
+  test("forwards the copy and returns the id with its status", async () => {
+    let returned: any;
+    await runTurn(async (options) => {
+      returned = await options.saveConversation!({
+        idempotencyKey: "slack:C1:111.0001",
+        title: "Thread",
+        sourceLabel: "#eng",
+        sourceUrl: "https://slack/x",
+        messages: [
+          { role: "user", author: "Ada", content: "hello" },
+          { role: "assistant", content: "hi" },
+        ],
+      });
+    });
+
+    expect(returned.conversationId).toBe("derived-conversation-id");
+    expect(returned.status).toBe("CREATED");
+    expect(mockSendSaveConversationCalls).toHaveLength(1);
+    const sent = mockSendSaveConversationCalls[0];
+    expect(sent.idempotencyKey).toBe("slack:C1:111.0001");
+    expect(sent.sourceLabel).toBe("#eng");
+    expect(sent.messages[0].author).toBe("Ada");
+  });
+
+  // The person who asked is the person who gets the copy, so an agent that omits
+  // userId must not silently address it to nobody.
+  test("defaults the owner to the sender of the message being handled", async () => {
+    await runTurn(async (options) => {
+      await options.saveConversation!({ idempotencyKey: "k", messages: [] });
+    });
+    expect(mockSendSaveConversationCalls[0].userId).toBe("user_from_turn");
+  });
+
+  test("an explicit userId wins over the turn's sender", async () => {
+    await runTurn(async (options) => {
+      await options.saveConversation!({
+        userId: "user_explicit",
+        idempotencyKey: "k",
+        messages: [],
+      });
+    });
+    expect(mockSendSaveConversationCalls[0].userId).toBe("user_explicit");
+  });
+
+  // The platform refuses to destroy the user's own turns; choosing to anyway is
+  // the agent's call, so the policy has to reach the wire unchanged.
+  test("passes the conflict policy through so the agent owns it", async () => {
+    await runTurn(async (options) => {
+      await options.saveConversation!({
+        idempotencyKey: "k",
+        onConflict: "APPEND",
+        messages: [{ role: "user", content: "new turn" }],
+      });
+    });
+    expect(mockSendSaveConversationCalls[0].onConflict).toBe("APPEND");
+  });
+});
+
+describe("getThreadHistory", () => {
+  beforeEach(resetMockState);
+
+  // The prompt carries only the message that triggered the turn. Without this an
+  // agent asked to act on a thread has no way to read the rest of it.
+  test("reads the source thread for the turn's conversation", async () => {
+    let messages: any[] = [];
+    const adapter = createMockAdapter({
+      stream: async (_p, hooks, options) => {
+        messages = await options.getThreadHistory!(25);
+        hooks.onFinish();
+      },
+    });
+    const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+    await bridge.start();
+    mockResponseHandlers[0]({
+      conversationId: "C1-111.0001",
+      incomingMessage: {
+        conversationId: "C1-111.0001",
+        content: "save this thread",
+        platform: "slack",
+        user: { id: "user_1" },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(mockThreadHistoryCalls).toEqual([
+      { conversationId: "C1-111.0001", maxMessages: 25 },
+    ]);
+    expect(messages.map((m) => m.content)).toEqual(["first", "second"]);
+    expect(messages[0].user.username).toBe("Ada");
   });
 });

@@ -22,11 +22,16 @@ from astropods_messaging import (
     MessageReaction,
     HealthCheckRequest,
     Message,
+    SaveConversationRequest,
+    SaveConversationResponse,
+    SavedMessage,
     StatusUpdate,
+    ThreadHistoryRequest,
     StreamControl,
     TraceContext,
     Transcript,
     User,
+    derive_saved_conversation_id,
 )
 
 from .types import (
@@ -35,6 +40,7 @@ from .types import (
     ImageInput,
     AudioInput,
     FeedbackEvent,
+    SaveConversationInput,
     ServeOptions,
     StreamHooks,
     StreamOptions,
@@ -42,6 +48,12 @@ from .types import (
 
 # Agent files mount (matches the K8s/compose deployer's AGENT_FILES_DIR) and the
 # files store's on-disk blob suffix for API-managed uploads.
+_ON_CONFLICT = {
+    "SKIP": SaveConversationRequest.SKIP,
+    "REPLACE": SaveConversationRequest.REPLACE,
+    "APPEND": SaveConversationRequest.APPEND,
+}
+
 DEFAULT_AGENT_FILES_DIR = "/data/files"
 FILES_BLOB_SUFFIX = ".blob"
 
@@ -442,6 +454,49 @@ class MessagingBridge:
         except Exception as exc:
             logger.exception("on_feedback raised; dropping event: %s", exc)
 
+    async def _get_thread_history(self, conversation_id: str, max_messages: int = 50):
+        """Read the source thread, hydrating it from the platform when stale."""
+        if self._stub is None:
+            raise RuntimeError("get_thread_history called before the bridge connected")
+        response = await self._stub.GetThreadHistory(
+            ThreadHistoryRequest(
+                conversation_id=conversation_id,
+                max_messages=max_messages,
+                include_edited=True,
+            )
+        )
+        return list(response.messages)
+
+    async def _save_conversation(
+        self, turn_user_id: str, inp: SaveConversationInput
+    ) -> SaveConversationResponse:
+        """Copy an external conversation into a user's chat history.
+
+        Defaults the owner to whoever sent the message being handled, which is
+        the common case: the person who asked is the person who gets it.
+        """
+        if self._stub is None:
+            raise RuntimeError("save_conversation called before the bridge connected")
+
+        messages = []
+        for m in inp.messages:
+            saved = SavedMessage(role=m.role, author=m.author, content=m.content)
+            if m.timestamp is not None:
+                saved.timestamp.FromDatetime(m.timestamp)
+            messages.append(saved)
+
+        return await self._stub.SaveConversation(
+            SaveConversationRequest(
+                user_id=inp.user_id or turn_user_id,
+                idempotency_key=inp.idempotency_key,
+                title=inp.title,
+                source_label=inp.source_label,
+                source_url=inp.source_url,
+                messages=messages,
+                on_conflict=_ON_CONFLICT[inp.on_conflict],
+            )
+        )
+
     def _resolve_images(self, message: Message) -> list[ImageInput]:
         out: list[ImageInput] = []
         for a in message.attachments:
@@ -566,6 +621,12 @@ class MessagingBridge:
             ),
             attachments=self._resolve_attachments(message),
             images=self._resolve_images(message),
+            save_conversation=lambda inp: self._save_conversation(
+                (message.user.id if message.user else ""), inp
+            ),  # noqa: E731
+            get_thread_history=lambda max_messages=50: self._get_thread_history(
+                conversation_id, max_messages
+            ),
         )
 
         try:
@@ -603,6 +664,7 @@ class MessagingBridge:
         options = StreamOptions(
             conversation_id=conversation_id,
             user_id=config.user_id or "anonymous",
+            save_conversation=lambda inp: self._save_conversation(config.user_id, inp),
         )
 
         try:
