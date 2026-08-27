@@ -4,9 +4,6 @@
   "workspaces": {
     "": {
       "name": "@astropods/adapters",
-      "dependencies": {
-        "@astropods/messaging": "^0.2.0",
-      },
       "devDependencies": {
         "@commitlint/cli": "^20.4.2",
         "@commitlint/config-conventional": "^20.4.2",
