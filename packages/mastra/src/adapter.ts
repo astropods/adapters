@@ -429,11 +429,14 @@ export class MastraAdapter implements AgentAdapter {
         .join("\n\n");
     }
 
-    // listTools() is sync when tools are static (the common case).
-    const tools = this.agent.listTools();
+    // listTools() is always async in @mastra/core >=1.63.0, so use the
+    // synchronous raw-field snapshot instead. Dynamic (function-based) tools
+    // are skipped here — getConfig() is a sync introspection call.
+    const rawTools = (this.agent as unknown as { __getOverridableFields?(): { tools?: unknown } })
+      .__getOverridableFields?.()?.tools;
     let toolConfigs: MessagingAgentConfig["tools"] = [];
-    if (tools && typeof tools === "object" && !("then" in tools)) {
-      toolConfigs = Object.entries(tools).map(([name, tool]) => ({
+    if (rawTools && typeof rawTools === "object" && typeof rawTools !== "function") {
+      toolConfigs = Object.entries(rawTools as Record<string, unknown>).map(([name, tool]) => ({
         name,
         title: name,
         description:
