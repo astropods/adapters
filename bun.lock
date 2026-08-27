@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "@astropods/adapters",
+      "dependencies": {
+        "@astropods/messaging": "^0.2.0",
+      },
       "devDependencies": {
         "@commitlint/cli": "^20.4.2",
         "@commitlint/config-conventional": "^20.4.2",
@@ -177,7 +180,7 @@
 
     "@astropods/adapter-mastra": ["@astropods/adapter-mastra@workspace:packages/mastra"],
 
-    "@astropods/messaging": ["@astropods/messaging@0.1.2", "", { "dependencies": { "@grpc/grpc-js": "^1.9.0", "@grpc/proto-loader": "^0.7.10" } }, "sha512-BTXorjZS3txK7J9B2EuLz0uN7aCh+1fjFgRCAcE86FagGHi5arQkofm5WCsttz7mkDJyjYXITef0FMosqA34sg=="],
+    "@astropods/messaging": ["@astropods/messaging@0.2.0", "", { "dependencies": { "@grpc/grpc-js": "^1.9.0", "@grpc/proto-loader": "^0.7.10" } }, "sha512-0atGEha7k1KYVgowCFkxHlXWF1eZYX4fY1TxFOm3w9HinE/RQtCFtcXIkqKHTOnV07hjZXArpWiye8JBEEbd9A=="],
 
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
 
@@ -1600,8 +1603,6 @@
     "@arizeai/openinference-instrumentation-langchain/@arizeai/openinference-core": ["@arizeai/openinference-core@2.4.0", "", { "dependencies": { "@arizeai/openinference-semantic-conventions": "2.5.0", "@opentelemetry/api": "^1.9.0", "@opentelemetry/core": "^1.25.1" } }, "sha512-F4FgdLj9dCp/f2C0GZ6w3qpd4rsNC8/Rr4ikOvQcIBsn0hjn1jyWA2/9x3TF4Xf8H53ckoGoQv4uhexgwbtCNw=="],
 
     "@arizeai/openinference-instrumentation-langchain/@arizeai/openinference-semantic-conventions": ["@arizeai/openinference-semantic-conventions@2.5.0", "", {}, "sha512-4ZeSwiFX3YxB0WSE6x568wM4PVHiYmz3yiOxic6WGKVrE/KIGggMFP/eqUNQhikBKP68IDV0qiILlZAIYnheAQ=="],
-
-    "@astropods/adapter-core/@astropods/messaging": ["@astropods/messaging@0.1.2", "", { "dependencies": { "@grpc/grpc-js": "^1.9.0", "@grpc/proto-loader": "^0.7.10" } }, "sha512-BTXorjZS3txK7J9B2EuLz0uN7aCh+1fjFgRCAcE86FagGHi5arQkofm5WCsttz7mkDJyjYXITef0FMosqA34sg=="],
 
     "@astropods/adapter-mastra/@astropods/messaging": ["@astropods/messaging@0.1.2", "", { "dependencies": { "@grpc/grpc-js": "^1.9.0", "@grpc/proto-loader": "^0.7.10" } }, "sha512-BTXorjZS3txK7J9B2EuLz0uN7aCh+1fjFgRCAcE86FagGHi5arQkofm5WCsttz7mkDJyjYXITef0FMosqA34sg=="],
 
