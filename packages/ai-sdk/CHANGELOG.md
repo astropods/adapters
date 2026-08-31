@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.3.6](https://github.com/astropods/adapters/compare/@astropods/adapter-ai-sdk@0.3.5...@astropods/adapter-ai-sdk@0.3.6) (2026-08-31)
+
+**Note:** Version bump only for package @astropods/adapter-ai-sdk
+
+
+
+
+
 ## [0.3.5](https://github.com/astropods/adapters/compare/@astropods/adapter-ai-sdk@0.3.4...@astropods/adapter-ai-sdk@0.3.5) (2026-08-10)
 
 **Note:** Version bump only for package @astropods/adapter-ai-sdk

@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.10.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.9.1...@astropods/adapter-core@0.10.0) (2026-08-31)
+
+
+### Features
+
+* **core,core-py:** expose saveConversation and getThreadHistory on StreamOptions ([#74](https://github.com/astropods/adapters/issues/74)) ([d6abb78](https://github.com/astropods/adapters/commit/d6abb7844e0f0d736ea8fb9ae3f4fae242a2acf0))
+
+
+
 ## [0.9.1](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.9.0...@astropods/adapter-core@0.9.1) (2026-08-10)
 
 **Note:** Version bump only for package @astropods/adapter-core
