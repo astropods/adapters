@@ -1,9 +1,18 @@
 name: Publish PyPI package (langchain)
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/langchain/**'
+      - '.github/workflows/publish-pypi.yml'
   release:
     types: [published]
   workflow_dispatch:
+
+concurrency:
+  group: publish-pypi-astropods-adapter-langchain
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -45,13 +54,26 @@ jobs:
 
       - name: Check if version is already published
         id: check-published
+        # A substring grep of `pip index versions` reads "0.4.0" as published
+        # when only "0.4.01" is, and silently skips the release.
+        env:
+          VERSION: ${{ env.VERSION }}
         run: |
-          if pip index versions astropods-adapter-langchain 2>/dev/null | grep "Available versions:" | grep -q "${{ env.VERSION }}"; then
-            echo "published=true" >> $GITHUB_OUTPUT
-            echo "::notice::astropods-adapter-langchain v${{ env.VERSION }} is already published on PyPI"
-          else
-            echo "published=false" >> $GITHUB_OUTPUT
-          fi
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://pypi.org/pypi/astropods-adapter-langchain/${VERSION}/json")
+          case "$STATUS" in
+            200)
+              echo "published=true" >> $GITHUB_OUTPUT
+              echo "::notice::astropods-adapter-langchain==${VERSION} is already published on PyPI"
+              ;;
+            404)
+              echo "published=false" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "::error::PyPI returned unexpected status ${STATUS} when checking ${VERSION}"
+              exit 1
+              ;;
+          esac
 
       - name: Publish
         if: steps.check-published.outputs.published == 'false'

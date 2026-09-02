@@ -1,7 +1,22 @@
 name: Publish
 
+# npm's trusted publisher is bound to this workflow filename.
+# Preview installs next, prod installs latest.
+
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      channel:
+        description: "Channel to publish"
+        type: choice
+        options: [latest, next]
+        default: latest
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -9,8 +24,54 @@ permissions:
   pull-requests: write
 
 jobs:
-  publish:
-    name: Build & Publish NPM Packages
+  next:
+    name: Publish next
+    # `chore(release):` is the latest job's own version commit.
+    if: |
+      (github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(release):')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.channel == 'next')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build packages
+        run: bunx lerna run build
+
+      # Without tags, lerna reads every package as changed.
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Publish canary
+        run: |
+          set -euo pipefail
+
+          # `lerna changed` exits non-zero when nothing changed since the tag.
+          if ! bunx lerna changed --long; then
+            echo "::notice::No package changed since the last release; next is already current."
+            exit 0
+          fi
+
+          # --canary yields <next-patch>-next.<n>+<sha> and rewrites
+          # intra-workspace ranges to it. --exact, because `^0.10.1-next.0` also
+          # admits stable 0.10.1 and npm takes the highest match.
+          bunx lerna publish --canary --exact --preid next --dist-tag next --yes
+
+  latest:
+    name: Publish latest
+    if: github.event_name == 'workflow_dispatch' && inputs.channel == 'latest'
     runs-on: ubuntu-latest
 
     steps:
@@ -58,3 +119,15 @@ jobs:
         # of leaving main behind npm whenever one package blocks the job.
         if: ${{ !cancelled() }}
         run: git push origin HEAD --tags --force-with-lease
+
+      # The monorepo's pointer sync also runs hourly.
+      - name: Notify monorepo
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api repos/astropods/astro/dispatches \
+            -f event_type=submodule-released \
+            -F client_payload[repo]=adapters \
+            -F client_payload[sha]="$(git rev-parse HEAD)"
