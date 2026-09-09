@@ -45,6 +45,17 @@ publish. Without the gate, lerna would publish a canary of every package on
 every merge. `ignoreChanges` already excludes markdown and tests, so a docs-only
 merge is a no-op.
 
+**A manual dispatch publishes regardless.** The gate is right for a push and
+wrong for a `workflow_dispatch` with `channel: next`, where someone is asking
+for a canary on purpose. That case is also the only way to create the channel
+in the first place: no package has changed since
+`@astropods/adapter-ai-sdk@0.3.6`, so on a push the gate fires, nothing
+publishes, and `@astropods/adapter-mastra@next` never exists. An agent
+scaffolded from `template-ts-mastra` rewrites that dependency to the channel
+and fails to install. The dispatch path therefore skips the gate and passes
+`--force-publish`, which canary mode needs because it also skips unchanged
+packages.
+
 **PyPI publishers check the version exactly.** They grepped `pip index versions`
 for the version string, which is a substring match: `0.4.0` matched `0.4.01` and
 reported the release as already published, skipping it in silence. Now that the
@@ -57,8 +68,12 @@ must then stay ahead of. That is a separate decision.
 
 ## Migration
 
-None. `latest` publishes exactly the versions it did before, from the same
-dispatch, and the default channel on that dispatch is still `latest`.
+None for consumers. `latest` publishes exactly the versions it did before, from
+the same dispatch, and the default channel on that dispatch is still `latest`.
+
+To create the `next` channel once, run the Publish workflow with
+`channel: next`. A push cannot do it while no package has changed since the
+last release tag.
 
 Consumers see a new `next` dist-tag. Nothing resolves it unless it asks for it by
 name: `npm install` without a tag still takes `latest`, and a caret range never

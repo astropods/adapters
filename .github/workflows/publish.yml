@@ -58,8 +58,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # `lerna changed` exits non-zero when nothing changed since the tag.
-          if ! bunx lerna changed --long; then
+          # `lerna changed` exits non-zero when nothing changed since the tag,
+          # and --canary skips unchanged packages either way.
+          force=
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            force=--force-publish
+          elif ! bunx lerna changed --long; then
             echo "::notice::No package changed since the last release; next is already current."
             exit 0
           fi
@@ -67,7 +71,7 @@ jobs:
           # --canary yields <next-patch>-next.<n>+<sha> and rewrites
           # intra-workspace ranges to it. --exact, because `^0.10.1-next.0` also
           # admits stable 0.10.1 and npm takes the highest match.
-          bunx lerna publish --canary --exact --preid next --dist-tag next --yes
+          bunx lerna publish --canary --exact --preid next --dist-tag next --yes ${force:+"$force"}
 
   latest:
     name: Publish latest
