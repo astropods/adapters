@@ -1,0 +1,164 @@
+{
+  "_comment": "Shared by packages/core/src/auth/parity.test.ts and packages/core-py/tests/test_auth_parity.py. Both implementations must agree on every case.",
+  "deployToken": [
+    {
+      "name": "full claims",
+      "token": "eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJzdWIiOiAiZGVwXzEiLCAiaXNzIjogImh0dHBzOi8vYXBwLmFzdHJvcG9kcy5jb20iLCAiYW55b25lX2FkYXB0ZXJzIjogWyJ3ZWIiLCAiY3VzdG9tIl19.signature",
+      "expect": {
+        "subject": "dep_1",
+        "issuer": "https://app.astropods.com",
+        "anyoneAdapters": [
+          "web",
+          "custom"
+        ]
+      }
+    },
+    {
+      "name": "no anyone_adapters claim",
+      "token": "eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJzdWIiOiAiZGVwXzEiLCAiaXNzIjogImh0dHBzOi8vYXBwLmFzdHJvcG9kcy5jb20ifQ.signature",
+      "expect": {
+        "subject": "dep_1",
+        "issuer": "https://app.astropods.com",
+        "anyoneAdapters": []
+      }
+    },
+    {
+      "name": "non-string entries are dropped",
+      "token": "eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJzdWIiOiAiZGVwXzEiLCAiaXNzIjogImh0dHBzOi8vYXBwLmFzdHJvcG9kcy5jb20iLCAiYW55b25lX2FkYXB0ZXJzIjogWyJ3ZWIiLCA3LCBudWxsXX0.signature",
+      "expect": {
+        "subject": "dep_1",
+        "issuer": "https://app.astropods.com",
+        "anyoneAdapters": [
+          "web"
+        ]
+      }
+    },
+    {
+      "name": "missing sub is tolerated",
+      "token": "eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJpc3MiOiAiaHR0cHM6Ly9hcHAuYXN0cm9wb2RzLmNvbSJ9.signature",
+      "expect": {
+        "subject": "",
+        "issuer": "https://app.astropods.com",
+        "anyoneAdapters": []
+      }
+    },
+    {
+      "name": "missing iss is rejected",
+      "token": "eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJzdWIiOiAiZGVwXzEifQ.signature",
+      "expectError": true
+    },
+    {
+      "name": "empty token is rejected",
+      "token": "",
+      "expectError": true
+    },
+    {
+      "name": "wrong segment count is rejected",
+      "token": "a.b",
+      "expectError": true
+    },
+    {
+      "name": "undecodable payload is rejected",
+      "token": "a.!!!.c",
+      "expectError": true
+    }
+  ],
+  "guard": [
+    {
+      "name": "granted user passes",
+      "anyoneAdapters": [],
+      "headers": {
+        "x-amzn-oidc-identity": "user_1"
+      },
+      "server": {
+        "allowed": true,
+        "user_id": "user_1"
+      },
+      "expectStatus": 200,
+      "expectUserId": "user_1"
+    },
+    {
+      "name": "identity header is matched case-insensitively",
+      "anyoneAdapters": [],
+      "headers": {
+        "X-Amzn-Oidc-Identity": "user_1"
+      },
+      "server": {
+        "allowed": true,
+        "user_id": "user_1"
+      },
+      "expectStatus": 200,
+      "expectUserId": "user_1"
+    },
+    {
+      "name": "no identity is unauthorized",
+      "anyoneAdapters": [],
+      "headers": {},
+      "server": {
+        "allowed": true
+      },
+      "expectStatus": 401
+    },
+    {
+      "name": "denied principal is forbidden",
+      "anyoneAdapters": [],
+      "headers": {
+        "x-amzn-oidc-identity": "user_1"
+      },
+      "server": {
+        "allowed": false
+      },
+      "expectStatus": 403
+    },
+    {
+      "name": "unreachable server fails closed",
+      "anyoneAdapters": [],
+      "headers": {
+        "x-amzn-oidc-identity": "user_1"
+      },
+      "server": "error",
+      "expectStatus": 503
+    },
+    {
+      "name": "unreachable server degrades open for an anyone adapter",
+      "anyoneAdapters": [
+        "custom"
+      ],
+      "headers": {
+        "x-amzn-oidc-identity": "user_1"
+      },
+      "server": "error",
+      "expectStatus": 200
+    },
+    {
+      "name": "server error is unavailable, not a denial",
+      "anyoneAdapters": [],
+      "headers": {
+        "x-amzn-oidc-identity": "user_1"
+      },
+      "server": "status500",
+      "expectStatus": 503
+    }
+  ],
+  "authorizeRequest": {
+    "_comment": "Query the client must send for a given principal.",
+    "cases": [
+      {
+        "name": "identified caller",
+        "userId": "user_1",
+        "expectParams": {
+          "adapter": "custom",
+          "identity_type": "user",
+          "identity_id": "user_1"
+        }
+      },
+      {
+        "name": "anonymous caller",
+        "userId": null,
+        "expectParams": {
+          "adapter": "custom"
+        }
+      }
+    ]
+  }
+}

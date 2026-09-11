@@ -13,6 +13,10 @@
     "./instrument": {
       "types": "./dist/instrument.d.ts",
       "import": "./dist/instrument.js"
+    },
+    "./auth": {
+      "types": "./dist/auth/index.d.ts",
+      "import": "./dist/auth/index.js"
     }
   },
   "files": [
@@ -38,6 +42,7 @@
     "@opentelemetry/resources": "^2.1.0",
     "@opentelemetry/sdk-trace-node": "^2.1.0",
     "@opentelemetry/semantic-conventions": "^1.30.0",
+    "jose": "^6.2.12",
     "pino": "^10.3.1"
   },
   "peerDependencies": {
