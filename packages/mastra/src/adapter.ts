@@ -9,6 +9,20 @@ import { UnsupportedRenderableError, createTraceparent, logger } from "@astropod
 /** The object agent.stream()/approveToolCall()/resumeStream() all resolve to. */
 type MastraStream = Awaited<ReturnType<Agent["stream"]>>;
 
+/**
+ * Whether text has flowed this turn, and whether a tool call has interrupted it.
+ *
+ * A turn's text arrives as one run of deltas per model step. Appending every run
+ * verbatim runs the end of one step into the start of the next.
+ */
+interface TextFlow {
+  emitted: boolean;
+  interrupted: boolean;
+}
+
+/** Separates two runs of text that a tool call came between. */
+const PARAGRAPH_BREAK = "\n\n";
+
 // Approve / deny a tool-permission ask. A permission has no form to fill, so
 // declining is the escape rather than cancelling.
 const APPROVAL_ACTIONS: RenderableAction[] = [
@@ -158,11 +172,15 @@ export class MastraAdapter implements AgentAdapter {
     // (the end chunk only carries toolCallId, not toolName).
     const toolNames = new Map<string, string>();
 
+    // Survives segment boundaries, so text resuming after an elicitation is
+    // separated from text before it.
+    const textFlow: TextFlow = { emitted: false, interrupted: false };
+
     // A tool that needs approval or user input pauses the stream and hands back
     // a continuation to resume. Consume each segment until the turn ends.
     let segment: MastraStream | null = stream;
     while (segment) {
-      segment = await this.consumeSegment(segment, hooks, options, toolNames);
+      segment = await this.consumeSegment(segment, hooks, options, toolNames, textFlow);
     }
   }
 
@@ -175,7 +193,8 @@ export class MastraAdapter implements AgentAdapter {
     stream: MastraStream,
     hooks: StreamHooks,
     options: StreamOptions,
-    toolNames: Map<string, string>
+    toolNames: Map<string, string>,
+    textFlow: TextFlow
   ): Promise<MastraStream | null> {
     const runId = stream.runId;
     let pause:
@@ -189,9 +208,19 @@ export class MastraAdapter implements AgentAdapter {
       // A pause closes the segment; ignore anything Mastra emits after it.
       if (pause) continue;
       switch (chunk.type) {
-        case "text-delta":
-          hooks.onChunk(chunk.payload.text);
+        case "text-delta": {
+          const text = chunk.payload.text;
+          if (!text) break;
+          // Mastra starts each step's text as a fresh completion, so a step
+          // after a tool call carries no leading whitespace of its own.
+          if (textFlow.emitted && textFlow.interrupted && !/^\s/.test(text)) {
+            hooks.onChunk(PARAGRAPH_BREAK);
+          }
+          textFlow.emitted = true;
+          textFlow.interrupted = false;
+          hooks.onChunk(text);
           break;
+        }
 
         case "reasoning-start":
           hooks.onStatusUpdate({ status: "THINKING" });
@@ -202,6 +231,7 @@ export class MastraAdapter implements AgentAdapter {
           break;
 
         case "tool-call-input-streaming-start":
+          textFlow.interrupted = true;
           toolNames.set(chunk.payload.toolCallId, chunk.payload.toolName);
           hooks.onStatusUpdate({
             status: "PROCESSING",
