@@ -177,8 +177,18 @@ describe("guard", () => {
     expect(outcome.principal?.userId).toBe("user_1");
   });
 
-  test("answers 401 when the request carries no identity", async () => {
-    const { authz } = authorizer();
+  test("authorizes a request carrying no identity as anonymous, so a public interface stays reachable", async () => {
+    const { authz, calls } = authorizer();
+    const outcome = await guard(authz, {});
+    expect(outcome.status).toBe(200);
+    expect(outcome.principal).toBeNull();
+    expect(Object.fromEntries(calls[0]!.url.searchParams.entries())).toEqual({
+      adapter: "custom",
+    });
+  });
+
+  test("answers 401 when an anonymous caller has no anyone grant to match", async () => {
+    const { authz } = authorizer({ responses: [{ allowed: false }] });
     expect((await guard(authz, {})).status).toBe(401);
   });
 

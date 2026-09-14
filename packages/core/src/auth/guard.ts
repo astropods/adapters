@@ -8,20 +8,22 @@ export type GuardOutcome =
 /**
  * The identify-then-authorize sequence every binding runs, with the outcome
  * already mapped onto the status code that binding returns.
+ *
+ * An absent identity is authorized as anonymous, not refused here: the server's
+ * `anyone` short-circuit is what admits a public interface.
  */
 export async function guard(
   authz: Authorizer,
   headers: HeaderLike,
 ): Promise<GuardOutcome> {
   const principal = await authz.identify(headers);
-  if (!principal && !authz.devMode) {
-    return { status: 401, principal: null, message: "Unauthorized" };
-  }
 
   try {
     const decision = await authz.authorize(principal);
     if (!decision.allowed) {
-      return { status: 403, principal: null, message: "Forbidden" };
+      return principal
+        ? { status: 403, principal: null, message: "Forbidden" }
+        : { status: 401, principal: null, message: "Unauthorized" };
     }
     return { status: 200, principal };
   } catch (err) {

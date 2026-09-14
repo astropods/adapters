@@ -40,15 +40,18 @@ def decode_deploy_token(raw: str) -> DeployTokenClaims:
     if not isinstance(payload, dict):
         raise IdentityTokenError("identity token payload is not an object")
 
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject:
+        raise IdentityTokenError("identity token missing sub claim (deployment id)")
+
     issuer = payload.get("iss")
     if not isinstance(issuer, str) or not issuer:
         raise IdentityTokenError("identity token missing iss claim (server URL)")
 
-    subject = payload.get("sub")
     adapters = payload.get("anyone_adapters")
 
     return DeployTokenClaims(
-        subject=subject if isinstance(subject, str) else "",
+        subject=subject,
         issuer=issuer,
         anyone_adapters=[a for a in adapters if isinstance(a, str)]
         if isinstance(adapters, list)

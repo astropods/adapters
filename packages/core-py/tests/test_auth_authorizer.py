@@ -189,8 +189,16 @@ def test_guard_passes_an_allowed_caller_through_with_their_principal():
     assert outcome.principal is not None and outcome.principal.user_id == "user_1"
 
 
-def test_guard_answers_401_when_the_request_carries_no_identity():
-    authz, _ = build()
+def test_guard_authorizes_a_request_with_no_identity_as_anonymous():
+    authz, stub = build()
+    outcome = guard(authz, {})
+    assert outcome.status == 200, "a public interface has no identity header to offer"
+    assert outcome.principal is None
+    assert stub.calls[0]["params"] == {"adapter": "custom"}
+
+
+def test_guard_answers_401_when_an_anonymous_caller_has_no_anyone_grant():
+    authz, _ = build(responses=[StubResponse({"allowed": False})])
     assert guard(authz, {}).status == 401
 
 
