@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.11.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.10.0...@astropods/adapter-core@0.11.0) (2026-09-14)
+
+
+### Features
+
+* **auth:** enforce custom-interface grants from adapter-core ([92200ad](https://github.com/astropods/adapters/commit/92200ad3d20c591807d61f727fa170580936217a))
+
+
+### Bug Fixes
+
+* **auth:** authorize anonymous callers, require a token subject ([3e43151](https://github.com/astropods/adapters/commit/3e431510d28428f00eb2a07f2a02dd437d381999))
+
+
+
 ## [0.10.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.9.1...@astropods/adapter-core@0.10.0) (2026-08-31)
 
 
