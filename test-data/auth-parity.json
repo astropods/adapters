@@ -34,13 +34,9 @@
       }
     },
     {
-      "name": "missing sub is tolerated",
+      "name": "missing sub is rejected",
       "token": "eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJpc3MiOiAiaHR0cHM6Ly9hcHAuYXN0cm9wb2RzLmNvbSJ9.signature",
-      "expect": {
-        "subject": "",
-        "issuer": "https://app.astropods.com",
-        "anyoneAdapters": []
-      }
+      "expectError": true
     },
     {
       "name": "missing iss is rejected",
@@ -91,11 +87,20 @@
       "expectUserId": "user_1"
     },
     {
-      "name": "no identity is unauthorized",
+      "name": "anonymous caller passes when the server allows it",
       "anyoneAdapters": [],
       "headers": {},
       "server": {
         "allowed": true
+      },
+      "expectStatus": 200
+    },
+    {
+      "name": "anonymous caller denied by the server is unauthorized, not forbidden",
+      "anyoneAdapters": [],
+      "headers": {},
+      "server": {
+        "allowed": false
       },
       "expectStatus": 401
     },

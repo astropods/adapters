@@ -43,6 +43,15 @@ def test_rejects_a_token_with_no_issuer_since_it_carries_the_server_url():
         decode_deploy_token(token({"sub": "dep_123"}))
 
 
+@pytest.mark.parametrize("sub", [None, "", 7])
+def test_rejects_a_token_with_no_subject_since_it_carries_the_deployment_id(sub: Any):
+    payload: dict[str, Any] = {"iss": "https://app.astropods.com"}
+    if sub is not None:
+        payload["sub"] = sub
+    with pytest.raises(IdentityTokenError):
+        decode_deploy_token(token(payload))
+
+
 @pytest.mark.parametrize("raw", ["", "not.a.jwt", "onlyonesegment"])
 def test_rejects_a_structurally_invalid_token_rather_than_downgrading(raw: str):
     with pytest.raises(IdentityTokenError):

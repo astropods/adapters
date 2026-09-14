@@ -17,10 +17,12 @@ class GuardOutcome:
 
 def guard(authz: Authorizer, headers: Mapping[str, Any]) -> GuardOutcome:
     """The identify-then-authorize sequence every binding runs, with the outcome
-    already mapped onto the status code that binding returns."""
+    already mapped onto the status code that binding returns.
+
+    An absent identity is authorized as anonymous, not refused here: the
+    server's ``anyone`` short-circuit is what admits a public interface.
+    """
     principal = authz.identify(headers)
-    if principal is None and not authz.dev_mode:
-        return GuardOutcome(status=401, message="Unauthorized")
 
     try:
         decision = authz.authorize(principal)
@@ -28,6 +30,8 @@ def guard(authz: Authorizer, headers: Mapping[str, Any]) -> GuardOutcome:
         return GuardOutcome(status=503, message="Authorization unavailable")
 
     if not decision.allowed:
+        if principal is None:
+            return GuardOutcome(status=401, message="Unauthorized")
         return GuardOutcome(status=403, message="Forbidden")
     return GuardOutcome(status=200, principal=principal)
 

@@ -31,6 +31,12 @@ export function decodeDeployToken(raw: string): DeployTokenClaims {
   }
 
   const subject = typeof payload.sub === "string" ? payload.sub : "";
+  if (!subject) {
+    throw new IdentityTokenError(
+      "identity token missing sub claim (deployment id)",
+    );
+  }
+
   const issuer = typeof payload.iss === "string" ? payload.iss : "";
   if (!issuer) {
     throw new IdentityTokenError("identity token missing iss claim (server URL)");

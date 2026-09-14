@@ -40,8 +40,8 @@ keeps the four outcomes consistent no matter how the agent is served:
 | Outcome | Status |
 |---|---|
 | Allowed | 200, principal attached to the request |
-| No identity | 401 |
-| Grants exclude the caller | 403 |
+| Grants exclude an identified caller | 403 |
+| Grants exclude an anonymous caller | 401 |
 | Authorize call could not complete | 503 |
 
 Bindings cover Express/Connect, Fastify, Hono, and any Fetch-API handler on
@@ -50,6 +50,23 @@ on Python. All are typed structurally, so the package depends on no framework.
 
 The primitives are exported for anyone wiring something else:
 `AlbIdentityVerifier`, `AuthorizeClient`, `DecisionCache`.
+
+### An absent identity is a question for the server, not a local refusal
+
+`guard()` does not refuse a request that arrives without an identity header. It
+authorizes it as an anonymous caller and lets the server's `anyone`
+short-circuit decide, which is what the Go client already does: empty
+`identity_type` and `identity_id` are valid inputs to the endpoint. Refusing
+locally would make a public interface unreachable the moment it adopted the
+middleware, because `interfaces.auth.custom.public` routes the surface to the
+open ingress cohort where no identity header is ever injected.
+
+A public interface needs an `anyone` grant under
+`interfaces.auth.custom.grants` to stay reachable. The deploy token's
+`anyone_adapters` claim is derived from the grants, not from the `public` flag,
+and deploy-time validation does not enforce that pairing for `custom` the way
+RFC-2 rule 25 enforces it for `web`. Without such a grant the server denies the
+anonymous caller and the guard answers 401.
 
 ### Identity comes from the front door, never from a secret in the agent
 
@@ -82,6 +99,12 @@ server is unreachable and the adapter is listed; a 60s decision cache keyed on
 a 5s request timeout; no local signature check on the deploy token, which is
 decoded only for `sub` and `iss`. Principal resolution stays entirely
 server-side, which is what keeps the client thin enough to maintain twice.
+
+A token missing either claim fails construction, matching Go's `DecodeToken`,
+rather than yielding an empty deployment id. An empty `sub` would reach the
+endpoint as a malformed credential, and the 401 that came back is classified as
+an availability failure, which is the one path that can degrade open under an
+`anyone_adapters` claim.
 
 `adapter` defaults to `custom` rather than `web`, since `web` is the messaging
 sidecar's own chat surface.

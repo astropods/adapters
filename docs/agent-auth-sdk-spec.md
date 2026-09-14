@@ -114,10 +114,12 @@ fixtures compare identically named things in three languages, and it avoids
 stuttering against a module path that already says both "astro" and "auth".
 
 `Principal` carries `userId`, `email`, `name`, `source` (`alb` | `fixed`), and
-the raw verified claims. `identify` returns `null` when no identity is present,
-which the caller renders as 401. The two calls stay separate because they answer
-different questions: `identify` is authentication, `authorize` is authorization,
-and an agent may want the first without enforcing the second.
+the raw verified claims. `identify` returns `null` when no identity is present.
+A `null` principal is authorized as anonymous rather than refused locally, since
+the server's `anyone` short-circuit is what decides whether an open surface
+admits it. The two calls stay separate because they answer different questions:
+`identify` is authentication, `authorize` is authorization, and an agent may want
+the first without enforcing the second.
 
 ### 2. Framework bindings
 
@@ -129,8 +131,8 @@ check in the messaging container so a new route cannot forget it.
 | Node | Express/Connect, Fastify, Hono, Next.js route handler, plain `node:http` |
 | Python | ASGI middleware (covers FastAPI, Starlette), WSGI middleware (covers Flask, Django), FastAPI `Depends` |
 
-Each binding maps outcomes to status codes identically: no identity 401, denied
-403, authorize unreachable and not degraded-allowed 503.
+Each binding maps outcomes to status codes identically: denied with an identity
+403, denied without one 401, authorize unreachable and not degraded-allowed 503.
 
 ### 3. Primitives
 
@@ -146,6 +148,25 @@ produced the user id.
 |---|---|---|
 | `alb` | `x-amzn-oidc-data` present | WorkOS user id, verified |
 | `fixed` | `ASTRO_AUTHZ_TOKEN` absent (local dev), or explicitly configured | Configured user id, or allow-all |
+
+## Public interfaces
+
+`interfaces.auth.custom.public` routes the interface to the open (no-OIDC)
+ingress cohort, so no identity header ever reaches it. Nothing in the deploy
+token names that state: `anyone_adapters` is derived from the grants, not from
+the `public` flag (`apps/astro-server/internal/k8s/spec_applier.go`).
+
+A public interface therefore needs an `anyone` grant under
+`interfaces.auth.custom.grants` to stay reachable once it adopts the middleware.
+With one, every request authorizes as anonymous and the server's `anyone`
+short-circuit admits it. Without one the server denies, and the guard answers
+401: a public surface presents no identity for an `org` or `user_id` grant to
+match, and the owner fallback has no candidates to resolve
+(`handlers/authorization.go`).
+
+Deploy-time validation does not enforce that pairing for `custom` the way RFC-2
+rule 25 enforces it for `web` (`handlers/deploy.go`, `validateAuthorizationSpec`),
+so pairing `public` with an `anyone` grant is the agent author's job.
 
 ## Departures from the messaging container
 

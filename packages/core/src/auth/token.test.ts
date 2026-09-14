@@ -37,6 +37,19 @@ describe("decodeDeployToken", () => {
     );
   });
 
+  test("rejects a token with no subject, since it carries the deployment id", () => {
+    const server = "https://app.astropods.com";
+    expect(() => decodeDeployToken(token({ iss: server }))).toThrow(
+      IdentityTokenError,
+    );
+    expect(() => decodeDeployToken(token({ sub: "", iss: server }))).toThrow(
+      IdentityTokenError,
+    );
+    expect(() => decodeDeployToken(token({ sub: 7, iss: server }))).toThrow(
+      IdentityTokenError,
+    );
+  });
+
   test("rejects a structurally invalid token rather than downgrading", () => {
     expect(() => decodeDeployToken("")).toThrow(IdentityTokenError);
     expect(() => decodeDeployToken("not.a.jwt")).toThrow(IdentityTokenError);
