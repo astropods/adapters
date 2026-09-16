@@ -45,3 +45,6 @@ export function serve(
     start();
   });
 }
+
+export { sandboxTools } from "./sandbox.js";
+export type { SandboxToolsOptions } from "./sandbox.js";

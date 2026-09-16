@@ -135,3 +135,38 @@ If nothing shows up:
 - Check the container logs for OpenTelemetry export errors.
 
 If the agent doesn't remember earlier turns, a checkpointer isn't active — check that `serve()` wasn't called with `{ memory: false }`, or configure a durable checkpointer on the agent.
+
+## Sandboxes
+
+`sandboxTools()` gives an agent a sandbox: an isolated machine it can run
+commands in, hold files in, and keep a background process alive in.
+
+```ts
+import { sandboxTools } from "@astropods/adapter-langchain";
+
+const agent = createAgent({ llm, tools: [...sandboxTools()] });
+
+await agent.invoke(
+  { messages: [{ role: "user", content: "clone the repo and run the tests" }] },
+  { configurable: { thread_id: conversationId } },
+);
+```
+
+The thread id names the sandbox. There is no mapping table: one thread is one
+sandbox, so a conversation that resumes next week reattaches to its own files,
+and two conversations never share a filesystem. A run with no `thread_id`
+fails rather than quietly putting every conversation in one sandbox; pass
+`sandbox: "name"` if you want one on purpose.
+
+| Tool | For |
+|---|---|
+| `sandbox_exec` | A short command. Output is capped |
+| `sandbox_run` | An install or a build. No cap, waits for the exit |
+| `sandbox_read_file`, `sandbox_write_file` | Files, without shelling out |
+| `sandbox_list_dir`, `sandbox_grep` | Looking around |
+| `sandbox_spawn`, `sandbox_poll`, `sandbox_kill` | A server or watcher that keeps running |
+
+`sandbox_poll` returns `stdout_next`; pass it back as `stdout_from` to read
+only what is new. An agent that polls while a process runs loses nothing, and
+`dropped_bytes` tells it when output outran the buffer instead of leaving a
+silent gap.

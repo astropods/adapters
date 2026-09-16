@@ -44,6 +44,61 @@ export interface ExecResult {
   truncated: boolean;
 }
 
+/** A process the sandbox is running, or has finished running. */
+export interface ProcessStatus {
+  processId: string;
+  command: string[];
+  state: "running" | "exited";
+  /** Absent while the process runs, which is how you tell the two apart. */
+  exitCode?: number;
+  startedAt: string;
+  exitedAt?: string;
+}
+
+/**
+ * A poll of a process: its status, plus the output after the offsets you
+ * asked from.
+ */
+export interface ProcessOutput extends ProcessStatus {
+  stdout: string;
+  stderr: string;
+  /** Pass these back on the next poll to continue where this one stopped. */
+  stdoutNext: number;
+  stderrNext: number;
+  /**
+   * Bytes the sandbox discarded before this read, because output outran the
+   * retention window. Non-zero means output was lost, not delayed.
+   */
+  stdoutDropped: number;
+  stderrDropped: number;
+}
+
+export interface SpawnRequest {
+  command: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+}
+
+export interface PollOptions {
+  stdoutFrom?: number;
+  stderrFrom?: number;
+}
+
+export type Signal = "TERM" | "KILL" | "INT" | "HUP" | "QUIT" | "USR1" | "USR2";
+
+/** One entry from a directory listing. */
+export interface DirEntry {
+  name: string;
+  isDirectory: boolean;
+}
+
+/** One match from a search. */
+export interface GrepMatch {
+  path: string;
+  line: number;
+  text: string;
+}
+
 export interface SandboxOptions {
   /** Raw ASTRO_AUTHZ_TOKEN. Read from the environment when absent. */
   identityToken?: string;

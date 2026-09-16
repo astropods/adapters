@@ -37,3 +37,6 @@ export function serve(
   });
   serveAdapter(adapter, options);
 }
+
+export { sandboxTools } from "./sandbox.js";
+export type { SandboxToolsOptions } from "./sandbox.js";

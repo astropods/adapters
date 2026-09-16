@@ -8,6 +8,13 @@ import {
   type SandboxHandle,
   type SandboxOptions,
   type SandboxRecord,
+  type ProcessStatus,
+  type ProcessOutput,
+  type SpawnRequest,
+  type PollOptions,
+  type Signal,
+  type DirEntry,
+  type GrepMatch,
 } from "./types.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
@@ -94,6 +101,169 @@ export class SandboxClient {
     return (body.sandboxes ?? []).map(toRecord);
   }
 
+  /**
+   * Starts a command and returns before it finishes. Use this for anything
+   * slow: `exec` buffers output until exit and truncates it, while a spawned
+   * process is drained incrementally by `poll`.
+   */
+  async spawn(name: string, request: SpawnRequest): Promise<ProcessStatus> {
+    const row = await this.dataPlane<Record<string, unknown>>(name, "POST", "/v1/processes", {
+      command: request.command,
+      cwd: request.cwd,
+      env: request.env,
+    });
+    return toStatus(row);
+  }
+
+  /**
+   * Reads a process's status and whatever it has written since the offsets
+   * given. Pass the previous result's `stdoutNext` and `stderrNext` to
+   * continue without repeating or skipping.
+   */
+  async poll(name: string, processId: string, options: PollOptions = {}): Promise<ProcessOutput> {
+    const query = new URLSearchParams();
+    if (options.stdoutFrom) query.set("stdout_from", String(options.stdoutFrom));
+    if (options.stderrFrom) query.set("stderr_from", String(options.stderrFrom));
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+
+    const row = await this.dataPlane<Record<string, unknown>>(
+      name,
+      "GET",
+      `/v1/processes/${encodeURIComponent(processId)}${suffix}`,
+    );
+    return {
+      ...toStatus(row),
+      stdout: String(row.stdout ?? ""),
+      stderr: String(row.stderr ?? ""),
+      stdoutNext: Number(row.stdout_next ?? 0),
+      stderrNext: Number(row.stderr_next ?? 0),
+      stdoutDropped: Number(row.stdout_dropped ?? 0),
+      stderrDropped: Number(row.stderr_dropped ?? 0),
+    };
+  }
+
+  async processes(name: string): Promise<ProcessStatus[]> {
+    const body = await this.dataPlane<{ processes?: Record<string, unknown>[] }>(
+      name,
+      "GET",
+      "/v1/processes",
+    );
+    return (body.processes ?? []).map(toStatus);
+  }
+
+  /** Signals the process group, so a shell's children get it too. */
+  async signal(name: string, processId: string, signal: Signal = "TERM"): Promise<void> {
+    await this.dataPlane<void>(
+      name,
+      "POST",
+      `/v1/processes/${encodeURIComponent(processId)}/signal`,
+      { signal },
+    );
+  }
+
+  /** Kills the process if it is still running, then forgets it. */
+  async kill(name: string, processId: string): Promise<void> {
+    await this.dataPlane<void>(
+      name,
+      "DELETE",
+      `/v1/processes/${encodeURIComponent(processId)}`,
+    );
+  }
+
+  /**
+   * Runs a command to completion and resolves once it exits, draining output
+   * as it goes. Unlike `exec` this neither buffers to a cap nor holds a
+   * request open, so it suits an install or a build.
+   */
+  async run(
+    name: string,
+    request: SpawnRequest,
+    options: { intervalMs?: number; onOutput?: (chunk: ProcessOutput) => void } = {},
+  ): Promise<ProcessOutput> {
+    const interval = options.intervalMs ?? 500;
+    const started = await this.spawn(name, request);
+    let stdoutFrom = 0;
+    let stderrFrom = 0;
+    let stdout = "";
+    let stderr = "";
+
+    for (;;) {
+      const chunk = await this.poll(name, started.processId, { stdoutFrom, stderrFrom });
+      stdout += chunk.stdout;
+      stderr += chunk.stderr;
+      stdoutFrom = chunk.stdoutNext;
+      stderrFrom = chunk.stderrNext;
+      if (chunk.stdout || chunk.stderr) options.onOutput?.(chunk);
+      if (chunk.state === "exited") {
+        await this.kill(name, started.processId).catch(() => {});
+        return { ...chunk, stdout, stderr };
+      }
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+  }
+
+  /** Reads a file, base64 on the wire so binary and newlines survive. */
+  async readFile(name: string, path: string): Promise<string> {
+    const result = await this.exec(name, {
+      command: ["/bin/sh", "-c", `base64 < ${sq(path)}`],
+    });
+    if (result.exitCode !== 0) {
+      throw new SandboxRequestError(404, `could not read ${path}: ${result.stderr.trim()}`);
+    }
+    return Buffer.from(result.stdout.replace(/\s/g, ""), "base64").toString("utf8");
+  }
+
+  async writeFile(name: string, path: string, contents: string): Promise<void> {
+    const encoded = Buffer.from(contents, "utf8").toString("base64");
+    const result = await this.exec(name, {
+      command: ["/bin/sh", "-c", `printf %s ${sq(encoded)} | base64 -d > ${sq(path)}`],
+    });
+    if (result.exitCode !== 0) {
+      throw new SandboxRequestError(400, `could not write ${path}: ${result.stderr.trim()}`);
+    }
+  }
+
+  async listDir(name: string, path = "."): Promise<DirEntry[]> {
+    const result = await this.exec(name, {
+      command: ["/bin/sh", "-c", `ls -1Ap ${sq(path)}`],
+    });
+    if (result.exitCode !== 0) {
+      throw new SandboxRequestError(404, `could not list ${path}: ${result.stderr.trim()}`);
+    }
+    return result.stdout
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => ({
+        name: line.endsWith("/") ? line.slice(0, -1) : line,
+        isDirectory: line.endsWith("/"),
+      }));
+  }
+
+  /**
+   * Searches file contents. An empty result is not an error: grep exits 1
+   * when nothing matches, which is a normal answer to a search.
+   */
+  async grep(name: string, pattern: string, path = "."): Promise<GrepMatch[]> {
+    const result = await this.exec(name, {
+      command: ["/bin/sh", "-c", `grep -rnI -e ${sq(pattern)} ${sq(path)}`],
+    });
+    if (result.exitCode > 1) {
+      throw new SandboxRequestError(400, `could not search ${path}: ${result.stderr.trim()}`);
+    }
+    return result.stdout
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => {
+        const [file, lineNo, ...rest] = line.split(":");
+        return {
+          path: file ?? "",
+          line: Number(lineNo ?? 0),
+          text: rest.join(":"),
+        };
+      })
+      .filter((match) => Number.isFinite(match.line) && match.line > 0);
+  }
+
   /** Stops compute early. Optional: an idle sandbox sleeps on its own. */
   async stop(name: string): Promise<void> {
     await this.request<void>(
@@ -113,29 +283,18 @@ export class SandboxClient {
   }
 
   private async execOn(handle: SandboxHandle, request: ExecRequest): Promise<ExecResult> {
-    const body = JSON.stringify({
-      command: request.command,
-      cwd: request.cwd,
-      env: request.env,
-      timeout_ms: request.timeoutMs,
-    });
-
-    let res: Response;
-    try {
-      res = await this.fetchImpl(`${handle.endpoint}/v1/exec`, {
-        method: "POST",
-        headers: { ...handle.headers, "content-type": "application/json" },
-        body,
-        signal: AbortSignal.timeout(this.timeoutMs),
-      });
-    } catch (err) {
-      throw new SandboxUnavailableError(err);
-    }
-
-    if (!res.ok) {
-      throw new SandboxRequestError(res.status, await errorMessage(res, "exec failed"));
-    }
-    const out = (await res.json()) as Record<string, unknown>;
+    const out = await this.dataPlaneOn<Record<string, unknown>>(
+      handle,
+      "POST",
+      "/v1/exec",
+      {
+        command: request.command,
+        cwd: request.cwd,
+        env: request.env,
+        timeout_ms: request.timeoutMs,
+      },
+      "exec failed",
+    );
     return {
       exitCode: Number(out.exit_code ?? 0),
       stdout: String(out.stdout ?? ""),
@@ -144,6 +303,57 @@ export class SandboxClient {
       timedOut: out.timed_out === true,
       truncated: out.truncated === true,
     };
+  }
+
+  /**
+   * Every data-plane call goes through here so the stale-handle retry is
+   * written once. Credentials are short-lived and a sandbox past its ceiling
+   * is replaced, so one re-attach is ordinary rather than fatal.
+   */
+  private async dataPlane<T>(
+    name: string,
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
+    let handle = this.handles.get(name) ?? (await this.attach(name));
+    try {
+      return await this.dataPlaneOn<T>(handle, method, path, body);
+    } catch (err) {
+      if (!isStaleHandle(err)) throw err;
+      this.handles.delete(name);
+      handle = await this.attach(name);
+      return await this.dataPlaneOn<T>(handle, method, path, body);
+    }
+  }
+
+  private async dataPlaneOn<T>(
+    handle: SandboxHandle,
+    method: string,
+    path: string,
+    body?: unknown,
+    fallback = "sandbox request failed",
+  ): Promise<T> {
+    let res: Response;
+    try {
+      res = await this.fetchImpl(`${handle.endpoint}${path}`, {
+        method,
+        headers:
+          body === undefined
+            ? { ...handle.headers }
+            : { ...handle.headers, "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      throw new SandboxUnavailableError(err);
+    }
+
+    if (!res.ok) {
+      throw new SandboxRequestError(res.status, await errorMessage(res, fallback));
+    }
+    if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
   }
 
   private async request<T>(method: string, path: string, body?: string): Promise<T> {
@@ -213,4 +423,23 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
     // Not JSON. Fall through to the raw body.
   }
   return `${fallback}: ${raw.replace(/\s+/g, " ").trim().slice(0, 200)}`;
+}
+
+/**
+ * Quotes a path for `sh -c`. Single quotes are literal in POSIX shells, so
+ * only an embedded single quote needs work.
+ */
+function sq(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function toStatus(row: Record<string, unknown>): ProcessStatus {
+  return {
+    processId: String(row.process_id ?? ""),
+    command: (row.command as string[]) ?? [],
+    state: row.state === "exited" ? "exited" : "running",
+    exitCode: typeof row.exit_code === "number" ? row.exit_code : undefined,
+    startedAt: String(row.started_at ?? ""),
+    exitedAt: row.exited_at ? String(row.exited_at) : undefined,
+  };
 }
