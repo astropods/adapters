@@ -198,11 +198,19 @@ function toRecord(row: Record<string, unknown>): SandboxRecord {
   };
 }
 
+/**
+ * Anything between the agent and the control plane can answer instead of it,
+ * and a CDN or proxy body is not JSON, so the raw body has to survive into the
+ * message. Without it the caller only learns that the call failed.
+ */
 async function errorMessage(res: Response, fallback: string): Promise<string> {
+  const raw = await res.text().catch(() => "");
+  if (!raw) return fallback;
   try {
-    const body = (await res.json()) as { error?: string };
-    return body.error ?? fallback;
+    const body = JSON.parse(raw) as { error?: string };
+    if (typeof body.error === "string") return body.error;
   } catch {
-    return fallback;
+    // Not JSON. Fall through to the raw body.
   }
+  return `${fallback}: ${raw.replace(/\s+/g, " ").trim().slice(0, 200)}`;
 }

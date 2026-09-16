@@ -61,7 +61,7 @@ export class SandboxRequestError extends Error {
     readonly status: number,
     message: string,
   ) {
-    super(message);
+    super(`${message} (HTTP ${status})`);
     this.name = "SandboxRequestError";
   }
 }

@@ -165,6 +165,24 @@ describe("SandboxClient", () => {
     );
   });
 
+  test("names the status and the body when something other than the control plane answers", async () => {
+    const { fetchImpl } = stub([
+      () =>
+        new Response("<!DOCTYPE html>\n<HTML><HEAD>403 Forbidden</HEAD></HTML>", {
+          status: 403,
+          headers: { "content-type": "text/html" },
+        }),
+    ]);
+
+    const err = (await client(fetchImpl)
+      .attach("conv-1")
+      .catch((e) => e)) as SandboxRequestError;
+
+    expect(err.status).toBe(403);
+    expect(err.message).toContain("403 Forbidden");
+    expect(err.message).toContain("HTTP 403");
+  });
+
   test("passes a non-zero exit code through instead of throwing", async () => {
     const { fetchImpl } = stub([
       () => attachResponse("sb.example"),
