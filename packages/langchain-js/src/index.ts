@@ -48,3 +48,5 @@ export function serve(
 
 export { sandboxTools, AstroSandboxToolkit } from "./sandbox.js";
 export type { SandboxToolsOptions } from "./sandbox.js";
+export { AstroSandbox } from "./deepagents-sandbox.js";
+export type { AstroSandboxOptions } from "./deepagents-sandbox.js";

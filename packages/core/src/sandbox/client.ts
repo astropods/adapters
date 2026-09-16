@@ -202,25 +202,54 @@ export class SandboxClient {
     }
   }
 
-  /** Reads a file, base64 on the wire so binary and newlines survive. */
-  async readFile(name: string, path: string): Promise<string> {
+  /** Reads a file as bytes, base64 on the wire so binary survives. */
+  async readFileBytes(name: string, path: string): Promise<Uint8Array> {
     const result = await this.exec(name, {
       command: ["/bin/sh", "-c", `base64 < ${sq(path)}`],
     });
     if (result.exitCode !== 0) {
       throw new SandboxRequestError(404, `could not read ${path}: ${result.stderr.trim()}`);
     }
-    return Buffer.from(result.stdout.replace(/\s/g, ""), "base64").toString("utf8");
+    return new Uint8Array(Buffer.from(result.stdout.replace(/\s/g, ""), "base64"));
   }
 
-  async writeFile(name: string, path: string, contents: string): Promise<void> {
-    const encoded = Buffer.from(contents, "utf8").toString("base64");
+  async readFile(name: string, path: string): Promise<string> {
+    return Buffer.from(await this.readFileBytes(name, path)).toString("utf8");
+  }
+
+  async writeFileBytes(name: string, path: string, contents: Uint8Array): Promise<void> {
+    const encoded = Buffer.from(contents).toString("base64");
     const result = await this.exec(name, {
       command: ["/bin/sh", "-c", `printf %s ${sq(encoded)} | base64 -d > ${sq(path)}`],
     });
     if (result.exitCode !== 0) {
       throw new SandboxRequestError(400, `could not write ${path}: ${result.stderr.trim()}`);
     }
+  }
+
+  async writeFile(name: string, path: string, contents: string): Promise<void> {
+    await this.writeFileBytes(name, path, new Uint8Array(Buffer.from(contents, "utf8")));
+  }
+
+  /**
+   * Runs a command with stderr folded into stdout, the way a terminal shows
+   * it, so output stays interleaved. `exec 2>&1` applies the redirect to the
+   * whole shell without wrapping the caller's command in anything.
+   */
+  async execCombined(
+    name: string,
+    command: string,
+    timeoutMs?: number,
+  ): Promise<{ output: string; exitCode: number; truncated: boolean }> {
+    const result = await this.exec(name, {
+      command: ["/bin/sh", "-c", `exec 2>&1;\n${command}`],
+      timeoutMs,
+    });
+    return {
+      output: result.stdout,
+      exitCode: result.exitCode,
+      truncated: result.truncated,
+    };
   }
 
   async listDir(name: string, path = "."): Promise<DirEntry[]> {

@@ -28,17 +28,32 @@ own process API, so `spawn`/`list`/`get`/`kill` map straight through, and
 `ProcessHandle.wait()` polls to exit while handing each chunk to the caller's
 callbacks.
 
-**LangChain has no sandbox abstraction at all.** Checked against the versions
-in this repo, langchain 1.5.3 and @langchain/core 1.2.2: there is no
-`BaseSandbox`, `langchain/tools` exports only `tool`, and
-`langchain/storage/file_system` is a key-value cache store rather than a
-workspace. So tools are the seam there, and `sandboxTools()` returns nine of
-them built from a description shared in adapter-core.
+**LangChain has one too, in `deepagents`.** Not in `@langchain/core` or
+`langchain`, which is why a first look missed it. `BaseSandbox` asks for four
+members and composes the rest itself:
 
-What LangChain does have is `BaseToolkit`, its way of grouping a related set,
-so `AstroSandboxToolkit` extends it and answers `getTools()`. That is the
-nearest equivalent to using their own approach, and it is packaging rather
-than a provider seam.
+```ts
+abstract readonly id: string;
+abstract execute(command: string): MaybePromise<ExecuteResponse>;
+abstract uploadFiles(files: Array<[string, Uint8Array]>): MaybePromise<FileUploadResponse[]>;
+abstract downloadFiles(paths: string[]): MaybePromise<FileDownloadResponse[]>;
+```
+
+`read`, `write`, `edit`, `delete`, `ls`, `glob` and `grep` are all built on
+`execute` with POSIX utilities by the base class, so `AstroSandbox` is four
+methods and the filesystem tools an agent sees are Deep Agents' own. That also
+makes Astro swappable with the other backends, alongside `LocalShellBackend`
+and `LangSmithSandbox`.
+
+`execute` returns a single combined stream, so the client folds stderr into
+stdout at the shell with `exec 2>&1` rather than concatenating the two after
+the fact, which would lose the interleaving. Upload and download are binary,
+which is why the client grew byte-level file methods and the text ones now sit
+on top.
+
+`sandboxTools()` stays for a LangChain agent not using Deep Agents, now also
+packaged as `AstroSandboxToolkit` through `BaseToolkit`, LangChain's own way
+of grouping a related set.
 
 ```ts
 // Mastra: a provider the workspace drives

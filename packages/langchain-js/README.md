@@ -138,29 +138,41 @@ If the agent doesn't remember earlier turns, a checkpointer isn't active — che
 
 ## Sandboxes
 
-`sandboxTools()` gives an agent a sandbox: an isolated machine it can run
-commands in, hold files in, and keep a background process alive in.
+`AstroSandbox` is a Deep Agents sandbox backend, so Astro sits where
+`LocalShellBackend` or `LangSmithSandbox` would:
 
 ```ts
-import { sandboxTools } from "@astropods/adapter-langchain";
+import { AstroSandbox } from "@astropods/adapter-langchain";
+import { createDeepAgent } from "deepagents";
 
-const agent = createAgent({ llm, tools: [...sandboxTools()] });
-
-// or as a toolkit, which is how LangChain groups a related set
-const toolkit = new AstroSandboxToolkit();
-const agent2 = createAgent({ llm, tools: toolkit.getTools() });
-
-await agent.invoke(
-  { messages: [{ role: "user", content: "clone the repo and run the tests" }] },
-  { configurable: { thread_id: conversationId } },
-);
+const agent = createDeepAgent({
+  model,
+  backend: new AstroSandbox({ name: threadId }),
+});
 ```
 
-The thread id names the sandbox. There is no mapping table: one thread is one
-sandbox, so a conversation that resumes next week reattaches to its own files,
-and two conversations never share a filesystem. A run with no `thread_id`
-fails rather than quietly putting every conversation in one sandbox; pass
-`sandbox: "name"` if you want one on purpose.
+The name is the sandbox. Use the thread id: one thread is one sandbox, so a
+conversation that resumes reattaches to its own files and two threads never
+share a filesystem.
+
+`BaseSandbox` needs only `id`, `execute`, `uploadFiles` and `downloadFiles`;
+it builds `read`, `write`, `edit`, `ls`, `glob` and `grep` on `execute`
+itself. So the filesystem tools your agent sees are Deep Agents' own, and
+`deepagents` is an optional peer dependency: install it only if you use this.
+
+### Without Deep Agents
+
+For a plain LangChain agent, `sandboxTools()` returns the same capabilities as
+tools, and `AstroSandboxToolkit` packages them as a LangChain toolkit:
+
+```ts
+const agent = createAgent({ llm, tools: [...sandboxTools()] });
+const agent2 = createAgent({ llm, tools: new AstroSandboxToolkit().getTools() });
+```
+
+Here the thread id comes from `configurable.thread_id` at invoke time. A run
+without one fails rather than quietly putting every conversation in one
+sandbox; pass `sandbox: "name"` to pin one on purpose.
 
 | Tool | For |
 |---|---|
@@ -169,8 +181,3 @@ fails rather than quietly putting every conversation in one sandbox; pass
 | `sandbox_read_file`, `sandbox_write_file` | Files, without shelling out |
 | `sandbox_list_dir`, `sandbox_grep` | Looking around |
 | `sandbox_spawn`, `sandbox_poll`, `sandbox_kill` | A server or watcher that keeps running |
-
-`sandbox_poll` returns `stdout_next`; pass it back as `stdout_from` to read
-only what is new. An agent that polls while a process runs loses nothing, and
-`dropped_bytes` tells it when output outran the buffer instead of leaving a
-silent gap.
