@@ -1,3 +1,4 @@
+import { RequestContext } from "@mastra/core/request-context";
 import type { Agent } from "@mastra/core/agent";
 import type {
   AgentConfig as MessagingAgentConfig,
@@ -135,6 +136,14 @@ export class MastraAdapter implements AgentAdapter {
         thread: options.conversationId,
         resource: options.userId,
       },
+      // A dynamic workspace or tool set resolves from the request context,
+      // which is the only place it can read the conversation from: the
+      // resolver signature carries no thread. An agent keying a sandbox on
+      // the thread needs this to be here.
+      requestContext: new RequestContext([
+        ["threadId", options.conversationId],
+        ["resourceId", options.userId],
+      ]),
       tracingOptions: {
         metadata: {
           "langfuse.user.id": traceUserId,

@@ -106,6 +106,15 @@ persistence past the 8 hour ceiling is not built. `sendStdin()` throws,
 because the data plane has no stdin and silently dropping a write would be
 worse.
 
+### The adapter passes the conversation through
+
+A dynamic workspace or tool set resolves from a `requestContext`, and that
+resolver's signature carries no thread: it receives `requestContext` and
+`mastra`, nothing else. The messaging adapter already knew the conversation
+but only put it in `memory.thread`, where a resolver cannot read it. It now
+also sets `threadId` and `resourceId` on the request context, which is what
+lets an agent name a sandbox after its conversation.
+
 ## Migration
 
 None. New API on `SandboxClient`, and a new export from each provider.
