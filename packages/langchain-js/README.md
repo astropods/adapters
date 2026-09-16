@@ -160,24 +160,4 @@ it builds `read`, `write`, `edit`, `ls`, `glob` and `grep` on `execute`
 itself. So the filesystem tools your agent sees are Deep Agents' own, and
 `deepagents` is an optional peer dependency: install it only if you use this.
 
-### Without Deep Agents
-
-For a plain LangChain agent, `sandboxTools()` returns the same capabilities as
-tools, and `AstroSandboxToolkit` packages them as a LangChain toolkit:
-
-```ts
-const agent = createAgent({ llm, tools: [...sandboxTools()] });
-const agent2 = createAgent({ llm, tools: new AstroSandboxToolkit().getTools() });
-```
-
-Here the thread id comes from `configurable.thread_id` at invoke time. A run
-without one fails rather than quietly putting every conversation in one
-sandbox; pass `sandbox: "name"` to pin one on purpose.
-
-| Tool | For |
-|---|---|
-| `sandbox_exec` | A short command. Output is capped |
-| `sandbox_run` | An install or a build. No cap, waits for the exit |
-| `sandbox_read_file`, `sandbox_write_file` | Files, without shelling out |
-| `sandbox_list_dir`, `sandbox_grep` | Looking around |
-| `sandbox_spawn`, `sandbox_poll`, `sandbox_kill` | A server or watcher that keeps running |
+`deepagents` is an optional peer dependency: install it only if you use this.

@@ -51,29 +51,27 @@ the fact, which would lose the interleaving. Upload and download are binary,
 which is why the client grew byte-level file methods and the text ones now sit
 on top.
 
-`sandboxTools()` stays for a LangChain agent not using Deep Agents, now also
-packaged as `AstroSandboxToolkit` through `BaseToolkit`, LangChain's own way
-of grouping a related set.
+There is no hand-written toolset any more. An earlier pass shipped nine tools
+per framework, described once and mapped into each framework's tool type. Both
+frameworks turned out to have a provider interface instead, and each builds its
+own filesystem tools on top, so the toolset was two layers of duplication:
+ours beside theirs. It is deleted rather than kept as a second way in.
 
 ```ts
 // Mastra: a provider the workspace drives
 new Workspace({ sandbox: new AstroSandbox({ name: threadId }) });
-// LangChain: tools the model calls
-createAgent({ llm, tools: [...sandboxTools()] });
+// LangChain, via Deep Agents: a backend the harness drives
+createDeepAgent({ model, backend: new AstroSandbox({ name: threadId }) });
 ```
 
 ### The thread id is the sandbox name
 
-There is no mapping table on either side. LangChain reads
-`configurable.thread_id`, which LangGraph already threads through a run;
-Mastra takes the name at construction, where the thread id belongs. One thread
-is one sandbox, so a conversation that resumes reattaches to its own files and
-two conversations never share a filesystem.
-
-A turn with no thread id is an error, not a fallback. Defaulting to a fixed
-name would do the opposite of what the design is for: it would put every
-conversation in one sandbox and let them read each other's files. Callers who
-want one shared sandbox ask for it by name.
+Both take the name at construction, which is where a thread id belongs, and
+neither keeps a mapping table. One thread is one sandbox, so a conversation
+that resumes reattaches to its own files and two conversations never share a
+filesystem. Naming it at construction also removes the failure the toolset
+had to guard against, where a turn arrived with no thread and the only safe
+answer was to refuse.
 
 ### Long output, and processes
 
