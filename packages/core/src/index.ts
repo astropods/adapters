@@ -37,3 +37,17 @@ export {
   getOrCreateAstroTracerProvider,
 } from "./otel/provider.js";
 export type { AstroTracerProviderOptions } from "./otel/provider.js";
+
+export { SandboxClient } from "./sandbox/index.js";
+export {
+  SandboxNotEnabledError,
+  SandboxRequestError,
+  SandboxUnavailableError,
+} from "./sandbox/index.js";
+export type {
+  ExecRequest,
+  ExecResult,
+  SandboxHandle,
+  SandboxOptions,
+  SandboxRecord,
+} from "./sandbox/index.js";

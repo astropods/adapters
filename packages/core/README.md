@@ -152,3 +152,52 @@ instrumentHttp();
 ```
 
 Both forms are idempotent and share a tracer provider with other Astropods adapters in the same process.
+
+## Sandboxes
+
+A sandbox is an isolated machine an agent creates to run commands and hold
+files for one conversation. It sleeps when the conversation goes quiet and
+bills for the compute it uses.
+
+```ts
+import { SandboxClient } from "@astropods/adapter-core/sandbox";
+
+const sandboxes = new SandboxClient();
+
+const result = await sandboxes.exec(conversationId, {
+  command: ["/bin/sh", "-c", "npm test"],
+});
+console.log(result.exitCode, result.stdout);
+```
+
+`new SandboxClient()` reads `ASTRO_AUTHZ_TOKEN` from the environment and takes
+the server URL from that token, so nothing has to be configured.
+
+Call `exec` on every turn. It attaches on the first call for a name and reuses
+the sandbox after, and the server settles two concurrent first calls onto one
+sandbox rather than two. Key by conversation or thread id: two conversations
+sharing one sandbox share its files.
+
+| Method | Does |
+|---|---|
+| `exec(name, request)` | Attaches if needed, then runs a command |
+| `attach(name, class?)` | Returns a handle without running anything |
+| `get(name)` / `list()` | Records, with no credentials in them |
+| `stop(name)` | Stops compute early. Optional; an idle sandbox sleeps on its own |
+| `delete(name)` | Drops the sandbox and its files |
+
+A non-zero exit code and a timed-out command are both results, not thrown
+errors: check `exitCode` and `timedOut`. Thrown errors mean the request itself
+failed. `SandboxNotEnabledError` means the account has not turned sandboxes
+on, in account or organization settings.
+
+The endpoint and the two credentials a sandbox needs are not part of this
+surface. The client refreshes them, and re-attaches once when a sandbox has
+been replaced, so an agent never handles either.
+
+### Limits
+
+Output is buffered until a command exits and capped at 1 MiB per stream, and
+there is no way to stream it, poll a background process or signal one. A
+sandbox lives at most 8 hours; after that the next `exec` gets a fresh one with
+an empty workspace. Files do not survive that.
