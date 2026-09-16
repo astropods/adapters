@@ -2,36 +2,43 @@
 
 ## Sandboxes
 
-`sandboxTools()` gives an agent a sandbox: an isolated machine it can run
-commands in, hold files in, and keep a background process alive in.
+`AstroSandbox` is a Mastra sandbox provider, so Mastra's own workspace drives
+it: the filesystem, the mounts and the built-in workspace tools all run
+against the MicroVM. There is no parallel toolset to learn.
 
 ```ts
-import { sandboxTools } from "@astropods/adapter-mastra";
+import { AstroSandbox } from "@astropods/adapter-mastra";
+import { Workspace } from "@mastra/core/workspace";
 
-const agent = new Agent({
-  name: "coder",
-  model: astroGateway("claude-sonnet-4-6"),
-  memory,
-  tools: { ...sandboxTools() },
+const workspace = new Workspace({
+  sandbox: new AstroSandbox({ name: threadId }),
 });
 ```
 
-The thread id names the sandbox. There is no mapping table: one thread is one
-sandbox, so a conversation that resumes next week reattaches to its own files,
-and two threads never share a filesystem. Mastra supplies `threadId` only when
-the agent has memory configured; without one the tools fail rather than
-quietly putting every thread in one sandbox. Pass `sandbox: "name"` to pin one
-on purpose.
+The name is the sandbox. Use the thread id: one thread is one sandbox, so a
+conversation that resumes reattaches to its own files and two threads never
+share a filesystem.
 
-| Tool | For |
+### What it maps onto
+
+| Mastra | Astro |
 |---|---|
-| `sandbox_exec` | A short command. Output is capped |
-| `sandbox_run` | An install or a build. No cap, waits for the exit |
-| `sandbox_read_file`, `sandbox_write_file` | Files, without shelling out |
-| `sandbox_list_dir`, `sandbox_grep` | Looking around |
-| `sandbox_spawn`, `sandbox_poll`, `sandbox_kill` | A server or watcher that keeps running |
+| `start()` | One attach. Reports `created` on the first call, `connected` after |
+| `executeCommand()` | A short command, or a background process when you pass `onStdout`/`onStderr`, because a plain exec cannot stream |
+| `processes` | `spawn`, `list`, `get`, `kill` over real background processes |
+| `handle.wait()` | Polls to exit, handing each chunk to your callbacks as it arrives |
+| `stop()` / `destroy()` | Suspend, and delete |
+| `getInfo()` | Includes `timeoutAt`, the sandbox's 8 hour ceiling |
 
-`sandbox_poll` returns `stdout_next`; pass it back as `stdout_from` to read
-only what is new. An agent that polls while a process runs loses nothing, and
-`dropped_bytes` tells it when output outran the buffer instead of leaving a
-silent gap.
+Mastra starts the sandbox on demand: its process manager calls
+`ensureRunning()` before a spawn, so nothing has to start it by hand.
+
+### What it does not do
+
+`supportsCheckpoints` is `false`. `snapshot()` suspends, which does snapshot
+the MicroVM's memory so the next attach resumes from it, but there is only
+ever the latest state to return to. Persistence past the ceiling is not
+built yet.
+
+A process has no stdin. `sendStdin()` throws rather than accepting the write
+and dropping it; pass input through the command or a file.

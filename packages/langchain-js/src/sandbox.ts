@@ -1,5 +1,5 @@
-import { tool } from "@langchain/core/tools";
-import type { ToolRunnableConfig } from "@langchain/core/tools";
+import { BaseToolkit, tool } from "@langchain/core/tools";
+import type { StructuredToolInterface, ToolRunnableConfig } from "@langchain/core/tools";
 import {
   SANDBOX_TOOLS,
   SandboxClient,
@@ -59,4 +59,18 @@ export function sandboxTools(options: SandboxToolsOptions = {}) {
       },
     ),
   );
+}
+
+/**
+ * The same tools as a LangChain toolkit, which is how LangChain groups a
+ * related set: it can be passed anywhere a toolkit is expected and answers
+ * `getTools()`.
+ */
+export class AstroSandboxToolkit extends BaseToolkit {
+  readonly tools: StructuredToolInterface[];
+
+  constructor(options: SandboxToolsOptions = {}) {
+    super();
+    this.tools = sandboxTools(options) as unknown as StructuredToolInterface[];
+  }
 }

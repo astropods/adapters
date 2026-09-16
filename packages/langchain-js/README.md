@@ -146,6 +146,10 @@ import { sandboxTools } from "@astropods/adapter-langchain";
 
 const agent = createAgent({ llm, tools: [...sandboxTools()] });
 
+// or as a toolkit, which is how LangChain groups a related set
+const toolkit = new AstroSandboxToolkit();
+const agent2 = createAgent({ llm, tools: toolkit.getTools() });
+
 await agent.invoke(
   { messages: [{ role: "user", content: "clone the repo and run the tests" }] },
   { configurable: { thread_id: conversationId } },

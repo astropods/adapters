@@ -46,5 +46,5 @@ export function serve(
   });
 }
 
-export { sandboxTools } from "./sandbox.js";
+export { sandboxTools, AstroSandboxToolkit } from "./sandbox.js";
 export type { SandboxToolsOptions } from "./sandbox.js";

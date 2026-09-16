@@ -144,3 +144,16 @@ describe("langchain sandboxTools", () => {
     expect(polled.stdout_next).toBe(7);
   });
 });
+
+describe("AstroSandboxToolkit", () => {
+  test("packages the same tools as a LangChain toolkit", async () => {
+    const { AstroSandboxToolkit } = await import("./sandbox");
+    const fetchImpl = (async () => attachResponse()) as unknown as typeof fetch;
+    const toolkit = new AstroSandboxToolkit({
+      client: new SandboxClient({ identityToken: deployToken(), fetchImpl }),
+    });
+
+    expect(toolkit.getTools()).toHaveLength(9);
+    expect(toolkit.getTools().map((t) => t.name)).toContain("sandbox_spawn");
+  });
+});
