@@ -245,3 +245,94 @@ describe("files", () => {
     expect(matches[0]!.text).toBe("const url = https://x");
   });
 });
+
+describe("guards the review found", () => {
+  test("a transport failure is not retried, because the command may have run", async () => {
+    const { calls, fetchImpl } = stub([
+      () => attachResponse(),
+      () => {
+        throw new DOMException("The operation timed out.", "TimeoutError");
+      },
+    ]);
+
+    await expect(
+      client(fetchImpl).exec("conv-1", { command: ["/bin/sleep", "40"] }),
+    ).rejects.toThrow(/unreachable/);
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1);
+  });
+
+  test("exec always sends a deadline no later than the client's own", async () => {
+    const { calls, fetchImpl } = stub([
+      () => attachResponse(),
+      () => json({ exit_code: 0, stdout: "", stderr: "", duration_ms: 1 }),
+    ]);
+
+    await new SandboxClient({
+      identityToken: deployToken(),
+      fetchImpl,
+      timeoutSeconds: 10,
+    }).exec("conv-1", { command: ["/bin/true"] });
+
+    // The data plane's own default is 60s, which outlives the client's abort.
+    expect(JSON.parse(calls[1]!.body!).timeout_ms).toBe(9000);
+  });
+
+  test("a caller's shorter deadline is kept", async () => {
+    const { calls, fetchImpl } = stub([
+      () => attachResponse(),
+      () => json({ exit_code: 0, stdout: "", stderr: "", duration_ms: 1 }),
+    ]);
+
+    await client(fetchImpl).exec("conv-1", { command: ["/bin/true"], timeoutMs: 1500 });
+
+    expect(JSON.parse(calls[1]!.body!).timeout_ms).toBe(1500);
+  });
+
+  test("a truncated read is refused instead of returning a prefix", async () => {
+    const { fetchImpl } = stub([
+      () => attachResponse(),
+      () =>
+        json({
+          exit_code: 0,
+          stdout: Buffer.from("partial").toString("base64"),
+          stderr: "",
+          duration_ms: 1,
+          truncated: true,
+        }),
+    ]);
+
+    await expect(client(fetchImpl).readFile("conv-1", "/big.bin")).rejects.toThrow(/cap/);
+  });
+
+  test("grep asks for the filename, which GNU grep omits for one file", async () => {
+    const { calls, fetchImpl } = stub([
+      () => attachResponse(),
+      () => json({ exit_code: 0, stdout: "a.ts:1:hit\n", stderr: "", duration_ms: 1 }),
+    ]);
+
+    await client(fetchImpl).grep("conv-1", "hit", "a.ts");
+
+    // Without -H the output is "1:hit" and every match parses to a NaN line
+    // and is silently dropped.
+    expect(JSON.parse(calls[1]!.body!).command[2]).toContain("-rnIH");
+  });
+
+  test("a large write is split, because one argument cannot carry it", async () => {
+    const handlers = [() => attachResponse()];
+    for (let i = 0; i < 40; i += 1) {
+      handlers.push(() => json({ exit_code: 0, stdout: "", stderr: "", duration_ms: 1 }));
+    }
+    const { calls, fetchImpl } = stub(handlers);
+
+    // 200 KB of base64 is past Linux's 128 KiB per-argument cap.
+    await client(fetchImpl).writeFileBytes("conv-1", "/big.bin", new Uint8Array(200 * 1024));
+
+    const writes = calls.filter((c) => c.url.endsWith("/v1/exec"));
+    expect(writes.length).toBeGreaterThan(1);
+    for (const write of writes) {
+      expect(JSON.parse(write.body!).command[2].length).toBeLessThan(128 * 1024);
+    }
+    expect(JSON.parse(writes[0]!.body!).command[2]).toContain("> '/big.bin'");
+    expect(JSON.parse(writes[1]!.body!).command[2]).toContain(">> '/big.bin'");
+  });
+});

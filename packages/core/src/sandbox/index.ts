@@ -12,6 +12,8 @@ export type {
   PollOptions,
   ProcessOutput,
   ProcessStatus,
+  RunOptions,
+  RunResult,
   Signal,
   SpawnRequest,
   SandboxHandle,

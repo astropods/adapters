@@ -73,34 +73,24 @@ export class AstroSandbox extends MastraSandbox {
   }
 
   /**
-   * Reports `created` on the first attach and `connected` afterwards, which
-   * is the signal Mastra's start hook branches on for once-per-VM setup. The
-   * control plane does not say which it did, so this asks first. A racing
-   * attach could make that read stale, and the outcome is advisory.
+   * Always reports `created`, because the control plane does not say whether
+   * an attach launched a VM or resumed one, and a sandbox row outlives the VM
+   * it points at: a row can exist while the next attach launches something
+   * fresh. Mastra branches on this to skip once-per-VM setup, so over-
+   * reporting `created` repeats setup while under-reporting would skip it on a
+   * genuinely new machine.
    */
   override async start(): Promise<SandboxStartResult> {
     this.status = "starting";
-    let existed = false;
-    try {
-      await this.client.get(this.name);
-      existed = true;
-    } catch (err) {
-      if (!(err instanceof SandboxRequestError) || err.status !== 404) {
-        this.status = "error";
-        throw err;
-      }
-    }
-
     try {
       await this.client.attach(this.name);
     } catch (err) {
       this.status = "error";
       throw err;
     }
-
     this.status = "running";
     this.createdAt ??= new Date();
-    return { outcome: existed ? "connected" : "created" };
+    return { outcome: "created" };
   }
 
   override async stop(): Promise<void> {
@@ -167,6 +157,8 @@ export class AstroSandbox extends MastraSandbox {
     // do: it buffers to exit. Route those through a process instead.
     if (options.onStdout || options.onStderr) {
       const result = await this.client.run(this.name, request, {
+        timeoutMs: options.timeout,
+        signal: options.abortSignal,
         onOutput: (chunk) => {
           if (chunk.stdout) options.onStdout?.(chunk.stdout);
           if (chunk.stderr) options.onStderr?.(chunk.stderr);
@@ -175,11 +167,13 @@ export class AstroSandbox extends MastraSandbox {
       return {
         command,
         args,
-        success: result.exitCode === 0,
-        exitCode: result.exitCode ?? 0,
+        success: !result.killed && result.exitCode === 0,
+        exitCode: result.exitCode ?? -1,
         stdout: result.stdout,
         stderr: result.stderr,
         executionTimeMs: Date.now() - started,
+        timedOut: result.timedOut,
+        killed: result.killed,
       };
     }
 
@@ -201,9 +195,11 @@ export class AstroSandbox extends MastraSandbox {
 
   override async writeFiles(files: SandboxFileInput[]): Promise<void> {
     for (const file of files) {
-      const contents =
-        typeof file.content === "string" ? file.content : file.content.toString("utf8");
-      await this.client.writeFile(this.name, file.path, contents);
+      if (typeof file.content === "string") {
+        await this.client.writeFile(this.name, file.path, file.content);
+      } else {
+        await this.client.writeFileBytes(this.name, file.path, file.content);
+      }
     }
   }
 }
@@ -231,6 +227,7 @@ export class AstroProcessManager extends SandboxProcessManager {
       this.sandboxName,
       started.processId,
       command,
+      options,
     );
     this._tracked.set(started.processId, handle);
     return handle;
@@ -280,10 +277,12 @@ class AstroProcessHandle extends ProcessHandle {
     private readonly client: SandboxClient,
     private readonly sandboxName: string,
     pid: string,
-    readonly command: string,
+    command: string,
+    options?: Pick<SpawnProcessOptions, "maxRetainedBytes" | "onStdout" | "onStderr">,
   ) {
-    super();
+    super(options);
     this.pid = pid;
+    this.command = command;
   }
 
   get exitCode(): number | undefined {
@@ -311,51 +310,54 @@ class AstroProcessHandle extends ProcessHandle {
   }
 
   /**
-   * Polls to completion, handing each chunk to the callbacks as it arrives.
-   * Offsets advance across calls, so output is delivered once even if `wait`
-   * is called after some was already read.
+   * Takes no arguments: the base constructor replaces `wait` with a wrapper
+   * that registers the caller's callbacks, handles `abortSignal` by killing,
+   * and then calls this with none. Output reaches every listener and the
+   * retained buffers only through `emitStdout`/`emitStderr`.
    */
-  override async wait(
-    options: {
-      onStdout?: (data: string) => void;
-      onStderr?: (data: string) => void;
-      abortSignal?: AbortSignal;
-    } = {},
-  ): Promise<CommandResult> {
+  override async wait(): Promise<CommandResult> {
     const started = Date.now();
-    let stdout = "";
-    let stderr = "";
 
     for (;;) {
-      const out: ProcessOutput = await this.client.poll(this.sandboxName, this.pid, {
-        stdoutFrom: this.stdoutFrom,
-        stderrFrom: this.stderrFrom,
-      });
+      let out: ProcessOutput;
+      try {
+        out = await this.client.poll(this.sandboxName, this.pid, {
+          stdoutFrom: this.stdoutFrom,
+          stderrFrom: this.stderrFrom,
+        });
+      } catch (err) {
+        // The wrapper's abort handler kills the process, and a killed process
+        // is deleted, so a 404 here means this wait was cancelled rather than
+        // that the process never existed.
+        if (err instanceof SandboxRequestError && err.status === 404) {
+          return this.result(started, this.lastExitCode ?? -1, true);
+        }
+        throw err;
+      }
+
       this.stdoutFrom = out.stdoutNext;
       this.stderrFrom = out.stderrNext;
-      stdout += out.stdout;
-      stderr += out.stderr;
-      if (out.stdout) options.onStdout?.(out.stdout);
-      if (out.stderr) options.onStderr?.(out.stderr);
+      if (out.stdout) this.emitStdout(out.stdout);
+      if (out.stderr) this.emitStderr(out.stderr);
 
       if (out.state === "exited") {
-        const code = out.exitCode ?? 0;
-        this.lastExitCode = code;
-        return {
-          command: this.command,
-          success: code === 0,
-          exitCode: code,
-          stdout,
-          stderr,
-          executionTimeMs: Date.now() - started,
-        };
-      }
-      if (options.abortSignal?.aborted) {
-        await this.kill();
-        continue;
+        this.lastExitCode = out.exitCode ?? 0;
+        return this.result(started, this.lastExitCode, false);
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
+  }
+
+  private result(started: number, exitCode: number, killed: boolean): CommandResult {
+    return {
+      command: this.command,
+      success: !killed && exitCode === 0,
+      exitCode,
+      stdout: this.stdout,
+      stderr: this.stderr,
+      executionTimeMs: Date.now() - started,
+      killed,
+    };
   }
 }
 

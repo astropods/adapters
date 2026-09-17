@@ -115,6 +115,73 @@ but only put it in `memory.thread`, where a resolver cannot read it. It now
 also sets `threadId` and `resourceId` on the request context, which is what
 lets an agent name a sandbox after its conversation.
 
+## What review caught
+
+Nine findings, each a real defect. The ones worth recording:
+
+**A timeout was being retried as if it were a stale credential.**
+`SandboxUnavailableError` wrapped every rejected fetch, including the client's
+own `AbortSignal.timeout`, and the retry treated that as a moved endpoint. The
+client aborts at 30s while the data plane's default is 60s, so a command in
+that window ran, was abandoned, and ran again. The retry is now limited to 401
+and 403, which the data plane answers before executing anything, and `exec`
+always sends a `timeout_ms` no later than its own deadline so the sandbox
+stops a command rather than leaving it running past the abort.
+
+**A truncated read looked like a whole file.** Each stream is capped at 1 MiB
+and base64 expands by 4/3, so a file past about 768 KiB decoded to a prefix
+and was returned as a complete `Uint8Array`, which Deep Agents then reported
+with `error: null`. A truncated result is now refused and names the cap.
+
+**A large write failed inside `execve`.** The base64 payload went in as one
+argument, and Linux caps a single argument at 128 KiB, so a file past about
+96 KB never reached the shell: the sandbox answered "could not start the
+command" and the error surfaced as `invalid_path`. Writes are now split on a
+multiple of 4, so each chunk is valid base64 on its own.
+
+**`grep` dropped every match for a single file.** GNU grep prints no filename
+for one file operand, so `1:hello` parsed to `path: "1"` and a NaN line, and
+the filter discarded it. Verified in the image: without `-H` the prefix is
+absent, and with it directory output and the exit-1 no-match case are
+unchanged.
+
+**The Mastra process handle bypassed the base class entirely.** The base
+constructor replaces `wait` with a wrapper that registers the caller's
+callbacks, kills on `abortSignal`, and calls the subclass implementation with
+no arguments. Output reaches listeners and the retained buffers only through
+`emitStdout`/`emitStderr`. The override took an options parameter that was
+always empty and never emitted, so spawn-time callbacks were dropped,
+`handle.stdout` stayed empty, `handle.reader` never yielded, and an aborted
+wait rejected with a 404. It now calls `super(options)`, emits every polled
+chunk, takes no parameters, and reads a post-kill 404 as the cancellation it
+is.
+
+**`executeCommand` could not be stopped.** Mastra's own tool always passes
+`onStdout`, `timeout` and `abortSignal`, so the streaming branch always ran
+and dropped the last two while `run` had no ceiling: the promise never
+settled. Both are threaded through, and `run` kills the process when either
+fires.
+
+**Binary content was corrupted on the way in.** `writeFiles` sent a Buffer
+through `toString("utf8")`, which replaces every invalid byte. It now uses the
+byte-level write. The old test passed either way because its fixture was
+ASCII; the new one uses a lone `0xff`.
+
+**`start` claimed `connected` on evidence that could not support it.** It read
+the row first, but a row outlives the VM it points at, so an existing row is
+no proof of a live machine. Mastra branches on this to skip once-per-VM setup,
+so it now always reports `created`: repeating setup is wasteful, skipping it on
+a fresh machine is broken. Making this precise needs the control plane to say
+whether an attach launched or resumed, which is a follow-up in astro-server.
+
+**The LangChain package was invisible to CI.** `packages/langchain-js` is
+`private: true`, which lerna honors, so `build`, `typecheck` and `test` each
+reported four projects and never touched it: the Deep Agents backend and its
+tests never ran. It was also the only package defining `typecheck`, so that
+step passed by matching nothing. CI now runs the package directly, and the
+other four define `typecheck` so the shared step checks something. Whether the
+package should stay private is a publishing decision, left alone here.
+
 ## Migration
 
 None. New API on `SandboxClient`, and a new export from each provider.

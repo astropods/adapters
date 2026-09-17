@@ -12,12 +12,20 @@ import {
   type ProcessOutput,
   type SpawnRequest,
   type PollOptions,
+  type RunOptions,
+  type RunResult,
   type Signal,
   type DirEntry,
   type GrepMatch,
 } from "./types.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
+
+/** Per stream, matching maxOutputBytes in apps/astro-sandbox/internal/exec. */
+const EXEC_OUTPUT_CAP_BYTES = 1 << 20;
+
+/** Base64 characters per write, a multiple of 4 and well under Linux's 128 KiB argument cap. */
+const B64_CHUNK = 49152;
 
 /**
  * Attaches sandboxes for one deployment and runs commands in them.
@@ -69,11 +77,12 @@ export class SandboxClient {
   /**
    * Runs a command in the sandbox for `name`, attaching first if needed.
    *
-   * Re-attaches once when the sandbox refuses the credentials or the endpoint
-   * has moved, because both happen for ordinary reasons: credentials are
-   * short-lived, and a sandbox past its duration ceiling is replaced.
+   * Re-attaches once when the sandbox refuses the credentials, which happens
+   * for an ordinary reason: they are short-lived. A transport failure is not
+   * retried, because the command may already have run.
    */
   async exec(name: string, request: ExecRequest): Promise<ExecResult> {
+    request = { ...request, timeoutMs: this.boundedTimeout(request.timeoutMs) };
     let handle = this.handles.get(name) ?? (await this.attach(name));
     try {
       return await this.execOn(handle, request);
@@ -83,6 +92,17 @@ export class SandboxClient {
       handle = await this.attach(name);
       return await this.execOn(handle, request);
     }
+  }
+
+  /**
+   * The data plane's own default outlives this client's abort, so a command
+   * left to that default would still be running when the request is given up
+   * on. Always send a deadline, and never one past our own.
+   */
+  private boundedTimeout(requested?: number): number {
+    const ceiling = this.timeoutMs - 1000;
+    if (!requested || requested > ceiling) return ceiling;
+    return requested;
   }
 
   async get(name: string): Promise<SandboxRecord> {
@@ -178,9 +198,10 @@ export class SandboxClient {
   async run(
     name: string,
     request: SpawnRequest,
-    options: { intervalMs?: number; onOutput?: (chunk: ProcessOutput) => void } = {},
-  ): Promise<ProcessOutput> {
+    options: RunOptions = {},
+  ): Promise<RunResult> {
     const interval = options.intervalMs ?? 500;
+    const deadline = options.timeoutMs ? Date.now() + options.timeoutMs : undefined;
     const started = await this.spawn(name, request);
     let stdoutFrom = 0;
     let stderrFrom = 0;
@@ -194,9 +215,16 @@ export class SandboxClient {
       stdoutFrom = chunk.stdoutNext;
       stderrFrom = chunk.stderrNext;
       if (chunk.stdout || chunk.stderr) options.onOutput?.(chunk);
+
       if (chunk.state === "exited") {
         await this.kill(name, started.processId).catch(() => {});
-        return { ...chunk, stdout, stderr };
+        return { ...chunk, stdout, stderr, timedOut: false, killed: false };
+      }
+
+      const timedOut = deadline !== undefined && Date.now() >= deadline;
+      if (timedOut || options.signal?.aborted) {
+        await this.kill(name, started.processId).catch(() => {});
+        return { ...chunk, stdout, stderr, timedOut, killed: true };
       }
       await new Promise((resolve) => setTimeout(resolve, interval));
     }
@@ -210,6 +238,13 @@ export class SandboxClient {
     if (result.exitCode !== 0) {
       throw new SandboxRequestError(404, `could not read ${path}: ${result.stderr.trim()}`);
     }
+    if (result.truncated) {
+      throw new SandboxRequestError(
+        413,
+        `could not read ${path}: output hit the sandbox's ${EXEC_OUTPUT_CAP_BYTES}-byte cap, ` +
+          `which base64 reaches at about ${Math.floor((EXEC_OUTPUT_CAP_BYTES * 3) / 4)} bytes of file`,
+      );
+    }
     return new Uint8Array(Buffer.from(result.stdout.replace(/\s/g, ""), "base64"));
   }
 
@@ -219,11 +254,24 @@ export class SandboxClient {
 
   async writeFileBytes(name: string, path: string, contents: Uint8Array): Promise<void> {
     const encoded = Buffer.from(contents).toString("base64");
-    const result = await this.exec(name, {
-      command: ["/bin/sh", "-c", `printf %s ${sq(encoded)} | base64 -d > ${sq(path)}`],
-    });
-    if (result.exitCode !== 0) {
-      throw new SandboxRequestError(400, `could not write ${path}: ${result.stderr.trim()}`);
+
+    // Linux caps one argument at 128 KiB, and a payload past that fails inside
+    // execve rather than in the command, so the sandbox reports a start
+    // failure instead of a write error. Split on a multiple of 4 so every
+    // chunk is valid base64 on its own.
+    for (let offset = 0; offset < encoded.length || offset === 0; offset += B64_CHUNK) {
+      const chunk = encoded.slice(offset, offset + B64_CHUNK);
+      const redirect = offset === 0 ? ">" : ">>";
+      const result = await this.exec(name, {
+        command: [
+          "/bin/sh",
+          "-c",
+          `printf %s ${sq(chunk)} | base64 -d ${redirect} ${sq(path)}`,
+        ],
+      });
+      if (result.exitCode !== 0) {
+        throw new SandboxRequestError(400, `could not write ${path}: ${result.stderr.trim()}`);
+      }
     }
   }
 
@@ -274,7 +322,7 @@ export class SandboxClient {
    */
   async grep(name: string, pattern: string, path = "."): Promise<GrepMatch[]> {
     const result = await this.exec(name, {
-      command: ["/bin/sh", "-c", `grep -rnI -e ${sq(pattern)} ${sq(path)}`],
+      command: ["/bin/sh", "-c", `grep -rnIH -e ${sq(pattern)} ${sq(path)}`],
     });
     if (result.exitCode > 1) {
       throw new SandboxRequestError(400, `could not search ${path}: ${result.stderr.trim()}`);
@@ -421,8 +469,13 @@ function withScheme(endpoint: string): string {
   return /^https?:\/\//.test(endpoint) ? endpoint : `https://${endpoint}`;
 }
 
+/**
+ * Only 401 and 403, which the data plane answers before it executes
+ * anything. A transport failure is not retryable here: a client-side timeout
+ * cannot be told apart from a command still running, so resending would run
+ * it twice.
+ */
 function isStaleHandle(err: unknown): boolean {
-  if (err instanceof SandboxUnavailableError) return true;
   return err instanceof SandboxRequestError && (err.status === 401 || err.status === 403);
 }
 

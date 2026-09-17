@@ -45,6 +45,8 @@ export type {
   PollOptions,
   ProcessOutput,
   ProcessStatus,
+  RunOptions,
+  RunResult,
   Signal,
   SpawnRequest,
 } from "./sandbox/index.js";

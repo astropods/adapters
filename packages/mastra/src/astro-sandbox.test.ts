@@ -75,20 +75,54 @@ describe("AstroSandbox as a Mastra provider", () => {
     expect(sandbox.name).toBe("thread-1");
   });
 
-  test("a first start reports created, a later one reports connected", async () => {
-    const first = harness([notFound, attached]);
-    await expect(first.sandbox.start()).resolves.toEqual({ outcome: "created" });
-    expect(first.sandbox.status).toBe("running");
+  test("start reports created even when a row already exists", async () => {
+    const { calls, sandbox } = harness([attached]);
 
-    const again = harness([record, attached]);
-    await expect(again.sandbox.start()).resolves.toEqual({ outcome: "connected" });
+    // A row outlives the VM it points at, so an existing row is no evidence
+    // of a live machine. Claiming connected there would skip Mastra's
+    // once-per-VM setup on a sandbox that was relaunched underneath us.
+    await expect(sandbox.start()).resolves.toEqual({ outcome: "created" });
+    expect(sandbox.status).toBe("running");
+    expect(calls).toHaveLength(1);
   });
 
   test("a failed start leaves the status at error rather than running", async () => {
-    const { sandbox } = harness([notFound, () => json({ error: "no capacity" }, 502)]);
+    const { sandbox } = harness([() => json({ error: "no capacity" }, 502)]);
 
     await expect(sandbox.start()).rejects.toThrow();
     expect(sandbox.status).toBe("error");
+  });
+
+  test("executeCommand sends the caller's timeout and abort into the process run", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { calls, sandbox } = harness([
+      attached,
+      () => json({ process_id: "p1", state: "running", command: ["x"], started_at: "t" }, 201),
+      () =>
+        json({
+          process_id: "p1",
+          state: "running",
+          command: ["x"],
+          started_at: "t",
+          stdout: "",
+          stderr: "",
+          stdout_next: 0,
+          stderr_next: 0,
+        }),
+      () => new Response(null, { status: 204 }),
+    ]);
+
+    const result = await sandbox.executeCommand("sleep 999", [], {
+      timeout: 50,
+      abortSignal: controller.signal,
+      onStdout: () => {},
+    });
+
+    // Without threading the signal through, this promise would poll forever.
+    expect(result.killed).toBe(true);
+    expect(result.success).toBe(false);
+    expect(calls.some((c) => c.method === "DELETE")).toBe(true);
   });
 
   test("executeCommand runs through exec and reports success", async () => {
@@ -189,16 +223,19 @@ describe("AstroSandbox as a Mastra provider", () => {
     expect(info.timeoutAt?.toISOString()).toBe("2026-09-16T18:00:00.000Z");
   });
 
-  test("writeFiles accepts a Buffer as well as a string", async () => {
+  test("writeFiles sends bytes that are not valid UTF-8 unchanged", async () => {
     const { calls, sandbox } = harness([
       attached,
       () => json({ exit_code: 0, stdout: "", stderr: "", duration_ms: 1 }),
     ]);
 
-    await sandbox.writeFiles([{ path: "/workspace/a.txt", content: Buffer.from("bytes") }]);
+    // A lone 0xff is not valid UTF-8, so a round trip through toString("utf8")
+    // would replace it and write different bytes than the caller passed.
+    const content = Buffer.from([0x00, 0xff, 0xfe, 0x0a]);
+    await sandbox.writeFiles([{ path: "/workspace/a.bin", content }]);
 
     const command = JSON.parse(calls[1]!.body!).command as string[];
-    expect(command[2]).toContain(Buffer.from("bytes").toString("base64"));
+    expect(command[2]).toContain(content.toString("base64"));
   });
 });
 
@@ -240,6 +277,79 @@ describe("AstroProcessManager", () => {
       { pid: "p1", command: "sh -c a", running: true, exitCode: undefined },
       { pid: "p2", command: "sh -c b", running: false, exitCode: 2 },
     ]);
+  });
+
+  test("spawn-time callbacks fire and the retained output is readable", async () => {
+    const chunks: string[] = [];
+    const { sandbox } = harness([
+      attached,
+      () => json({ process_id: "p1", state: "running", command: ["x"], started_at: "t" }, 201),
+      () =>
+        json({
+          process_id: "p1",
+          state: "exited",
+          exit_code: 0,
+          command: ["x"],
+          started_at: "t",
+          stdout: "emitted\n",
+          stderr: "",
+          stdout_next: 8,
+          stderr_next: 0,
+        }),
+    ]);
+
+    const handle = await sandbox.processes.spawn("echo emitted", {
+      onStdout: (data: string) => chunks.push(data),
+    });
+    await handle.wait();
+
+    // Output only reaches listeners and handle.stdout through emitStdout.
+    expect(chunks).toEqual(["emitted\n"]);
+    expect(handle.stdout).toBe("emitted\n");
+  });
+
+  test("wait-time callbacks fire even though the base calls wait with no arguments", async () => {
+    const seen: string[] = [];
+    const { sandbox } = harness([
+      attached,
+      () => json({ process_id: "p1", state: "running", command: ["x"], started_at: "t" }, 201),
+      () =>
+        json({
+          process_id: "p1",
+          state: "exited",
+          exit_code: 0,
+          command: ["x"],
+          started_at: "t",
+          stdout: "late\n",
+          stderr: "",
+          stdout_next: 5,
+          stderr_next: 0,
+        }),
+    ]);
+
+    const handle = await sandbox.processes.spawn("echo late");
+    await handle.wait({ onStdout: (data) => seen.push(data) });
+
+    expect(seen).toEqual(["late\n"]);
+  });
+
+  test("an aborted wait reports a killed result rather than a missing process", async () => {
+    const controller = new AbortController();
+    const { sandbox } = harness([
+      attached,
+      () => json({ process_id: "p1", state: "running", command: ["x"], started_at: "t" }, 201),
+      () => new Response(null, { status: 204 }),
+      notFound,
+    ]);
+
+    const handle = await sandbox.processes.spawn("sleep 999");
+    controller.abort();
+    const result = await handle.wait({ abortSignal: controller.signal });
+
+    // The base kills on abort, and a killed process is gone, so the next poll
+    // 404s. That is a cancellation, not "no such process".
+    expect(result.killed).toBe(true);
+    expect(result.success).toBe(false);
   });
 
   test("wait polls to exit and returns a CommandResult", async () => {

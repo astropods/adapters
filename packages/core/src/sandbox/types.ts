@@ -99,6 +99,21 @@ export interface GrepMatch {
   text: string;
 }
 
+export interface RunOptions {
+  intervalMs?: number;
+  onOutput?: (chunk: ProcessOutput) => void;
+  /** Kills the process and returns once this elapses. */
+  timeoutMs?: number;
+  /** Kills the process and returns when this aborts. */
+  signal?: AbortSignal;
+}
+
+export interface RunResult extends ProcessOutput {
+  timedOut: boolean;
+  /** The process was stopped by a timeout or an abort rather than exiting. */
+  killed: boolean;
+}
+
 export interface SandboxOptions {
   /** Raw ASTRO_AUTHZ_TOKEN. Read from the environment when absent. */
   identityToken?: string;

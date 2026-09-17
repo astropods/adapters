@@ -30,6 +30,16 @@ jobs:
       - name: Test
         run: bunx lerna run test
 
+      # lerna skips a package marked private, so adapter-langchain is absent
+      # from every target above. Run it directly rather than let it go
+      # unbuilt and untested.
+      - name: Build, typecheck and test adapter-langchain
+        working-directory: packages/langchain-js
+        run: |
+          bun run build
+          bun run typecheck
+          bun run test
+
   test-claude-agent-sdk-matrix:
     name: claude-agent-sdk against SDK ${{ matrix.sdk-version }}
     runs-on: ubuntu-latest
