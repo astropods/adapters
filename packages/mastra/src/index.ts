@@ -37,3 +37,6 @@ export function serve(
   });
   serveAdapter(adapter, options);
 }
+
+export { AstroSandbox, AstroProcessManager } from "./astro-sandbox.js";
+export type { AstroSandboxOptions } from "./astro-sandbox.js";

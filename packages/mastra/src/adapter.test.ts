@@ -1103,3 +1103,26 @@ describe("MastraAdapter", () => {
     });
   });
 });
+
+describe("request context", () => {
+  test("carries the conversation so a dynamic workspace can key a sandbox on it", async () => {
+    let seen: { get(key: string): unknown } | undefined;
+    const agent = {
+      stream: async (_input: unknown, options: { requestContext?: { get(k: string): unknown } }) => {
+        seen = options.requestContext;
+        return {
+          traceId: "t",
+          spanId: "s",
+          fullStream: (async function* () {})(),
+        };
+      },
+      getTools: () => ({}),
+    } as unknown as Parameters<typeof MastraAdapter.prototype.constructor>[0];
+
+    const adapter = new MastraAdapter(agent as never);
+    await adapter.stream("hi", {}, { conversationId: "conv-9", userId: "user-3" } as never);
+
+    expect(seen?.get("threadId")).toBe("conv-9");
+    expect(seen?.get("resourceId")).toBe("user-3");
+  });
+});

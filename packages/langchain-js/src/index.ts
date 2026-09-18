@@ -45,3 +45,6 @@ export function serve(
     start();
   });
 }
+
+export { AstroSandbox } from "./deepagents-sandbox.js";
+export type { AstroSandboxOptions } from "./deepagents-sandbox.js";

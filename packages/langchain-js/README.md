@@ -135,3 +135,29 @@ If nothing shows up:
 - Check the container logs for OpenTelemetry export errors.
 
 If the agent doesn't remember earlier turns, a checkpointer isn't active — check that `serve()` wasn't called with `{ memory: false }`, or configure a durable checkpointer on the agent.
+
+## Sandboxes
+
+`AstroSandbox` is a Deep Agents sandbox backend, so Astro sits where
+`LocalShellBackend` or `LangSmithSandbox` would:
+
+```ts
+import { AstroSandbox } from "@astropods/adapter-langchain";
+import { createDeepAgent } from "deepagents";
+
+const agent = createDeepAgent({
+  model,
+  backend: new AstroSandbox({ name: threadId }),
+});
+```
+
+The name is the sandbox. Use the thread id: one thread is one sandbox, so a
+conversation that resumes reattaches to its own files and two threads never
+share a filesystem.
+
+`BaseSandbox` needs only `id`, `execute`, `uploadFiles` and `downloadFiles`;
+it builds `read`, `write`, `edit`, `ls`, `glob` and `grep` on `execute`
+itself. So the filesystem tools your agent sees are Deep Agents' own, and
+`deepagents` is an optional peer dependency: install it only if you use this.
+
+`deepagents` is an optional peer dependency: install it only if you use this.
