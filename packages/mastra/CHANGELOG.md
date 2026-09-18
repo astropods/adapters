@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.8.0](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.7.2...@astropods/adapter-mastra@0.8.0) (2026-09-18)
+
+
+### Features
+
+* **core:** a sandbox client for agents ([#83](https://github.com/astropods/adapters/issues/83)) ([7927008](https://github.com/astropods/adapters/commit/7927008a122ee276c7b65052df1dc3e41f44849e))
+
+
+
 ## [0.7.2](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.7.1...@astropods/adapter-mastra@0.7.2) (2026-09-14)
 
 **Note:** Version bump only for package @astropods/adapter-mastra

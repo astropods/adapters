@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.4.0](https://github.com/astropods/adapters/compare/@astropods/adapter-ai-sdk@0.3.7...@astropods/adapter-ai-sdk@0.4.0) (2026-09-18)
+
+
+### Features
+
+* **core:** a sandbox client for agents ([#83](https://github.com/astropods/adapters/issues/83)) ([7927008](https://github.com/astropods/adapters/commit/7927008a122ee276c7b65052df1dc3e41f44849e))
+
+
+
 ## [0.3.7](https://github.com/astropods/adapters/compare/@astropods/adapter-ai-sdk@0.3.6...@astropods/adapter-ai-sdk@0.3.7) (2026-09-14)
 
 **Note:** Version bump only for package @astropods/adapter-ai-sdk
