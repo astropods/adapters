@@ -16,6 +16,7 @@ import {
   SandboxRequestError,
   type ProcessOutput,
   type SandboxOptions,
+  type SandboxRecord,
 } from "@astropods/adapter-core";
 
 export interface AstroSandboxOptions extends SandboxOptions {
@@ -117,16 +118,27 @@ export class AstroSandbox extends MastraSandbox {
     return this.status === "running";
   }
 
+  /**
+   * Tolerates a sandbox that does not exist yet. Mastra emits workspace
+   * metadata at the start of every workspace tool, before anything attaches,
+   * so throwing here fails the tool call that would have created the sandbox.
+   * Attaching here instead would launch a MicroVM on a status read.
+   */
   override async getInfo(): Promise<SandboxInfo> {
-    const record = await this.client.get(this.name);
+    let record: SandboxRecord | undefined;
+    try {
+      record = await this.client.get(this.name);
+    } catch (err) {
+      if (!(err instanceof SandboxRequestError && err.status === 404)) throw err;
+    }
     return {
       id: this.id,
       name: this.name,
       provider: PROVIDER,
       status: this.status,
-      createdAt: new Date(record.createdAt),
-      lastUsedAt: record.lastActiveAt ? new Date(record.lastActiveAt) : undefined,
-      timeoutAt: record.ceilingAt ? new Date(record.ceilingAt) : undefined,
+      createdAt: record ? new Date(record.createdAt) : (this.createdAt ?? new Date()),
+      lastUsedAt: record?.lastActiveAt ? new Date(record.lastActiveAt) : undefined,
+      timeoutAt: record?.ceilingAt ? new Date(record.ceilingAt) : undefined,
     };
   }
 
@@ -144,6 +156,8 @@ export class AstroSandbox extends MastraSandbox {
     args: string[] = [],
     options: ExecuteCommandOptions = {},
   ): Promise<CommandResult> {
+    await this.ensureRunning();
+
     const line = [command, ...args].join(" ");
     const request = {
       command: ["/bin/sh", "-c", line],
