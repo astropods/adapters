@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "d6abb7844e0f0d736ea8fb9ae3f4fae242a2acf0",
+  "separate-pull-requests": true,
+  "pull-request-title-pattern": "chore(release): publish${component} ${version}",
+  "packages": {
+    "packages/core-py": {
+      "release-type": "python",
+      "package-name": "astropods-adapter-core",
+      "component": "astropods-adapter-core"
+    },
+    "packages/langchain": {
+      "release-type": "python",
+      "package-name": "astropods-adapter-langchain",
+      "component": "astropods-adapter-langchain"
+    }
+  }
+}
