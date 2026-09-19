@@ -223,6 +223,43 @@ describe("AstroSandbox as a Mastra provider", () => {
     expect(info.timeoutAt?.toISOString()).toBe("2026-09-16T18:00:00.000Z");
   });
 
+  test("getInfo reports a sandbox that does not exist yet instead of throwing", async () => {
+    const { sandbox } = harness([notFound]);
+
+    const info = await sandbox.getInfo();
+
+    expect(info.status).toBe("pending");
+    expect(info.timeoutAt).toBeUndefined();
+    expect(info.lastUsedAt).toBeUndefined();
+  });
+
+  test("a tool call survives the workspace metadata Mastra emits before it", async () => {
+    const { calls, sandbox } = harness([
+      notFound,
+      attached,
+      () => json({ exit_code: 0, stdout: "hi\n", stderr: "", duration_ms: 4 }),
+    ]);
+
+    await sandbox.getInfo();
+    const result = await sandbox.executeCommand("echo", ["hi"]);
+
+    expect(result.success).toBe(true);
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[1]!.method).toBe("PUT");
+  });
+
+  test("executeCommand attaches, so the sandbox reports itself running afterwards", async () => {
+    const { sandbox } = harness([
+      attached,
+      () => json({ exit_code: 0, stdout: "", stderr: "", duration_ms: 1 }),
+    ]);
+
+    expect(await sandbox.isReady()).toBe(false);
+    await sandbox.executeCommand("true");
+
+    expect(await sandbox.isReady()).toBe(true);
+  });
+
   test("writeFiles sends bytes that are not valid UTF-8 unchanged", async () => {
     const { calls, sandbox } = harness([
       attached,
