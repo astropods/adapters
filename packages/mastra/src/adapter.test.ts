@@ -241,6 +241,162 @@ describe("MastraAdapter", () => {
       expect(hooks.chunks).toEqual(["Hello", " world"]);
     });
 
+    // A turn's text arrives as one run of deltas per model step, and a step
+    // after a tool call starts with no leading whitespace of its own.
+    function agentStreaming(chunks: any[]) {
+      const agent = new Agent({
+        id: "t", name: "T", model: modelFromParts(textParts(["x"])), instructions: "t",
+      });
+      (agent as any).stream = mock(async () => segment("run-1", chunks));
+      return agent;
+    }
+
+    const toolRound = (toolCallId: string) => [
+      { type: "tool-call-input-streaming-start", payload: { toolCallId, toolName: "classify" } },
+      { type: "tool-call-input-streaming-end", payload: { toolCallId } },
+    ];
+
+    test("separates two runs of text that a tool call came between", async () => {
+      const agent = agentStreaming([
+        { type: "text-delta", payload: { text: "Batch 2 done." } },
+        ...toolRound("tc-1"),
+        { type: "text-delta", payload: { text: "Batch 3 done." } },
+        { type: "finish", payload: {} },
+      ]);
+      const hooks = createHooks();
+
+      await new MastraAdapter(agent).stream("go", hooks, defaultOptions);
+
+      expect(
+        hooks.chunks.join(""),
+        "appending both runs verbatim runs one sentence into the next"
+      ).toBe("Batch 2 done.\n\nBatch 3 done.");
+    });
+
+    test("leaves tokens of one uninterrupted run untouched", async () => {
+      const agent = agentStreaming([
+        { type: "text-delta", payload: { text: "Hello" } },
+        { type: "text-delta", payload: { text: " world" } },
+        { type: "finish", payload: {} },
+      ]);
+      const hooks = createHooks();
+
+      await new MastraAdapter(agent).stream("hi", hooks, defaultOptions);
+
+      expect(hooks.chunks.join(""), "streamed tokens must concatenate as-is").toBe("Hello world");
+    });
+
+    test("does not open a turn with a break when a tool call runs first", async () => {
+      const agent = agentStreaming([
+        ...toolRound("tc-1"),
+        { type: "text-delta", payload: { text: "Done." } },
+        { type: "finish", payload: {} },
+      ]);
+      const hooks = createHooks();
+
+      await new MastraAdapter(agent).stream("go", hooks, defaultOptions);
+
+      expect(hooks.chunks.join(""), "nothing precedes this run").toBe("Done.");
+    });
+
+    test("adds no break when the model supplied its own leading whitespace", async () => {
+      const agent = agentStreaming([
+        { type: "text-delta", payload: { text: "Batch 2 done." } },
+        ...toolRound("tc-1"),
+        { type: "text-delta", payload: { text: "\n\nBatch 3 done." } },
+        { type: "finish", payload: {} },
+      ]);
+      const hooks = createHooks();
+
+      await new MastraAdapter(agent).stream("go", hooks, defaultOptions);
+
+      expect(hooks.chunks.join(""), "a doubled break would read as a gap").toBe(
+        "Batch 2 done.\n\nBatch 3 done."
+      );
+    });
+
+    test("separates every run when several tool rounds interleave", async () => {
+      const agent = agentStreaming([
+        { type: "text-delta", payload: { text: "One." } },
+        ...toolRound("tc-1"),
+        { type: "text-delta", payload: { text: "Two." } },
+        ...toolRound("tc-2"),
+        { type: "text-delta", payload: { text: "Three." } },
+        { type: "finish", payload: {} },
+      ]);
+      const hooks = createHooks();
+
+      await new MastraAdapter(agent).stream("go", hooks, defaultOptions);
+
+      expect(hooks.chunks.join("")).toBe("One.\n\nTwo.\n\nThree.");
+    });
+
+    test("breaks only at the start of a resumed run, not between its tokens", async () => {
+      // A real tokenizer splits mid-word, so a continuation token carries no
+      // leading whitespace to fall back on.
+      const agent = agentStreaming([
+        { type: "text-delta", payload: { text: "One." } },
+        ...toolRound("tc-1"),
+        { type: "text-delta", payload: { text: "Contin" } },
+        { type: "text-delta", payload: { text: "uing." } },
+        { type: "finish", payload: {} },
+      ]);
+      const hooks = createHooks();
+
+      await new MastraAdapter(agent).stream("go", hooks, defaultOptions);
+
+      expect(hooks.chunks.join(""), "a break mid-word would split the sentence").toBe(
+        "One.\n\nContinuing."
+      );
+    });
+
+    test("breaks once per interruption, not once per tool call", async () => {
+      const agent = agentStreaming([
+        { type: "text-delta", payload: { text: "One." } },
+        ...toolRound("tc-1"),
+        ...toolRound("tc-2"),
+        { type: "text-delta", payload: { text: "Two." } },
+        { type: "finish", payload: {} },
+      ]);
+      const hooks = createHooks();
+
+      await new MastraAdapter(agent).stream("go", hooks, defaultOptions);
+
+      expect(hooks.chunks.join(""), "two tools before one run is still one break").toBe(
+        "One.\n\nTwo."
+      );
+    });
+
+    test("still separates the run after a tool that never reports an end", async () => {
+      const agent = agentStreaming([
+        { type: "text-delta", payload: { text: "Trying." } },
+        { type: "tool-call-input-streaming-start", payload: { toolCallId: "tc-1", toolName: "classify" } },
+        { type: "text-delta", payload: { text: "That failed." } },
+        { type: "finish", payload: {} },
+      ]);
+      const hooks = createHooks();
+
+      await new MastraAdapter(agent).stream("go", hooks, defaultOptions);
+
+      expect(hooks.chunks.join(""), "a tool erroring mid-call still interrupted the text").toBe(
+        "Trying.\n\nThat failed."
+      );
+    });
+
+    test("ignores an empty text delta rather than counting it as a run", async () => {
+      const agent = agentStreaming([
+        { type: "text-delta", payload: { text: "" } },
+        ...toolRound("tc-1"),
+        { type: "text-delta", payload: { text: "Done." } },
+        { type: "finish", payload: {} },
+      ]);
+      const hooks = createHooks();
+
+      await new MastraAdapter(agent).stream("go", hooks, defaultOptions);
+
+      expect(hooks.chunks.join(""), "an empty delta is not text the user saw").toBe("Done.");
+    });
+
     test("emits trace context when Mastra stream exposes trace IDs", async () => {
       const agent = new Agent({
         id: "test",
