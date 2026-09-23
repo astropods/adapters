@@ -121,6 +121,8 @@ export interface SandboxOptions {
   serverUrl?: string;
   /** Per-request timeout, seconds. */
   timeoutSeconds?: number;
+  /** How long `attach` keeps retrying a sandbox the server is still preparing, seconds. */
+  prepareTimeoutSeconds?: number;
   /** Overridable transport, for tests. */
   fetchImpl?: typeof fetch;
 }
@@ -133,6 +135,17 @@ export class SandboxRequestError extends Error {
   ) {
     super(`${message} (HTTP ${status})`);
     this.name = "SandboxRequestError";
+  }
+}
+
+/** The server is still preparing the sandbox and said when to ask again. */
+export class SandboxPreparingError extends SandboxRequestError {
+  constructor(
+    readonly retryAfterMs: number,
+    message: string,
+  ) {
+    super(503, message);
+    this.name = "SandboxPreparingError";
   }
 }
 
