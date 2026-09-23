@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.12.1](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.12.0...@astropods/adapter-core@0.12.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **core:** poll a preparing sandbox on 202 rather than 503 ([fc0c9ab](https://github.com/astropods/adapters/commit/fc0c9ab71d7a73ea7060d71e8e2ac68f3b4c0a4c))
+* **core:** wait out a sandbox the server is still preparing ([f5be4b1](https://github.com/astropods/adapters/commit/f5be4b14471a3e6da05172d1fdaa5e0f2a286f0f))
+
+
+
 ## [0.12.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.11.0...@astropods/adapter-core@0.12.0) (2026-09-18)
 
 

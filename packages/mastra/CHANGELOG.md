@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.8.2](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.8.1...@astropods/adapter-mastra@0.8.2) (2026-09-23)
+
+**Note:** Version bump only for package @astropods/adapter-mastra
+
+
+
+
+
 ## [0.8.1](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.8.0...@astropods/adapter-mastra@0.8.1) (2026-09-19)
 
 
