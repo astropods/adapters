@@ -1,6 +1,7 @@
 import { decodeDeployToken } from "../auth/token.js";
 import {
   SandboxNotEnabledError,
+  SandboxPreparingError,
   SandboxRequestError,
   SandboxUnavailableError,
   type ExecRequest,
@@ -20,6 +21,7 @@ import {
 } from "./types.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
+const DEFAULT_PREPARE_TIMEOUT_SECONDS = 15 * 60;
 
 /** Per stream, matching maxOutputBytes in apps/astro-sandbox/internal/exec. */
 const EXEC_OUTPUT_CAP_BYTES = 1 << 20;
@@ -39,6 +41,7 @@ export class SandboxClient {
   private readonly serverUrl: string;
   private readonly token: string;
   private readonly timeoutMs: number;
+  private readonly prepareTimeoutMs: number;
   private readonly fetchImpl: typeof fetch;
   private readonly handles = new Map<string, SandboxHandle>();
 
@@ -47,21 +50,34 @@ export class SandboxClient {
     const claims = decodeDeployToken(this.token);
     this.serverUrl = (options.serverUrl ?? claims.issuer).replace(/\/+$/, "");
     this.timeoutMs = (options.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS) * 1000;
+    this.prepareTimeoutMs = (options.prepareTimeoutSeconds ?? DEFAULT_PREPARE_TIMEOUT_SECONDS) * 1000;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
   /**
    * Resolves a name to a usable sandbox, creating one on the first call and
    * reusing it after. Safe to call on every turn: the server settles
-   * concurrent first calls on one sandbox.
+   * concurrent first calls on one sandbox. A first attach installs the
+   * sandbox's declaration, so it waits out the server's 503s until
+   * `prepareTimeoutSeconds`.
    */
   async attach(name: string, sandboxClass?: string): Promise<SandboxHandle> {
     const body = sandboxClass ? JSON.stringify({ class: sandboxClass }) : undefined;
-    const handle = await this.request<Record<string, unknown>>(
-      "PUT",
-      `/api/v1/sandboxes/${encodeURIComponent(name)}`,
-      body,
-    );
+    const deadline = Date.now() + this.prepareTimeoutMs;
+    let handle: Record<string, unknown>;
+    for (;;) {
+      try {
+        handle = await this.request<Record<string, unknown>>(
+          "PUT",
+          `/api/v1/sandboxes/${encodeURIComponent(name)}`,
+          body,
+        );
+        break;
+      } catch (err) {
+        if (!(err instanceof SandboxPreparingError) || Date.now() + err.retryAfterMs > deadline) throw err;
+        await new Promise((resolve) => setTimeout(resolve, err.retryAfterMs));
+      }
+    }
     const resolved: SandboxHandle = {
       name: String(handle.name ?? name),
       class: String(handle.class ?? ""),
@@ -449,6 +465,13 @@ export class SandboxClient {
       throw new SandboxUnavailableError(err);
     }
 
+    const retryAfter = res.headers.get("retry-after");
+    if (res.status === 503 && retryAfter !== null && /^\d+$/.test(retryAfter)) {
+      throw new SandboxPreparingError(
+        Number(retryAfter) * 1000,
+        await errorMessage(res, "the sandbox is being prepared"),
+      );
+    }
     if (res.status === 409) {
       throw new SandboxNotEnabledError(await errorMessage(res, "sandboxes are not enabled"));
     }

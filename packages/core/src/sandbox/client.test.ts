@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { SandboxClient } from "./client";
-import { SandboxNotEnabledError, SandboxRequestError } from "./types";
+import { SandboxNotEnabledError, SandboxPreparingError, SandboxRequestError } from "./types";
 
 const SERVER = "https://app.astropods.com";
 
@@ -250,5 +250,48 @@ describe("SandboxClient", () => {
 
   test("refuses to construct without a token rather than failing at the first call", async () => {
     expect(() => new SandboxClient({ identityToken: "not-a-token" })).toThrow();
+  });
+});
+
+describe("attach while the server prepares", () => {
+  const preparing = (retryAfter = "0") =>
+    new Response(JSON.stringify({ error: "the sandbox is being prepared, retry shortly" }), {
+      status: 503,
+      headers: { "content-type": "application/json", "retry-after": retryAfter },
+    });
+
+  test("retries a 503 that carries Retry-After until the handle is ready", async () => {
+    const { calls, fetchImpl } = stub([
+      () => preparing(),
+      () => preparing(),
+      () => attachResponse("https://mvm-1.example"),
+    ]);
+
+    const handle = await client(fetchImpl).attach("conv-1");
+
+    expect(handle.endpoint).toBe("https://mvm-1.example");
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(3);
+  });
+
+  test("gives up once the next retry would pass the prepare timeout", async () => {
+    const { calls, fetchImpl } = stub([() => preparing("5")]);
+    const c = new SandboxClient({ identityToken: deployToken(), fetchImpl, prepareTimeoutSeconds: 1 });
+
+    const err = await c.attach("conv-1").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(SandboxPreparingError);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("does not retry a 503 without Retry-After, which is a server that runs no sandboxes", async () => {
+    const { calls, fetchImpl } = stub([
+      () => json({ error: "sandboxes are not configured on this server" }, 503),
+    ]);
+
+    const err = await client(fetchImpl).attach("conv-1").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(SandboxRequestError);
+    expect(err).not.toBeInstanceOf(SandboxPreparingError);
+    expect(calls).toHaveLength(1);
   });
 });

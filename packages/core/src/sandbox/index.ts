@@ -1,6 +1,7 @@
 export { SandboxClient } from "./client.js";
 export {
   SandboxNotEnabledError,
+  SandboxPreparingError,
   SandboxRequestError,
   SandboxUnavailableError,
 } from "./types.js";
