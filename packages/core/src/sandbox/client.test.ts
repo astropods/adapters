@@ -157,12 +157,49 @@ describe("SandboxClient", () => {
     expect(calls.filter((call) => call.method === "PUT")).toHaveLength(1);
   });
 
-  test("reports a disabled account as its own error", async () => {
-    const { fetchImpl } = stub([() => json({ error: "sandboxes are not enabled" }, 409)]);
+  test("reports an agent that declares no sandbox as its own error", async () => {
+    const { fetchImpl } = stub([
+      () => json({ error: "this agent declares no sandbox", code: "SANDBOX_NOT_DECLARED" }, 409),
+    ]);
 
-    await expect(client(fetchImpl).attach("conv-1")).rejects.toBeInstanceOf(
-      SandboxNotEnabledError,
-    );
+    const err = await client(fetchImpl).attach("conv-1").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(SandboxNotEnabledError);
+    expect((err as SandboxNotEnabledError).code).toBe("SANDBOX_NOT_DECLARED");
+  });
+
+  test("reports a server with no sandboxes as its own error", async () => {
+    const { fetchImpl } = stub([
+      () => json({ error: "sandboxes are not available", code: "SANDBOXES_NOT_CONFIGURED" }, 409),
+    ]);
+
+    await expect(client(fetchImpl).attach("conv-1")).rejects.toBeInstanceOf(SandboxNotEnabledError);
+  });
+
+  test("does not call a failed install a disabled sandbox", async () => {
+    const { fetchImpl } = stub([
+      () =>
+        json(
+          { error: "the sandbox declaration failed to install at packages", code: "SANDBOX_APPLY_FAILED" },
+          409,
+        ),
+    ]);
+
+    const err = await client(fetchImpl).attach("conv-1").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(SandboxRequestError);
+    expect(err).not.toBeInstanceOf(SandboxNotEnabledError);
+    expect((err as SandboxRequestError).code).toBe("SANDBOX_APPLY_FAILED");
+    expect((err as Error).message).toContain("packages");
+  });
+
+  test("treats a 409 with no code as an ordinary refusal", async () => {
+    const { fetchImpl } = stub([() => json({ error: "the sandbox failed to prepare" }, 409)]);
+
+    const err = await client(fetchImpl).attach("conv-1").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(SandboxRequestError);
+    expect(err).not.toBeInstanceOf(SandboxNotEnabledError);
   });
 
   test("names the status and the body when something other than the control plane answers", async () => {

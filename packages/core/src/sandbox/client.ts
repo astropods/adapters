@@ -24,6 +24,9 @@ const DEFAULT_TIMEOUT_SECONDS = 30;
 const DEFAULT_PREPARE_TIMEOUT_SECONDS = 15 * 60;
 const DEFAULT_RETRY_AFTER_MS = 5000;
 
+/** The control plane's codes for "sandboxes cannot be used here". */
+const NOT_ENABLED_CODES = new Set(["SANDBOXES_NOT_CONFIGURED", "SANDBOX_NOT_DECLARED"]);
+
 /** Per stream, matching maxOutputBytes in apps/astro-sandbox/internal/exec. */
 const EXEC_OUTPUT_CAP_BYTES = 1 << 20;
 
@@ -444,7 +447,8 @@ export class SandboxClient {
     }
 
     if (!res.ok) {
-      throw new SandboxRequestError(res.status, await errorMessage(res, fallback));
+      const { message, code } = await errorBody(res, fallback);
+      throw new SandboxRequestError(res.status, message, code);
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
@@ -470,11 +474,12 @@ export class SandboxClient {
       const retryAfter = res.headers.get("retry-after") ?? "";
       throw new SandboxPreparingError(/^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : DEFAULT_RETRY_AFTER_MS);
     }
-    if (res.status === 409) {
-      throw new SandboxNotEnabledError(await errorMessage(res, "sandboxes are not enabled"));
-    }
     if (!res.ok) {
-      throw new SandboxRequestError(res.status, await errorMessage(res, `${method} ${path} failed`));
+      const { message, code } = await errorBody(res, `${method} ${path} failed`);
+      if (res.status === 409 && code !== undefined && NOT_ENABLED_CODES.has(code)) {
+        throw new SandboxNotEnabledError(message, code);
+      }
+      throw new SandboxRequestError(res.status, message, code);
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
@@ -516,16 +521,18 @@ function toRecord(row: Record<string, unknown>): SandboxRecord {
  * and a CDN or proxy body is not JSON, so the raw body has to survive into the
  * message. Without it the caller only learns that the call failed.
  */
-async function errorMessage(res: Response, fallback: string): Promise<string> {
+async function errorBody(res: Response, fallback: string): Promise<{ message: string; code?: string }> {
   const raw = await res.text().catch(() => "");
-  if (!raw) return fallback;
+  if (!raw) return { message: fallback };
   try {
-    const body = JSON.parse(raw) as { error?: string };
-    if (typeof body.error === "string") return body.error;
+    const body = JSON.parse(raw) as { error?: unknown; code?: unknown };
+    if (typeof body.error === "string") {
+      return { message: body.error, code: typeof body.code === "string" ? body.code : undefined };
+    }
   } catch {
     // Not JSON. Fall through to the raw body.
   }
-  return `${fallback}: ${raw.replace(/\s+/g, " ").trim().slice(0, 200)}`;
+  return { message: `${fallback}: ${raw.replace(/\s+/g, " ").trim().slice(0, 200)}` };
 }
 
 /**

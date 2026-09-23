@@ -127,11 +127,16 @@ export interface SandboxOptions {
   fetchImpl?: typeof fetch;
 }
 
-/** The control plane refused the request, with the status it used. */
+/**
+ * The control plane refused the request, with the status it used. `code`
+ * names the cause when the control plane gave one, such as
+ * `SANDBOX_APPLY_FAILED`.
+ */
 export class SandboxRequestError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code?: string,
   ) {
     super(`${message} (HTTP ${status})`);
     this.name = "SandboxRequestError";
@@ -155,10 +160,13 @@ export class SandboxUnavailableError extends Error {
   }
 }
 
-/** This account has not enabled sandboxes. */
+/**
+ * Sandboxes cannot be used here: the server runs none, or the deployed agent
+ * declares no `sandbox` section. Retrying does not help.
+ */
 export class SandboxNotEnabledError extends SandboxRequestError {
-  constructor(message: string) {
-    super(409, message);
+  constructor(message: string, code: string) {
+    super(409, message, code);
     this.name = "SandboxNotEnabledError";
   }
 }
