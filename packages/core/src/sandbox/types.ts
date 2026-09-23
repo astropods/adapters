@@ -138,13 +138,10 @@ export class SandboxRequestError extends Error {
   }
 }
 
-/** The server is still preparing the sandbox and said when to ask again. */
-export class SandboxPreparingError extends SandboxRequestError {
-  constructor(
-    readonly retryAfterMs: number,
-    message: string,
-  ) {
-    super(503, message);
+/** The server was still preparing the sandbox when `prepareTimeoutSeconds` ran out. */
+export class SandboxPreparingError extends Error {
+  constructor(readonly retryAfterMs: number) {
+    super("the sandbox is still being prepared");
     this.name = "SandboxPreparingError";
   }
 }
