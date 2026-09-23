@@ -25,6 +25,10 @@ alongside the message:
 `SandboxNotEnabledError` still extends `SandboxRequestError`, so code that
 catches the base class is unaffected.
 
+`SandboxPreparingError` is now exported from the package root too. It was
+only on the `/sandbox` subpath, so code importing the other errors from the
+root could not catch it.
+
 ## Migration
 
 Code that caught `SandboxNotEnabledError` to handle a failed install should

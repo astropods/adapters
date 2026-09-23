@@ -52,6 +52,7 @@ export type {
 } from "./sandbox/index.js";
 export {
   SandboxNotEnabledError,
+  SandboxPreparingError,
   SandboxRequestError,
   SandboxUnavailableError,
 } from "./sandbox/index.js";

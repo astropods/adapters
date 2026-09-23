@@ -336,3 +336,17 @@ describe("attach while the server prepares", () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe("package root", () => {
+  test("exports every sandbox error a caller catches", async () => {
+    const root = await import("../index");
+    for (const name of [
+      "SandboxNotEnabledError",
+      "SandboxPreparingError",
+      "SandboxRequestError",
+      "SandboxUnavailableError",
+    ]) {
+      expect(typeof (root as Record<string, unknown>)[name]).toBe("function");
+    }
+  });
+});
