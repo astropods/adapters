@@ -22,6 +22,7 @@ import {
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
 const DEFAULT_PREPARE_TIMEOUT_SECONDS = 15 * 60;
+const DEFAULT_RETRY_AFTER_MS = 5000;
 
 /** Per stream, matching maxOutputBytes in apps/astro-sandbox/internal/exec. */
 const EXEC_OUTPUT_CAP_BYTES = 1 << 20;
@@ -58,7 +59,7 @@ export class SandboxClient {
    * Resolves a name to a usable sandbox, creating one on the first call and
    * reusing it after. Safe to call on every turn: the server settles
    * concurrent first calls on one sandbox. A first attach installs the
-   * sandbox's declaration, so it waits out the server's 503s until
+   * sandbox's declaration, so it waits out the server's 202s until
    * `prepareTimeoutSeconds`.
    */
   async attach(name: string, sandboxClass?: string): Promise<SandboxHandle> {
@@ -465,12 +466,9 @@ export class SandboxClient {
       throw new SandboxUnavailableError(err);
     }
 
-    const retryAfter = res.headers.get("retry-after");
-    if (res.status === 503 && retryAfter !== null && /^\d+$/.test(retryAfter)) {
-      throw new SandboxPreparingError(
-        Number(retryAfter) * 1000,
-        await errorMessage(res, "the sandbox is being prepared"),
-      );
+    if (res.status === 202) {
+      const retryAfter = res.headers.get("retry-after") ?? "";
+      throw new SandboxPreparingError(/^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : DEFAULT_RETRY_AFTER_MS);
     }
     if (res.status === 409) {
       throw new SandboxNotEnabledError(await errorMessage(res, "sandboxes are not enabled"));

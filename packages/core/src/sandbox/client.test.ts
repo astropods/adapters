@@ -255,12 +255,12 @@ describe("SandboxClient", () => {
 
 describe("attach while the server prepares", () => {
   const preparing = (retryAfter = "0") =>
-    new Response(JSON.stringify({ error: "the sandbox is being prepared, retry shortly" }), {
-      status: 503,
+    new Response(JSON.stringify({ name: "conv-1", state: "creating", endpoint: "" }), {
+      status: 202,
       headers: { "content-type": "application/json", "retry-after": retryAfter },
     });
 
-  test("retries a 503 that carries Retry-After until the handle is ready", async () => {
+  test("calls again after a 202 until the handle is ready", async () => {
     const { calls, fetchImpl } = stub([
       () => preparing(),
       () => preparing(),
@@ -283,9 +283,13 @@ describe("attach while the server prepares", () => {
     expect(calls).toHaveLength(1);
   });
 
-  test("does not retry a 503 without Retry-After, which is a server that runs no sandboxes", async () => {
+  test("does not retry a 503, which is a server that runs no sandboxes", async () => {
     const { calls, fetchImpl } = stub([
-      () => json({ error: "sandboxes are not configured on this server" }, 503),
+      () =>
+        new Response(JSON.stringify({ error: "sandboxes are not configured on this server" }), {
+          status: 503,
+          headers: { "content-type": "application/json", "retry-after": "0" },
+        }),
     ]);
 
     const err = await client(fetchImpl).attach("conv-1").catch((e: unknown) => e);
