@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { LangChainInstrumentation } from "@arizeai/openinference-instrumentation-langchain";
+import { trace } from "@opentelemetry/api";
 
 import { instrumentLangChain } from "./instrumentation";
 
@@ -11,6 +12,9 @@ const PRIOR_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
 
 afterAll(() => {
+  // instrumentLangChain registers a process-global tracer provider, which
+  // adapter.test.ts cannot replace with its stub while it stays registered.
+  trace.disable();
   if (PRIOR_ENDPOINT === undefined) {
     delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
   } else {
