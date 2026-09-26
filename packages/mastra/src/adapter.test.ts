@@ -241,6 +241,100 @@ describe("MastraAdapter", () => {
       expect(hooks.chunks).toEqual(["Hello", " world"]);
     });
 
+    // A tool call between two text blocks fuses the last char of the first
+    // block with the first char of the second because Mastra opens the second
+    // block with a text-delta that carries no leading whitespace. The adapter
+    // now injects one space at that exact transition; mid-block deltas are
+    // untouched.
+    async function boundaryChunks(
+      parts: Array<{ type: string; payload?: unknown }>,
+    ): Promise<string[]> {
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model: modelFromParts(textParts(["seed"])),
+        instructions: "test",
+      });
+      const fullStream = (async function* () {
+        for (const p of parts) yield p;
+      })();
+      const originalStream = agent.stream.bind(agent);
+      (agent as { stream: typeof originalStream }).stream = mock(async () => ({
+        fullStream,
+      })) as unknown as typeof originalStream;
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      await adapter.stream("hi", hooks, defaultOptions);
+      return hooks.chunks;
+    }
+
+    test("injects a space between two text blocks separated by a tool call", async () => {
+      const chunks = await boundaryChunks([
+        { type: "text-start" },
+        { type: "text-delta", payload: { text: "in a clear table!" } },
+        { type: "text-end" },
+        { type: "tool-call" },
+        { type: "tool-result" },
+        { type: "text-start" },
+        { type: "text-delta", payload: { text: "Here's the breakdown" } },
+        { type: "finish" },
+      ]);
+      expect(chunks).toEqual(["in a clear table!", " Here's the breakdown"]);
+    });
+
+    test("does not inject when the new text block already begins with whitespace", async () => {
+      const chunks = await boundaryChunks([
+        { type: "text-start" },
+        { type: "text-delta", payload: { text: "in a clear table!" } },
+        { type: "text-end" },
+        { type: "tool-call" },
+        { type: "text-start" },
+        { type: "text-delta", payload: { text: " Here's the breakdown" } },
+        { type: "finish" },
+      ]);
+      expect(chunks).toEqual(["in a clear table!", " Here's the breakdown"]);
+    });
+
+    test("does not inject when the previous text block already ended with whitespace", async () => {
+      const chunks = await boundaryChunks([
+        { type: "text-start" },
+        { type: "text-delta", payload: { text: "in a clear table! " } },
+        { type: "text-end" },
+        { type: "tool-call" },
+        { type: "text-start" },
+        { type: "text-delta", payload: { text: "Here's the breakdown" } },
+        { type: "finish" },
+      ]);
+      expect(chunks).toEqual(["in a clear table! ", "Here's the breakdown"]);
+    });
+
+    test("leaves mid-block chunk boundaries alone", async () => {
+      const chunks = await boundaryChunks([
+        { type: "text-start" },
+        { type: "text-delta", payload: { text: "The user." } },
+        { type: "text-delta", payload: { text: "Name is joined without a space" } },
+        { type: "text-end" },
+        { type: "finish" },
+      ]);
+      expect(chunks).toEqual([
+        "The user.",
+        "Name is joined without a space",
+      ]);
+    });
+
+    test("injects a space when the new block starts with a non-letter (emoji, symbol)", async () => {
+      const chunks = await boundaryChunks([
+        { type: "text-start" },
+        { type: "text-delta", payload: { text: "." } },
+        { type: "text-end" },
+        { type: "tool-call" },
+        { type: "text-start" },
+        { type: "text-delta", payload: { text: "✅ done" } },
+        { type: "finish" },
+      ]);
+      expect(chunks).toEqual([".", " ✅ done"]);
+    });
+
     test("emits trace context when Mastra stream exposes trace IDs", async () => {
       const agent = new Agent({
         id: "test",

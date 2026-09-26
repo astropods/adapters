@@ -191,6 +191,13 @@ export class MastraAdapter implements AgentAdapter {
       | { kind: "approval" | "suspend"; toolCallId: string; toolName: string; args: unknown; resumeSchema: string; suspendPayload?: unknown }
       | null = null;
 
+    // Mastra brackets each Anthropic text block with `text-start`/`text-end`.
+    // When a tool call splits one turn into two text blocks, the second block's
+    // first delta often carries no leading whitespace, fusing with the last
+    // char of the first block. Bridge that transition here.
+    let lastTextChar = "";
+    let newTextBlock = false;
+
     for await (const chunk of stream.fullStream) {
       // Once stopped, drop any trailing chunks (including a Mastra abort/error
       // chunk) so we neither emit more text nor surface a spurious error.
@@ -198,9 +205,25 @@ export class MastraAdapter implements AgentAdapter {
       // A pause closes the segment; ignore anything Mastra emits after it.
       if (pause) continue;
       switch (chunk.type) {
-        case "text-delta":
-          hooks.onChunk(chunk.payload.text);
+        case "text-start":
+          newTextBlock = true;
           break;
+        case "text-delta": {
+          let t = chunk.payload.text;
+          if (
+            newTextBlock &&
+            lastTextChar &&
+            !/\s/.test(lastTextChar) &&
+            t.length > 0 &&
+            !/^\s/.test(t)
+          ) {
+            t = " " + t;
+          }
+          newTextBlock = false;
+          if (t.length > 0) lastTextChar = t[t.length - 1];
+          hooks.onChunk(t);
+          break;
+        }
 
         case "reasoning-start":
           hooks.onStatusUpdate({ status: "THINKING" });
