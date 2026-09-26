@@ -501,6 +501,96 @@ describe("MessagingBridge", () => {
       expect(deltas[1].chunk.content).toBe(" world");
     });
 
+    async function chunkStreamDeltas(chunks: string[]): Promise<string[]> {
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks) => {
+          for (const c of chunks) hooks.onChunk(c);
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+      mockResponseHandlers[0]({
+        conversationId: "conv-1",
+        incomingMessage: {
+          conversationId: "conv-1",
+          content: "hi",
+          platform: "slack",
+          user: { id: "user-1" },
+        },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+      return mockSendContentChunkCalls
+        .filter((c) => c.chunk.type === "DELTA")
+        .map((c) => c.chunk.content);
+    }
+
+    test("injects a space when a chunk boundary fuses `.` and a capitalized word", async () => {
+      const deltas = await chunkStreamDeltas(["all at once.", "Here's a sequencing"]);
+      expect(deltas).toEqual(["all at once.", " Here's a sequencing"]);
+    });
+
+    test("does not double-space when the boundary already has one", async () => {
+      const deltas = await chunkStreamDeltas(["all at once. ", "Here's more"]);
+      expect(deltas).toEqual(["all at once. ", "Here's more"]);
+    });
+
+    test("leaves mid-word chunk boundaries alone", async () => {
+      const deltas = await chunkStreamDeltas(["concat", "enation"]);
+      expect(deltas).toEqual(["concat", "enation"]);
+    });
+
+    test("leaves a lowercase continuation after `.` alone", async () => {
+      const deltas = await chunkStreamDeltas(["e.g.", "bar"]);
+      expect(deltas).toEqual(["e.g.", "bar"]);
+    });
+
+    test("injects a space after `!`", async () => {
+      const deltas = await chunkStreamDeltas(["Great!", "Next step"]);
+      expect(deltas).toEqual(["Great!", " Next step"]);
+    });
+
+    test("injects a space after `?`", async () => {
+      const deltas = await chunkStreamDeltas(["Why?", "Here's why"]);
+      expect(deltas).toEqual(["Why?", " Here's why"]);
+    });
+
+    test("injects a space after `:`", async () => {
+      const deltas = await chunkStreamDeltas(["Two consequences followed:", "There was no way"]);
+      expect(deltas).toEqual(["Two consequences followed:", " There was no way"]);
+    });
+
+    test("injects a space when the next chunk starts with a non-ASCII uppercase letter", async () => {
+      const deltas = await chunkStreamDeltas(["...fin.", "Élégant"]);
+      expect(deltas).toEqual(["...fin.", " Élégant"]);
+    });
+
+    test("looks past a trailing closing quote when deciding to inject", async () => {
+      const deltas = await chunkStreamDeltas([`He said, "Hello."`, "Then he left"]);
+      expect(deltas).toEqual([`He said, "Hello."`, " Then he left"]);
+    });
+
+    test("does not inject inside a fenced code block", async () => {
+      const deltas = await chunkStreamDeltas([
+        "```ts\nconst x = obj.foo.",
+        "Bar\n```",
+      ]);
+      expect(deltas).toEqual(["```ts\nconst x = obj.foo.", "Bar\n```"]);
+    });
+
+    test("resumes injection after a fenced code block closes", async () => {
+      const deltas = await chunkStreamDeltas([
+        "```\ncode.here\n```",
+        "Continues normally",
+      ]);
+      expect(deltas).toEqual(["```\ncode.here\n```", "Continues normally"]);
+    });
+
+    test("known limitation: inline identifier `x.Foo` outside a code block still gets a space", async () => {
+      const deltas = await chunkStreamDeltas(["The user.", "Name field"]);
+      expect(deltas).toEqual(["The user.", " Name field"]);
+    });
+
     test("attaches trace context to content chunks once the hook fires", async () => {
       const traceContext = {
         traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",

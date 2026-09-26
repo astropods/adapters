@@ -96,6 +96,10 @@ function debug(msg: string) {
   if (process.env.DEBUG) logger.debug(msg);
 }
 
+function endsClause(ch: string): boolean {
+  return ch === "." || ch === "!" || ch === "?" || ch === ":";
+}
+
 /**
  * Rejection for a strict Renderable (no RESPOND) that reached a surface which
  * cannot render it. Lets out-of-loop callers tell "couldn't ask" apart from a
@@ -282,6 +286,9 @@ export class MessagingBridge {
     // onTraceContext fires — the SDK omits the field then.
     const trace = () => (traceContext ? { traceContext } : undefined);
 
+    let lastEmittedChar = "";
+    let insideFencedCode = false;
+
     return {
       onTraceContext: (tc) => {
         if (!tc?.traceparent) return;
@@ -289,6 +296,20 @@ export class MessagingBridge {
         debug(`[bridge] Trace context attached: conversation=${conversationId}`);
       },
       onChunk: (text: string) => {
+        if (text.length > 0) {
+          if (
+            !insideFencedCode &&
+            endsClause(lastEmittedChar) &&
+            /^\p{Lu}/u.test(text)
+          ) {
+            text = " " + text;
+          }
+          const fences = text.match(/```/g)?.length ?? 0;
+          if (fences % 2 === 1) insideFencedCode = !insideFencedCode;
+          const trimmed = text.replace(/[)\]}"'"”’»]+$/u, "");
+          const tail = trimmed.length > 0 ? trimmed[trimmed.length - 1] : text[text.length - 1];
+          lastEmittedChar = tail;
+        }
         stream.sendContentChunk(conversationId, { type: "DELTA", content: text }, trace());
       },
       onStatusUpdate: (status) => {
