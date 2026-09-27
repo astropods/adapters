@@ -10,6 +10,12 @@ import { UnsupportedRenderableError, createTraceparent, logger } from "@astropod
 /** The object agent.stream()/approveToolCall()/resumeStream() all resolve to. */
 type MastraStream = Awaited<ReturnType<Agent["stream"]>>;
 
+/** Text-block-boundary state carried across pause/resume segments. */
+interface BoundaryState {
+  lastTextChar: string;
+  forceNewBlock: boolean;
+}
+
 // Approve / deny a tool-permission ask. A permission has no form to fill, so
 // declining is the escape rather than cancelling.
 const APPROVAL_ACTIONS: RenderableAction[] = [
@@ -167,11 +173,21 @@ export class MastraAdapter implements AgentAdapter {
     // (the end chunk only carries toolCallId, not toolName).
     const toolNames = new Map<string, string>();
 
+    // Mastra brackets each Anthropic text block with `text-start`/`text-end`.
+    // When a tool call splits one turn into two text blocks, the second block's
+    // first delta often carries no leading whitespace, fusing with the last
+    // char of the first block. State persists across pause/resume so a
+    // resumed segment's first block also gets bridged from the prior tail.
+    const boundary: BoundaryState = { lastTextChar: "", forceNewBlock: false };
+
     // A tool that needs approval or user input pauses the stream and hands back
     // a continuation to resume. Consume each segment until the turn ends.
     let segment: MastraStream | null = stream;
     while (segment) {
-      segment = await this.consumeSegment(segment, hooks, options, toolNames);
+      // Every resumed segment opens what the reader perceives as a new block,
+      // whether Mastra emits an explicit `text-start` first or not.
+      boundary.forceNewBlock = boundary.lastTextChar !== "";
+      segment = await this.consumeSegment(segment, hooks, options, toolNames, boundary);
     }
   }
 
@@ -184,12 +200,16 @@ export class MastraAdapter implements AgentAdapter {
     stream: MastraStream,
     hooks: StreamHooks,
     options: StreamOptions,
-    toolNames: Map<string, string>
+    toolNames: Map<string, string>,
+    boundary: BoundaryState
   ): Promise<MastraStream | null> {
     const runId = stream.runId;
     let pause:
       | { kind: "approval" | "suspend"; toolCallId: string; toolName: string; args: unknown; resumeSchema: string; suspendPayload?: unknown }
       | null = null;
+
+    let newTextBlock = boundary.forceNewBlock;
+    boundary.forceNewBlock = false;
 
     for await (const chunk of stream.fullStream) {
       // Once stopped, drop any trailing chunks (including a Mastra abort/error
@@ -198,9 +218,29 @@ export class MastraAdapter implements AgentAdapter {
       // A pause closes the segment; ignore anything Mastra emits after it.
       if (pause) continue;
       switch (chunk.type) {
-        case "text-delta":
-          hooks.onChunk(chunk.payload.text);
+        case "text-start":
+          newTextBlock = true;
           break;
+        case "text-delta": {
+          let t = chunk.payload.text;
+          // A block boundary that splits a token like "$" + "500" gets a
+          // space too. The trigger is whitespace, not letter class.
+          if (
+            newTextBlock &&
+            boundary.lastTextChar &&
+            !/\s/.test(boundary.lastTextChar) &&
+            t.length > 0 &&
+            !/^\s/.test(t)
+          ) {
+            t = " " + t;
+          }
+          if (t.length > 0) {
+            newTextBlock = false;
+            boundary.lastTextChar = t[t.length - 1];
+          }
+          hooks.onChunk(t);
+          break;
+        }
 
         case "reasoning-start":
           hooks.onStatusUpdate({ status: "THINKING" });
