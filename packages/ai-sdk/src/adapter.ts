@@ -1,4 +1,4 @@
-import type { Agent, ToolSet } from "ai";
+import type { Agent, ModelMessage, ToolSet } from "ai";
 import type { AgentConfig as MessagingAgentConfig } from "@astropods/messaging";
 import type {
   AgentAdapter,
@@ -10,6 +10,8 @@ export interface AISDKAdapterOptions {
   name?: string;
   /** The AI SDK `Agent` interface exposes no `instructions` field, so accept them here for the playground. */
   instructions?: string;
+  /** Turns of history each conversation keeps in process. Defaults to 20. */
+  maxTurns?: number;
 }
 
 export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
@@ -17,6 +19,9 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
 {
   readonly name: string;
   private readonly instructions: string;
+  private readonly maxTurns: number;
+  // Whole turns, so trimming never separates a tool call from its result.
+  private readonly conversations = new Map<string, ModelMessage[][]>();
 
   constructor(
     private agent: Agent<never, TOOLS, any>,
@@ -24,14 +29,21 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
   ) {
     this.name = options.name ?? agent.id ?? "AI SDK Agent";
     this.instructions = options.instructions ?? "";
+    this.maxTurns = options.maxTurns ?? 20;
   }
 
   async stream(
     prompt: string,
     hooks: StreamHooks,
-    _options: StreamOptions
+    options: StreamOptions
   ): Promise<void> {
-    const result = await this.agent.stream({ prompt });
+    const turns = this.conversations.get(options.conversationId) ?? [];
+    const ask: ModelMessage = { role: "user", content: prompt };
+    const result = await this.agent.stream({
+      messages: [...turns.flat(), ask],
+      abortSignal: options.signal,
+    });
+    let failed = false;
 
     // tool-input-end carries only the call id; track id → name on -start.
     const toolNames = new Map<string, string>();
@@ -81,6 +93,7 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
           break;
 
         case "error":
+          failed = true;
           hooks.onError(
             part.error instanceof Error
               ? part.error
@@ -89,6 +102,13 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
           break;
       }
     }
+
+    if (failed) return;
+    const { messages } = await result.response;
+    this.conversations.set(
+      options.conversationId,
+      [...turns, [ask, ...messages]].slice(-this.maxTurns)
+    );
   }
 
   getConfig(): MessagingAgentConfig {

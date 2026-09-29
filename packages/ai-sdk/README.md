@@ -53,6 +53,8 @@ serve(agent, { name: "My Agent", instructions });
 
 Passing `instructions` into the `serve()` function allows your agent's system prompt to be visible in the Astropods playground. This is optional. To hide your prompts exclude `instructions` from the `serve` call.
 
+Each conversation keeps its history in process, keyed by the messaging conversation ID, so a follow-up reaches the model with the earlier turns. The history resets when the agent restarts. It drops the oldest whole turns past `maxTurns`, and a turn that ends in an error is not kept.
+
 `serve()` blocks until `SIGINT` or `SIGTERM`. Under `ast dev`, the CLI injects `GRPC_SERVER_ADDR` for you.
 
 ## API
@@ -65,6 +67,7 @@ Connects the agent to the messaging service.
 |--------|------|-------------|
 | `name` | `string` | Display name shown in logs and the playground. Defaults to `agent.id`, then `"AI SDK Agent"`. |
 | `instructions` | `string` | Optional. System prompt shown in the playground when provided. |
+| `maxTurns` | `number` | Turns of history each conversation keeps. Defaults to `20`. |
 | `serverAddress` | `string` | Override the gRPC address. Defaults to `process.env.GRPC_SERVER_ADDR ?? "localhost:9090"`. |
 
 ### `astroTelemetry()`
