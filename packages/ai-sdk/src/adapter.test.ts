@@ -259,7 +259,7 @@ describe("AISDKAdapter conversation history", () => {
         const reply = `reply ${calls.length}`;
         return {
           fullStream: asyncFrom([{ type: "text-delta", id: "t-0", text: reply }]),
-          response: Promise.resolve({ messages: [{ role: "assistant", content: reply }] }),
+          responseMessages: Promise.resolve([{ role: "assistant", content: reply }]),
         } as any;
       },
     });
@@ -397,5 +397,214 @@ describe("AISDKAdapter failed turns", () => {
     await adapter.stream("second", createHooks(), defaultOptions);
 
     expect(calls[1].messages).toEqual([{ role: "user", content: "second" }]);
+  });
+});
+
+describe("AISDKAdapter history with tools on a real ToolLoopAgent", () => {
+  const finish = (unified: string) => ({
+    type: "finish",
+    finishReason: { unified, raw: undefined },
+    usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } },
+  });
+
+  async function toolAgent(withExecute: boolean) {
+    const { ToolLoopAgent, jsonSchema, simulateReadableStream, stepCountIs, tool } = await import("ai");
+    const { MockLanguageModelV4 } = await import("ai/test");
+    const prompts: any[] = [];
+    const model = new MockLanguageModelV4({
+      doStream: async ({ prompt }: any) => {
+        prompts.push(prompt);
+        const last = prompt.at(-1);
+        const text = JSON.stringify(last.content);
+        const chunks =
+          last.role === "user" && text.includes("look it up")
+            ? [{ type: "tool-call", toolCallId: "c1", toolName: "lookup", input: "{}" }, finish("tool-calls")]
+            : [
+                { type: "text-start", id: "t-0" },
+                { type: "text-delta", id: "t-0", delta: "answer" },
+                { type: "text-end", id: "t-0" },
+                finish("stop"),
+              ];
+        return { stream: simulateReadableStream({ chunks: chunks as any }) };
+      },
+    });
+    const lookup = withExecute
+      ? tool({ description: "Look up", inputSchema: jsonSchema({ type: "object", properties: {} }), execute: async () => "TOOLRESULT42" })
+      : tool({ description: "Look up", inputSchema: jsonSchema({ type: "object", properties: {} }) });
+    const agent = new ToolLoopAgent({ model, tools: { lookup }, stopWhen: stepCountIs(5) });
+    return { adapter: new AISDKAdapter(agent as any), prompts };
+  }
+
+  test("a follow-up carries the earlier turn's tool call and result", async () => {
+    const { adapter, prompts } = await toolAgent(true);
+
+    await adapter.stream("look it up", createHooks(), defaultOptions);
+    await adapter.stream("and then?", createHooks(), defaultOptions);
+
+    const followUp = JSON.stringify(prompts.at(-1));
+    expect(followUp).toContain('"tool-call"');
+    expect(followUp).toContain("TOOLRESULT42");
+  });
+
+  test("a turn that ends on an unanswered tool call does not break the follow-up", async () => {
+    const { adapter, prompts } = await toolAgent(false);
+
+    await adapter.stream("look it up", createHooks(), defaultOptions);
+    const hooks = createHooks();
+    await adapter.stream("and then?", hooks, defaultOptions);
+
+    expect(hooks.errors).toEqual([]);
+    expect(prompts).toHaveLength(2);
+    expect(JSON.stringify(prompts[1])).not.toContain('"tool-call"');
+  });
+});
+
+describe("AISDKAdapter history rules", () => {
+  function scriptedAgent(script: (call: number) => { parts?: any[]; messages?: any[]; gate?: Promise<void> }) {
+    const calls: any[] = [];
+    const agent = fakeAgent([], {
+      stream: async (params: any) => {
+        calls.push(params);
+        const n = calls.length;
+        const { parts = [], messages = [{ role: "assistant", content: `reply ${n}` }], gate } = script(n);
+        async function* gated() {
+          if (gate) await gate;
+          yield* parts;
+        }
+        return { fullStream: gated(), responseMessages: Promise.resolve(messages) } as any;
+      },
+    });
+    return { agent, calls };
+  }
+  const contents = (call: any) => call.messages.map((m: any) => (typeof m.content === "string" ? m.content : m.content[0]?.type));
+
+  test("a failed turn drops the older half of the history", async () => {
+    const { agent, calls } = scriptedAgent((n) => (n === 3 ? { parts: [{ type: "error", error: new Error("context too long") }] } : {}));
+    const adapter = new AISDKAdapter(agent);
+
+    await adapter.stream("first", createHooks(), defaultOptions);
+    await adapter.stream("second", createHooks(), defaultOptions);
+    await adapter.stream("third fails", createHooks(), defaultOptions);
+    await adapter.stream("fourth", createHooks(), defaultOptions);
+
+    expect(contents(calls[3])).toEqual(["second", "reply 2", "fourth"]);
+  });
+
+  test("repeated failures clear the history, so the conversation recovers", async () => {
+    const { agent, calls } = scriptedAgent((n) => (n === 2 || n === 3 ? { parts: [{ type: "error", error: new Error("boom") }] } : {}));
+    const adapter = new AISDKAdapter(agent);
+
+    await adapter.stream("first", createHooks(), defaultOptions);
+    await adapter.stream("fails", createHooks(), defaultOptions);
+    await adapter.stream("fails again", createHooks(), defaultOptions);
+    await adapter.stream("recovered", createHooks(), defaultOptions);
+
+    expect(contents(calls[3])).toEqual(["recovered"]);
+  });
+
+  test("a stopped turn is not kept and does not shrink the history", async () => {
+    const { agent, calls } = scriptedAgent((n) => (n === 2 ? { parts: [{ type: "abort" }] } : {}));
+    const adapter = new AISDKAdapter(agent);
+
+    await adapter.stream("first", createHooks(), defaultOptions);
+    await adapter.stream("stopped", createHooks(), defaultOptions);
+    await adapter.stream("third", createHooks(), defaultOptions);
+
+    expect(contents(calls[2])).toEqual(["first", "reply 1", "third"]);
+  });
+
+  test("overlapping turns in one conversation are both kept", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { agent, calls } = scriptedAgent((n) => (n === 1 ? { gate } : {}));
+    const adapter = new AISDKAdapter(agent);
+
+    const slow = adapter.stream("slow", createHooks(), defaultOptions);
+    await adapter.stream("fast", createHooks(), defaultOptions);
+    release();
+    await slow;
+    await adapter.stream("next", createHooks(), defaultOptions);
+
+    expect(contents(calls[2])).toEqual(["fast", "reply 2", "slow", "reply 1", "next"]);
+  });
+
+  test("an oversized tool output is compacted, keeping earlier turns", async () => {
+    const page = "x".repeat(5000);
+    const { agent, calls } = scriptedAgent((n) =>
+      n === 2
+        ? {
+            messages: [
+              { role: "assistant", content: [{ type: "tool-call", toolCallId: "c1", toolName: "fetch", input: {} }] },
+              { role: "tool", content: [{ type: "tool-result", toolCallId: "c1", toolName: "fetch", output: { type: "text", value: page } }] },
+              { role: "assistant", content: "summary" },
+            ],
+          }
+        : {}
+    );
+    const adapter = new AISDKAdapter(agent, { maxHistoryBytes: 2000 });
+
+    await adapter.stream("first", createHooks(), defaultOptions);
+    await adapter.stream("fetch the page", createHooks(), defaultOptions);
+    await adapter.stream("and?", createHooks(), defaultOptions);
+
+    const sent = JSON.stringify(calls[2].messages);
+    expect(sent).toContain('"first"');
+    expect(sent).toContain('"tool-call"');
+    expect(sent).toContain("bytes of tool output dropped from history");
+    expect(sent).not.toContain(page);
+  });
+
+  test("memory: false sends only the prompt", async () => {
+    const { agent, calls } = scriptedAgent(() => ({}));
+    const adapter = new AISDKAdapter(agent, { memory: false });
+
+    await adapter.stream("first", createHooks(), defaultOptions);
+    await adapter.stream("second", createHooks(), defaultOptions);
+
+    expect(calls[1]).toEqual({ prompt: "second", abortSignal: undefined });
+  });
+
+  test("maxTurns: 0 turns history off", async () => {
+    const { agent, calls } = scriptedAgent(() => ({}));
+    const adapter = new AISDKAdapter(agent, { maxTurns: 0 });
+
+    await adapter.stream("first", createHooks(), defaultOptions);
+    await adapter.stream("second", createHooks(), defaultOptions);
+
+    expect(calls[1].prompt).toBe("second");
+    expect(calls[1].messages).toBeUndefined();
+  });
+
+  test("an empty conversation ID gets no shared history", async () => {
+    const { agent, calls } = scriptedAgent(() => ({}));
+    const adapter = new AISDKAdapter(agent);
+
+    await adapter.stream("first", createHooks(), { ...defaultOptions, conversationId: "" });
+    await adapter.stream("second", createHooks(), { ...defaultOptions, conversationId: "" });
+
+    expect(calls[1].prompt).toBe("second");
+  });
+
+  test("rejects a limit that is not a non-negative integer", () => {
+    const agent = fakeAgent([]);
+    for (const bad of [{ maxTurns: -1 }, { maxHistoryBytes: Number.NaN }, { maxConversations: 1.5 }]) {
+      expect(() => new AISDKAdapter(agent, bad)).toThrow(RangeError);
+    }
+  });
+
+  test("reads response.messages on ai 6, which has no responseMessages", async () => {
+    const calls: any[] = [];
+    const agent = fakeAgent([], {
+      stream: async (params: any) => {
+        calls.push(params);
+        return { fullStream: asyncFrom([]), response: Promise.resolve({ messages: [{ role: "assistant", content: "v6 reply" }] }) } as any;
+      },
+    });
+    const adapter = new AISDKAdapter(agent);
+
+    await adapter.stream("first", createHooks(), defaultOptions);
+    await adapter.stream("second", createHooks(), defaultOptions);
+
+    expect(contents(calls[1])).toEqual(["first", "v6 reply", "second"]);
   });
 });
