@@ -305,6 +305,39 @@ describe("AISDKAdapter conversation history", () => {
     ]);
   });
 
+  test("drops the oldest whole turns once the history passes maxHistoryBytes", async () => {
+    const { agent, calls } = recordingAgent();
+    const adapter = new AISDKAdapter(agent, { maxHistoryBytes: 200 });
+    const [first, second, third] = ["a", "b", "c"].map((c) => c.repeat(100));
+
+    await adapter.stream(first, createHooks(), defaultOptions);
+    await adapter.stream(second, createHooks(), defaultOptions);
+    await adapter.stream(third, createHooks(), defaultOptions);
+
+    expect(calls[2].messages).toEqual([
+      { role: "user", content: second },
+      { role: "assistant", content: "reply 2" },
+      { role: "user", content: third },
+    ]);
+  });
+
+  test("forgets the least recently used conversation past maxConversations", async () => {
+    const { agent, calls } = recordingAgent();
+    const adapter = new AISDKAdapter(agent, { maxConversations: 2 });
+    const turn = (conversationId: string, prompt: string) =>
+      adapter.stream(prompt, createHooks(), { ...defaultOptions, conversationId });
+
+    await turn("a", "a1");
+    await turn("b", "b1");
+    await turn("a", "a2");
+    await turn("c", "c1");
+    await turn("a", "a3");
+    await turn("b", "b2");
+
+    expect(calls[4].messages.map((m: any) => m.content)).toEqual(["a1", "reply 1", "a2", "reply 3", "a3"]);
+    expect(calls[5].messages).toEqual([{ role: "user", content: "b2" }]);
+  });
+
   test("forwards the stop signal to the model call", async () => {
     const { agent, calls } = recordingAgent();
     const adapter = new AISDKAdapter(agent);

@@ -12,6 +12,15 @@ export interface AISDKAdapterOptions {
   instructions?: string;
   /** Turns of history each conversation keeps in process. Defaults to 20. */
   maxTurns?: number;
+  /** Serialized size a conversation's history may reach, in bytes. Defaults to 256 KiB, about 64K tokens. */
+  maxHistoryBytes?: number;
+  /** Conversations kept in process; the least recently used is forgotten first. Defaults to 200. */
+  maxConversations?: number;
+}
+
+interface Turn {
+  messages: ModelMessage[];
+  bytes: number;
 }
 
 export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
@@ -20,8 +29,11 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
   readonly name: string;
   private readonly instructions: string;
   private readonly maxTurns: number;
+  private readonly maxHistoryBytes: number;
+  private readonly maxConversations: number;
   // Whole turns, so trimming never separates a tool call from its result.
-  private readonly conversations = new Map<string, ModelMessage[][]>();
+  // Insertion order is recency: a conversation is re-inserted on every turn.
+  private readonly conversations = new Map<string, Turn[]>();
 
   constructor(
     private agent: Agent<never, TOOLS, any>,
@@ -30,6 +42,8 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
     this.name = options.name ?? agent.id ?? "AI SDK Agent";
     this.instructions = options.instructions ?? "";
     this.maxTurns = options.maxTurns ?? 20;
+    this.maxHistoryBytes = options.maxHistoryBytes ?? 256 * 1024;
+    this.maxConversations = options.maxConversations ?? 200;
   }
 
   async stream(
@@ -40,7 +54,7 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
     const turns = this.conversations.get(options.conversationId) ?? [];
     const ask: ModelMessage = { role: "user", content: prompt };
     const result = await this.agent.stream({
-      messages: [...turns.flat(), ask],
+      messages: [...turns.flatMap((t) => t.messages), ask],
       abortSignal: options.signal,
     });
     let failed = false;
@@ -105,10 +119,26 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
 
     if (failed) return;
     const { messages } = await result.response;
-    this.conversations.set(
-      options.conversationId,
-      [...turns, [ask, ...messages]].slice(-this.maxTurns)
-    );
+    const turn = [ask, ...messages];
+    this.remember(options.conversationId, [
+      ...turns,
+      { messages: turn, bytes: Buffer.byteLength(JSON.stringify(turn)) },
+    ]);
+  }
+
+  private remember(conversationId: string, turns: Turn[]): void {
+    let kept = turns.slice(-this.maxTurns);
+    let bytes = kept.reduce((sum, t) => sum + t.bytes, 0);
+    while (kept.length > 0 && bytes > this.maxHistoryBytes) {
+      bytes -= kept[0].bytes;
+      kept = kept.slice(1);
+    }
+    this.conversations.delete(conversationId);
+    this.conversations.set(conversationId, kept);
+    for (const oldest of this.conversations.keys()) {
+      if (this.conversations.size <= this.maxConversations) break;
+      this.conversations.delete(oldest);
+    }
   }
 
   getConfig(): MessagingAgentConfig {

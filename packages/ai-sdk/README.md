@@ -53,7 +53,7 @@ serve(agent, { name: "My Agent", instructions });
 
 Passing `instructions` into the `serve()` function allows your agent's system prompt to be visible in the Astropods playground. This is optional. To hide your prompts exclude `instructions` from the `serve` call.
 
-Each conversation keeps its history in process, keyed by the messaging conversation ID, so a follow-up reaches the model with the earlier turns. The history resets when the agent restarts. It drops the oldest whole turns past `maxTurns`, and a turn that ends in an error is not kept.
+Each conversation keeps its history in process, keyed by the messaging conversation ID, so a follow-up reaches the model with the earlier turns. The history resets when the agent restarts. It drops the oldest whole turns past `maxTurns` or `maxHistoryBytes`, and a turn that ends in an error is not kept. At the defaults, history takes at most about 50 MB. A forgotten conversation loses only the agent's copy: the chat itself stays saved in the messaging service.
 
 `serve()` blocks until `SIGINT` or `SIGTERM`. Under `ast dev`, the CLI injects `GRPC_SERVER_ADDR` for you.
 
@@ -68,6 +68,8 @@ Connects the agent to the messaging service.
 | `name` | `string` | Display name shown in logs and the playground. Defaults to `agent.id`, then `"AI SDK Agent"`. |
 | `instructions` | `string` | Optional. System prompt shown in the playground when provided. |
 | `maxTurns` | `number` | Turns of history each conversation keeps. Defaults to `20`. |
+| `maxHistoryBytes` | `number` | Serialized size a conversation's history may reach. Defaults to 256 KiB, about 64K tokens. |
+| `maxConversations` | `number` | Conversations kept in memory; the least recently used is forgotten first. Defaults to `200`. |
 | `serverAddress` | `string` | Override the gRPC address. Defaults to `process.env.GRPC_SERVER_ADDR ?? "localhost:9090"`. |
 
 ### `astroTelemetry()`
