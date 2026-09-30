@@ -153,6 +153,39 @@ instrumentHttp();
 
 Both forms are idempotent and share a tracer provider with other Astropods adapters in the same process.
 
+## Connections
+
+A connection is a third-party account, such as GitHub, that the chatting user
+lets the agent use as them. The agent declares it under `connections` in
+`astropods.yml`, the user allows it in chat, and the agent fetches a token per
+turn.
+
+```ts
+import { ConnectionClient, ConnectionError } from "@astropods/adapter-core/connections";
+
+const connections = new ConnectionClient();
+
+const { accessToken } = await connections.getToken(options.userId, "github");
+```
+
+`new ConnectionClient()` reads `ASTRO_AUTHZ_TOKEN` from the environment and
+takes the server URL from that token. Pass the turn's `userId`: the server
+returns a token only for a user who allowed this agent and has messaged it in
+web chat in the last 15 minutes.
+
+A token with an expiry is reused until a minute before it expires. A token
+with none is fetched again on every call, so a revoke takes effect at once.
+
+A refusal throws `ConnectionError` with a `code`:
+
+| `code` | Tell the user |
+|---|---|
+| `not_consented` | Allow the connection in chat |
+| `not_active` | Send a message in web chat |
+| `not_connected` | Connect the provider on their personal account |
+| `needs_reauthorization` | Reconnect the provider |
+| `unavailable` | Try again later |
+
 ## Sandboxes
 
 A sandbox is an isolated machine an agent creates to run commands and hold
