@@ -19,6 +19,9 @@ auth = [
   "pyjwt[crypto]>=2.8",
   "httpx>=0.27",
 ]
+connections = [
+  "httpx>=0.27",
+]
 dev = [
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
