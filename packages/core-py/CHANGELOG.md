@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/astropods/adapters/compare/astropods-adapter-core-v0.8.0...astropods-adapter-core-v0.9.0) (2026-09-30)
+
+
+### Features
+
+* **core:** put the provider first in getToken, and add the Python client ([87f553c](https://github.com/astropods/adapters/commit/87f553cd551e7518d1e447293d4205593e4bd0a2))
+
 ## [0.8.0](https://github.com/astropods/adapters/compare/astropods-adapter-core-v0.7.0...astropods-adapter-core-v0.8.0) (2026-09-23)
 
 
