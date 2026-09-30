@@ -165,7 +165,7 @@ import { ConnectionClient, ConnectionError } from "@astropods/adapter-core/conne
 
 const connections = new ConnectionClient();
 
-const { accessToken } = await connections.getToken(options.userId, "github");
+const { accessToken } = await connections.getToken("github", options.userId);
 ```
 
 `new ConnectionClient()` reads `ASTRO_AUTHZ_TOKEN` from the environment and

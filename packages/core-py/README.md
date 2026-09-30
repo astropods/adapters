@@ -136,3 +136,27 @@ from astropods_adapter_core import MessagingBridge
 bridge = MessagingBridge(adapter)
 asyncio.run(bridge.start())
 ```
+
+## Connections
+
+A connection is a third-party account, such as GitHub, that the chatting user
+lets the agent use as them. Install the `connections` extra:
+
+```sh
+pip install "astropods-adapter-core[connections]"
+```
+
+```python
+from astropods_adapter_core.connections import ConnectionClient, ConnectionTokenError
+
+connections = ConnectionClient()
+
+token = connections.get_token("github", user_id)
+token = await connections.get_token_async("github", user_id)
+```
+
+`ConnectionClient()` reads `ASTRO_AUTHZ_TOKEN` and takes the server URL from
+it. The server returns a token only for a user who allowed this agent and has
+messaged it in web chat in the last 15 minutes. A refusal raises
+`ConnectionTokenError` with `code` set to `not_consented`, `not_active`,
+`not_connected`, `needs_reauthorization`, or `unavailable`.

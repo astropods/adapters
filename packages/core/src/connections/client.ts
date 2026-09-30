@@ -21,7 +21,7 @@ export class ConnectionClient {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  async getToken(userId: string, provider: string): Promise<ConnectionToken> {
+  async getToken(provider: string, userId: string): Promise<ConnectionToken> {
     if (!userId) throw new ConnectionError("not_consented", 0, "no user for this turn");
     const key = `${userId}\u0000${provider}`;
     const cached = this.cache.get(key);
