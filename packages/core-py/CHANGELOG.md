@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/astropods/adapters/compare/astropods-adapter-core-v0.9.0...astropods-adapter-core-v0.9.1) (2026-09-30)
+
+
+### Bug Fixes
+
+* **core:** log connection token requests, never the token ([dd5bcd7](https://github.com/astropods/adapters/commit/dd5bcd73b7dc5c3c1d85adb2d58354028065367f))
+
 ## [0.9.0](https://github.com/astropods/adapters/compare/astropods-adapter-core-v0.8.0...astropods-adapter-core-v0.9.0) (2026-09-30)
 
 
