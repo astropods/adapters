@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.13.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.12.1...@astropods/adapter-core@0.13.0) (2026-09-30)
+
+
+### Features
+
+* **core:** fetch the chatting user's connection tokens ([053bec1](https://github.com/astropods/adapters/commit/053bec1ae3b4358ba105dff45e9b9450fd8cea06))
+* **core:** put the provider first in getToken, and add the Python client ([87f553c](https://github.com/astropods/adapters/commit/87f553cd551e7518d1e447293d4205593e4bd0a2))
+* **core:** tell sandbox refusals apart by the code the server sends ([ec4c8c0](https://github.com/astropods/adapters/commit/ec4c8c00adbfc9f6a482b7f3008738d24b1eec25))
+
+
+
 ## [0.12.1](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.12.0...@astropods/adapter-core@0.12.1) (2026-09-23)
 
 
