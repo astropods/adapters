@@ -1,4 +1,5 @@
 import { decodeDeployToken } from "../auth/token.js";
+import { logger } from "../logger.js";
 import { ConnectionError, type ConnectionErrorCode, type ConnectionOptions, type ConnectionToken } from "./types.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 15;
@@ -22,10 +23,16 @@ export class ConnectionClient {
   }
 
   async getToken(provider: string, userId: string): Promise<ConnectionToken> {
-    if (!userId) throw new ConnectionError("not_consented", 0, "no user for this turn");
+    if (!userId) {
+      logger.warn({ provider }, "connections: token refused, no user for this turn");
+      throw new ConnectionError("not_consented", 0, "no user for this turn");
+    }
     const key = `${userId}\u0000${provider}`;
     const cached = this.cache.get(key);
-    if (cached && isFresh(cached)) return cached;
+    if (cached && isFresh(cached)) {
+      logger.debug({ provider, user_id: userId, expires_at: cached.expiresAt }, "connections: token reused from cache");
+      return cached;
+    }
     this.cache.delete(key);
 
     let res: Response;
@@ -37,16 +44,15 @@ export class ConnectionClient {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (err) {
+      logger.warn({ provider, user_id: userId, err }, "connections: token request failed");
       throw new ConnectionError("unavailable", 0, `connection token request failed: ${String(err)}`);
     }
 
     if (!res.ok) {
       const code = await errorCode(res);
-      throw new ConnectionError(
-        code && KNOWN_CODES.has(code as ConnectionErrorCode) ? (code as ConnectionErrorCode) : "unavailable",
-        res.status,
-        `${provider} connection token refused: ${code ?? res.statusText}`,
-      );
+      const known = code && KNOWN_CODES.has(code as ConnectionErrorCode) ? (code as ConnectionErrorCode) : "unavailable";
+      logger.warn({ provider, user_id: userId, status: res.status, code: code ?? null }, "connections: token refused");
+      throw new ConnectionError(known, res.status, `${provider} connection token refused: ${code ?? res.statusText}`);
     }
 
     const body = (await res.json()) as { access_token?: string; expires_at?: string; scopes?: string[] };
@@ -56,6 +62,10 @@ export class ConnectionClient {
       scopes: body.scopes ?? [],
     };
     this.cache.set(key, token);
+    logger.info(
+      { provider, user_id: userId, scopes: token.scopes, expires_at: token.expiresAt ?? null },
+      "connections: token issued",
+    );
     return token;
   }
 }
