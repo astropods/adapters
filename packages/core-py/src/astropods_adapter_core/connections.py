@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -10,6 +11,8 @@ from .auth.token import decode_deploy_token
 
 DEFAULT_TIMEOUT_SECONDS = 15.0
 REFRESH_MARGIN_SECONDS = 60.0
+logger = logging.getLogger("astropods.connections")
+
 KNOWN_CODES = frozenset({"not_consented", "not_active", "not_connected", "needs_reauthorization"})
 
 HttpPost = Callable[..., Any]
@@ -55,6 +58,7 @@ class ConnectionClient:
         try:
             res = self._post()(self._url(), **self._request(provider, user_id))
         except Exception as err:
+            logger.warning("connections: token request failed", extra={"provider": provider, "user_id": user_id, "error": str(err)})
             raise ConnectionTokenError("unavailable", 0, f"connection token request failed: {err}") from err
         return self._store(key, provider, res)
 
@@ -66,17 +70,20 @@ class ConnectionClient:
         try:
             res = await self._async_post()(self._url(), **self._request(provider, user_id))
         except Exception as err:
+            logger.warning("connections: token request failed", extra={"provider": provider, "user_id": user_id, "error": str(err)})
             raise ConnectionTokenError("unavailable", 0, f"connection token request failed: {err}") from err
         return self._store(key, provider, res)
 
     def _check(self, provider: str, user_id: str) -> tuple[str, str]:
         if not user_id:
+            logger.warning("connections: token refused, no user for this turn", extra={"provider": provider})
             raise ConnectionTokenError("not_consented", 0, "no user for this turn")
         return (user_id, provider)
 
     def _cached(self, key: tuple[str, str]) -> Optional[ConnectionToken]:
         token = self._cache.get(key)
         if token is not None and _is_fresh(token):
+            logger.debug("connections: token reused from cache", extra={"provider": key[1], "user_id": key[0]})
             return token
         self._cache.pop(key, None)
         return None
@@ -94,6 +101,10 @@ class ConnectionClient:
     def _store(self, key: tuple[str, str], provider: str, res: Any) -> ConnectionToken:
         if res.status_code != 200:
             code = _error_code(res)
+            logger.warning(
+                "connections: token refused",
+                extra={"provider": provider, "user_id": key[0], "status": res.status_code, "code": code},
+            )
             raise ConnectionTokenError(
                 code if code in KNOWN_CODES else "unavailable",
                 res.status_code,
@@ -106,6 +117,10 @@ class ConnectionClient:
             scopes=list(body.get("scopes") or []),
         )
         self._cache[key] = token
+        logger.info(
+            "connections: token issued",
+            extra={"provider": provider, "user_id": key[0], "scopes": token.scopes, "expires_at": token.expires_at},
+        )
         return token
 
     def _post(self) -> HttpPost:

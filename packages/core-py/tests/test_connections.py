@@ -126,3 +126,19 @@ async def test_the_async_form_posts_the_same_request_and_shares_the_cache():
     assert tok.access_token == again.access_token == "gho_1"
     assert calls[0]["json"] == {"user_id": "user_1", "provider": "github"}
     assert len(calls) == 1
+
+
+def test_logs_issue_and_refusal_without_the_token(caplog):
+    caplog.set_level("DEBUG", logger="astropods.connections")
+    ok = Recorder(lambda _: StubResponse({"access_token": "gho_secret_value"}))
+    ConnectionClient(identity_token=deploy_token(), http_post=ok).get_token("github", "user_1")
+    refused = Recorder(lambda _: StubResponse({"error": "not_active"}, 403))
+    with pytest.raises(ConnectionTokenError):
+        ConnectionClient(identity_token=deploy_token(), http_post=refused).get_token("github", "user_1")
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert "connections: token issued" in messages
+    assert "connections: token refused" in messages
+    assert any(getattr(r, "code", None) == "not_active" for r in caplog.records)
+    assert "gho_secret_value" not in caplog.text
+    assert all("gho_secret_value" not in str(r.__dict__) for r in caplog.records)

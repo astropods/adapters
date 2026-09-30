@@ -120,3 +120,31 @@ describe("ConnectionClient.getToken", () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+describe("ConnectionClient logging", () => {
+  test("never writes the access token to the log", async () => {
+    const { logger } = await import("../logger");
+    const lines: unknown[] = [];
+    const original = { info: logger.info, warn: logger.warn, debug: logger.debug };
+    for (const level of ["info", "warn", "debug"] as const) {
+      (logger as unknown as Record<string, (...args: unknown[]) => void>)[level] = (...args: unknown[]) => {
+        lines.push(args);
+      };
+    }
+    try {
+      const { fetchImpl } = stub(() => json({ access_token: "gho_secret_value", scopes: ["repo"] }));
+      await new ConnectionClient({ identityToken: deployToken(), fetchImpl }).getToken("github", "user_1");
+      const refused = stub(() => json({ error: "not_active" }, 403));
+      await new ConnectionClient({ identityToken: deployToken(), fetchImpl: refused.fetchImpl })
+        .getToken("github", "user_1")
+        .catch(() => {});
+    } finally {
+      Object.assign(logger, original);
+    }
+    const logged = JSON.stringify(lines);
+    expect(logged).toContain("connections: token issued");
+    expect(logged).toContain("connections: token refused");
+    expect(logged).toContain("not_active");
+    expect(logged).not.toContain("gho_secret_value");
+  });
+});
