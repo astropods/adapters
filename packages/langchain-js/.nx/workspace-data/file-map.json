@@ -1,0 +1,76 @@
+{
+  "version": "6.0",
+  "nxVersion": "22.7.6",
+  "pathMappings": {},
+  "nxJsonPlugins": [],
+  "fileMap": {
+    "projectFileMap": {},
+    "nonProjectFiles": [
+      {
+        "file": "CHANGELOG.md",
+        "hash": "4197121715945477682"
+      },
+      {
+        "file": "README.md",
+        "hash": "7958104262013018809"
+      },
+      {
+        "file": "moon.yml",
+        "hash": "236557778793278496"
+      },
+      {
+        "file": "package.json",
+        "hash": "5080751624261630668"
+      },
+      {
+        "file": "src/adapter.test.ts",
+        "hash": "18332433417260878575"
+      },
+      {
+        "file": "src/adapter.ts",
+        "hash": "2373445864275563052"
+      },
+      {
+        "file": "src/deepagents-sandbox.test.ts",
+        "hash": "2551955400766636663"
+      },
+      {
+        "file": "src/deepagents-sandbox.ts",
+        "hash": "9061658181946852643"
+      },
+      {
+        "file": "src/index.ts",
+        "hash": "7283136892292385450"
+      },
+      {
+        "file": "src/instrumentation.test.ts",
+        "hash": "17696444472926887925"
+      },
+      {
+        "file": "src/instrumentation.ts",
+        "hash": "10049145443043269344"
+      },
+      {
+        "file": "src/memory.test.ts",
+        "hash": "6942405695528359307"
+      },
+      {
+        "file": "src/memory.ts",
+        "hash": "4826718204604658098"
+      },
+      {
+        "file": "test-d/serve-compat.ts",
+        "hash": "9941776230797793703"
+      },
+      {
+        "file": "tsconfig.json",
+        "hash": "15044474240667887260"
+      },
+      {
+        "file": "tsconfig.typecheck.json",
+        "hash": "5289691909950998133"
+      }
+    ]
+  },
+  "externalNodesHash": "3244421341483603138"
+}
