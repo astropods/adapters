@@ -71,8 +71,10 @@ Connects the agent to the messaging service.
 
 Returns `experimental_telemetry` settings for the AI SDK, wired to Astro's OTLP exporter. The helper builds the tracer from an unregistered `NodeTracerProvider`, so it does not modify the OpenTelemetry global.
 
-- `OTEL_EXPORTER_OTLP_ENDPOINT` set: returns `{ isEnabled: true, tracer }`.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` set: returns `{ isEnabled: true, tracer, integrations }`. AI SDK 6 reads `tracer`. AI SDK 7 ignores `tracer` and sends spans only to telemetry integrations, so `integrations` holds an `@ai-sdk/otel` `OpenTelemetry` integration built on the same tracer.
 - Env var unset (local dev): returns `{ isEnabled: false }`. The AI SDK skips telemetry.
+
+On AI SDK 7, pass the settings as the agent's `telemetry` option, for example `new ToolLoopAgent({ model, telemetry: astroTelemetry() })`.
 
 Spread it on top of your own settings to add a `functionId` or `metadata`:
 
