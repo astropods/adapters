@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "astropods-adapter-core"
-version = "0.8.0"
+version = "0.9.1"
 description = "Framework-agnostic bridge between agent adapters and the Astropods messaging service"
 readme = "README.md"
 license = "Apache-2.0"
@@ -17,6 +17,9 @@ dependencies = [
 [project.optional-dependencies]
 auth = [
   "pyjwt[crypto]>=2.8",
+  "httpx>=0.27",
+]
+connections = [
   "httpx>=0.27",
 ]
 dev = [

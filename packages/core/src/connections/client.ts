@@ -1,0 +1,85 @@
+import { decodeDeployToken } from "../auth/token.js";
+import { logger } from "../logger.js";
+import { ConnectionError, type ConnectionErrorCode, type ConnectionOptions, type ConnectionToken } from "./types.js";
+
+const DEFAULT_TIMEOUT_SECONDS = 15;
+const REFRESH_MARGIN_MS = 60_000;
+
+const KNOWN_CODES = new Set<ConnectionErrorCode>(["not_consented", "not_active", "not_connected", "needs_reauthorization"]);
+
+export class ConnectionClient {
+  private readonly serverUrl: string;
+  private readonly token: string;
+  private readonly timeoutMs: number;
+  private readonly fetchImpl: typeof fetch;
+  private readonly cache = new Map<string, ConnectionToken>();
+
+  constructor(options: ConnectionOptions = {}) {
+    this.token = options.identityToken ?? process.env.ASTRO_AUTHZ_TOKEN ?? "";
+    const claims = decodeDeployToken(this.token);
+    this.serverUrl = (options.serverUrl ?? claims.issuer).replace(/\/+$/, "");
+    this.timeoutMs = (options.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS) * 1000;
+    this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+
+  async getToken(provider: string, userId: string): Promise<ConnectionToken> {
+    if (!userId) {
+      logger.warn({ provider }, "connections: token refused, no user for this turn");
+      throw new ConnectionError("not_consented", 0, "no user for this turn");
+    }
+    const key = `${userId}\u0000${provider}`;
+    const cached = this.cache.get(key);
+    if (cached && isFresh(cached)) {
+      logger.debug({ provider, user_id: userId, expires_at: cached.expiresAt }, "connections: token reused from cache");
+      return cached;
+    }
+    this.cache.delete(key);
+
+    let res: Response;
+    try {
+      res = await this.fetchImpl(`${this.serverUrl}/api/v1/deployments/connections/token`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ user_id: userId, provider }),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      logger.warn({ provider, user_id: userId, err }, "connections: token request failed");
+      throw new ConnectionError("unavailable", 0, `connection token request failed: ${String(err)}`);
+    }
+
+    if (!res.ok) {
+      const code = await errorCode(res);
+      const known = code && KNOWN_CODES.has(code as ConnectionErrorCode) ? (code as ConnectionErrorCode) : "unavailable";
+      logger.warn({ provider, user_id: userId, status: res.status, code: code ?? null }, "connections: token refused");
+      throw new ConnectionError(known, res.status, `${provider} connection token refused: ${code ?? res.statusText}`);
+    }
+
+    const body = (await res.json()) as { access_token?: string; expires_at?: string; scopes?: string[] };
+    const token: ConnectionToken = {
+      accessToken: body.access_token ?? "",
+      expiresAt: body.expires_at || undefined,
+      scopes: body.scopes ?? [],
+    };
+    this.cache.set(key, token);
+    logger.info(
+      { provider, user_id: userId, scopes: token.scopes, expires_at: token.expiresAt ?? null },
+      "connections: token issued",
+    );
+    return token;
+  }
+}
+
+function isFresh(token: ConnectionToken): boolean {
+  if (!token.expiresAt) return false;
+  return Date.parse(token.expiresAt) - REFRESH_MARGIN_MS > Date.now();
+}
+
+async function errorCode(res: Response): Promise<string | undefined> {
+  try {
+    const body = (await res.json()) as { error?: unknown };
+    return typeof body.error === "string" ? body.error : undefined;
+  } catch {
+    return undefined;
+  }
+}

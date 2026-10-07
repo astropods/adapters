@@ -1,7 +1,7 @@
 {
   "name": "@astropods/adapter-core",
   "license": "Apache-2.0",
-  "version": "0.12.1",
+  "version": "0.13.1",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -21,6 +21,10 @@
     "./sandbox": {
       "types": "./dist/sandbox/index.d.ts",
       "import": "./dist/sandbox/index.js"
+    },
+    "./connections": {
+      "types": "./dist/connections/index.d.ts",
+      "import": "./dist/connections/index.js"
     }
   },
   "files": [

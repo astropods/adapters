@@ -3,6 +3,23 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.4.3](https://github.com/astropods/adapters/compare/@astropods/adapter-ai-sdk@0.4.2...@astropods/adapter-ai-sdk@0.4.3) (2026-09-30)
+
+**Note:** Version bump only for package @astropods/adapter-ai-sdk
+
+
+
+
+
+## [0.4.2](https://github.com/astropods/adapters/compare/@astropods/adapter-ai-sdk@0.4.1...@astropods/adapter-ai-sdk@0.4.2) (2026-09-30)
+
+
+### Bug Fixes
+
+* **ai-sdk:** adapt to upstream changes for ai@7.0.120 ([#92](https://github.com/astropods/adapters/issues/92)) ([4705624](https://github.com/astropods/adapters/commit/470562483b7b394db28464ee5504cf9c5855bba6))
+
+
+
 ## [0.4.1](https://github.com/astropods/adapters/compare/@astropods/adapter-ai-sdk@0.4.0...@astropods/adapter-ai-sdk@0.4.1) (2026-09-23)
 
 **Note:** Version bump only for package @astropods/adapter-ai-sdk
