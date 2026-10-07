@@ -27,3 +27,33 @@ describe("astroTelemetry", () => {
     expect(globalDelegate()).toBe(before);
   });
 });
+
+describe("astroTelemetry with AI SDK 7", () => {
+  test("hands the tracer to an integration, since AI SDK 7 ignores the tracer field", async () => {
+    const { ToolLoopAgent } = await import("ai");
+    const { MockLanguageModelV4 } = await import("ai/test");
+    const settings = astroTelemetry();
+    const tracer = settings.tracer!;
+    let spans = 0;
+    const startSpan = tracer.startSpan.bind(tracer);
+    tracer.startSpan = ((...args: Parameters<typeof startSpan>) => {
+      spans++;
+      return startSpan(...args);
+    }) as typeof tracer.startSpan;
+    const model = new MockLanguageModelV4({
+      doGenerate: async () => ({
+        content: [{ type: "text", text: "hello" }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: {
+          inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 1, text: 1, reasoning: 0 },
+        },
+        warnings: [],
+      }),
+    });
+
+    await new ToolLoopAgent({ model, telemetry: settings }).generate({ prompt: "hi" });
+
+    expect(spans).toBeGreaterThan(0);
+  });
+});

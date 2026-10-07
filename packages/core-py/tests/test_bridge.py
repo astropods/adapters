@@ -115,6 +115,16 @@ class TestStreamHooksImpl:
         assert response.error.code == ErrorResponse.ErrorCode.Value("AGENT_ERROR")
         assert "something went wrong" in response.error.message
 
+    def test_on_error_logs_the_conversation_and_traceback(self, caplog):
+        try:
+            raise ValueError("tool exploded")
+        except ValueError as exc:
+            with caplog.at_level("ERROR", logger="astropods_adapter_core.bridge"):
+                self.hooks.on_error(exc)
+        record = caplog.records[-1]
+        assert "conv-123" in record.getMessage()
+        assert record.exc_info is not None, "without the traceback the log names the error but not where it was raised"
+
     def test_on_error_sets_finished_flag(self):
         self.hooks.on_error(Exception("err"))
         self.hooks.on_finish()  # should be ignored

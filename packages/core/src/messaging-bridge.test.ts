@@ -1343,6 +1343,30 @@ describe("MessagingBridge", () => {
       expect(mockSendAgentResponseCalls).toHaveLength(0);
     });
 
+    test("an adapter that reports its own abort through onError surfaces no agent error", async () => {
+      const adapter = createMockAdapter({
+        stream: (_p, hooks, opts) =>
+          new Promise<void>((resolve) => {
+            opts?.signal?.addEventListener("abort", () => {
+              hooks.onError(new Error("This operation was aborted"));
+              resolve();
+            });
+          }),
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      sendMessage("conv-1");
+      await new Promise((r) => setTimeout(r, 10));
+      emitFeedback({
+        conversationId: "conv-1",
+        streamControl: { action: "STOP", reason: "" },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(mockSendAgentResponseCalls).toHaveLength(0);
+    });
+
     test("a new message supersedes and aborts the prior in-flight turn", async () => {
       const signals: AbortSignal[] = [];
       const adapter = createMockAdapter({

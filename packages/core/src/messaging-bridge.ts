@@ -265,7 +265,7 @@ export class MessagingBridge {
     process.on("SIGTERM", this.shutdownHandler);
   }
 
-  private buildHooks(conversationId: string): StreamHooks {
+  private buildHooks(conversationId: string, signal?: AbortSignal): StreamHooks {
     const stream = this.stream!;
 
     // Files the agent emits via onFile are buffered and delivered on the END
@@ -296,7 +296,12 @@ export class MessagingBridge {
       },
       // No dedicated sender for errors — build the AgentResponse directly.
       onError: (error: Error) => {
-        logger.error({ err: error }, "Agent error");
+        // A stopped turn is finalized by the sidecar, whichever way the adapter reports it.
+        if (signal?.aborted) {
+          debug(`[bridge] Ignoring error from a stopped turn: conversation=${conversationId}`);
+          return;
+        }
+        logger.error({ err: error, conversationId }, "Agent error");
         stream.sendAgentResponse({
           conversationId,
           ...trace(),
@@ -519,7 +524,7 @@ export class MessagingBridge {
     // Signal start of streaming response
     stream.sendContentChunk(conversationId, { type: "START", content: "" });
 
-    const hooks = this.buildHooks(conversationId);
+    const hooks = this.buildHooks(conversationId, controller.signal);
 
     this.adapter
       .stream(message.content, hooks, {

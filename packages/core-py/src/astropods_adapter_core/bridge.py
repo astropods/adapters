@@ -149,7 +149,7 @@ class _StreamHooksImpl:
         )
         response = self._response(error=err)
         self._enqueue(ConversationRequest(agent_response=response))
-        logger.error("Agent error: %s", error)
+        logger.error("Agent error: conversation=%s: %s", self._conversation_id, error, exc_info=error)
 
     def on_file(self, name: str, mime_type: Optional[str] = None, size: Optional[int] = None) -> None:
         if self._finished or not name:
