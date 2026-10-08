@@ -86,6 +86,15 @@ For stateless replies, pass `{ memory: false }` to `serve()` or set `checkpointe
 serve(agent.withConfig({ recursionLimit: 100 }), { name: "My Agent" });
 ```
 
+`configurable.user_name` carries the sender's display name on the source platform (their Slack display name, or their Astro name in web chat). It is absent when the platform sent none. A tool reads it from its run config:
+
+```typescript
+const whoAmI = tool(
+  async (_input, config) => `You are ${config.configurable?.user_name ?? "unknown"}.`,
+  { name: "who_am_i", description: "Name the current user", schema: z.object({}) }
+);
+```
+
 ## API
 
 ### `serve(agent, options?)`

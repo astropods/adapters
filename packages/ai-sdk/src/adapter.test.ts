@@ -46,6 +46,86 @@ function fakeAgent(
 }
 
 describe("AISDKAdapter", () => {
+  describe("call options", () => {
+    test("passes the agent the call options built from the turn", async () => {
+      let received: unknown;
+      const agent = {
+        ...fakeAgent([]),
+        stream: async (params: unknown) => {
+          received = params;
+          return { fullStream: asyncFrom([]) } as any;
+        },
+      } as unknown as Agent<{ userName?: string }, ToolSet, any>;
+      const adapter = new AISDKAdapter(agent, {
+        callOptions: (options) => ({ userName: options.userName }),
+      });
+
+      await adapter.stream("hi", createHooks(), { ...defaultOptions, userName: "Ada" });
+
+      expect(received).toEqual({ prompt: "hi", options: { userName: "Ada" } });
+    });
+
+    test("lets a ToolLoopAgent's prepareCall put the name in its instructions", async () => {
+      const { ToolLoopAgent, simulateReadableStream } = await import("ai");
+      const { MockLanguageModelV4 } = await import("ai/test");
+      let system = "";
+      const model = new MockLanguageModelV4({
+        doStream: async ({ prompt }) => {
+          const first = prompt[0];
+          system = first?.role === "system" ? first.content : "";
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                { type: "text-start", id: "t" },
+                { type: "text-delta", id: "t", delta: "Hi Ada" },
+                { type: "text-end", id: "t" },
+                {
+                  type: "finish",
+                  finishReason: { unified: "stop", raw: "stop" },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 1, reasoning: 0 },
+                  },
+                },
+              ],
+            }),
+          } as any;
+        },
+      });
+      const agent = new ToolLoopAgent<{ userName?: string }>({
+        model,
+        prepareCall: ({ options, ...rest }) => ({
+          ...rest,
+          instructions: `You are talking to ${options.userName ?? "someone"}.`,
+        }),
+      });
+      const adapter = new AISDKAdapter(agent, {
+        callOptions: (options) => ({ userName: options.userName }),
+      });
+      const hooks = createHooks();
+
+      await adapter.stream("hi", hooks, { ...defaultOptions, userName: "Ada" });
+
+      expect(system).toBe("You are talking to Ada.");
+      expect(hooks.chunks.join("")).toBe("Hi Ada");
+    });
+
+    test("sends no call options when none are configured", async () => {
+      let received: unknown;
+      const agent = fakeAgent([], {
+        stream: async (params: unknown) => {
+          received = params;
+          return { fullStream: asyncFrom([]) } as any;
+        },
+      });
+      const adapter = new AISDKAdapter(agent);
+
+      await adapter.stream("hi", createHooks(), { ...defaultOptions, userName: "Ada" });
+
+      expect(received).toEqual({ prompt: "hi" });
+    });
+  });
+
   describe("name", () => {
     test("uses explicit options.name", () => {
       const adapter = new AISDKAdapter(fakeAgent([]), { name: "Weather Bot" });

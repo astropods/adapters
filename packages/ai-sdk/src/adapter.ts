@@ -6,32 +6,47 @@ import type {
   StreamOptions,
 } from "@astropods/adapter-core";
 
-export interface AISDKAdapterOptions {
+export interface AISDKAdapterOptions<CALL_OPTIONS = never> {
   name?: string;
   /** The AI SDK `Agent` interface exposes no `instructions` field, so accept them here for the playground. */
   instructions?: string;
+  /**
+   * Builds the agent's call options for each turn, for an agent declared with
+   * `callOptionsSchema`. Its `prepareCall` receives them, which is how the
+   * agent reads per-turn context such as `userName`.
+   */
+  callOptions?: (options: StreamOptions) => CALL_OPTIONS;
 }
 
-export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
+export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
   implements AgentAdapter
 {
   readonly name: string;
   private readonly instructions: string;
+  private readonly callOptions?: (options: StreamOptions) => CALL_OPTIONS;
 
   constructor(
-    private agent: Agent<never, TOOLS, any>,
-    options: AISDKAdapterOptions = {}
+    private agent: Agent<CALL_OPTIONS, TOOLS, any>,
+    options: AISDKAdapterOptions<CALL_OPTIONS> = {}
   ) {
     this.name = options.name ?? agent.id ?? "AI SDK Agent";
     this.instructions = options.instructions ?? "";
+    this.callOptions = options.callOptions;
   }
 
   async stream(
     prompt: string,
     hooks: StreamHooks,
-    _options: StreamOptions
+    options: StreamOptions
   ): Promise<void> {
-    const result = await this.agent.stream({ prompt });
+    const params = this.callOptions
+      ? { prompt, options: this.callOptions(options) }
+      : { prompt };
+    // `options` is required or forbidden depending on CALL_OPTIONS, which a
+    // generic class cannot narrow.
+    const result = await this.agent.stream(
+      params as Parameters<Agent<CALL_OPTIONS, TOOLS, any>["stream"]>[0]
+    );
 
     // tool-input-end carries only the call id; track id → name on -start.
     const toolNames = new Map<string, string>();

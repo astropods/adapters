@@ -1,5 +1,21 @@
 # @astropods/adapter-mastra
 
+## The sender's name
+
+Each turn's request context carries `userName`, the sender's display name on the source platform (their Slack display name, or their Astro name in web chat). It is absent when the platform sent none, so give it a fallback:
+
+```ts
+const agent = new Agent({
+  id: "greeter",
+  name: "Greeter",
+  model,
+  instructions: ({ requestContext }) =>
+    `You are talking to ${requestContext.get("userName") ?? "a user"}.`,
+});
+```
+
+The request context also carries `threadId` and `resourceId`.
+
 ## Sandboxes
 
 `AstroSandbox` is a Mastra sandbox provider, so Mastra's own workspace drives

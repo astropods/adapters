@@ -110,6 +110,32 @@ const textThenFinish = (text: string) => [
 // --- Tests ---
 
 describe("MastraAdapter", () => {
+  describe("request context", () => {
+    async function userNameSeenFor(userName: string | undefined) {
+      let seen: unknown = "not called";
+      const agent = new Agent({
+        id: "greeter",
+        name: "Greeter",
+        model: modelFromParts(textParts(["ok"])),
+        instructions: ({ requestContext }) => {
+          seen = requestContext.get("userName");
+          return "Greet the user.";
+        },
+      });
+      const adapter = new MastraAdapter(agent);
+      await adapter.stream("hi", createHooks(), { ...defaultOptions, userName });
+      return seen;
+    }
+
+    test("gives dynamic instructions the sender's display name", async () => {
+      expect(await userNameSeenFor("Ada")).toBe("Ada");
+    });
+
+    test("leaves userName out when the platform sent no name", async () => {
+      expect(await userNameSeenFor(undefined)).toBeUndefined();
+    });
+  });
+
   describe("file attachments", () => {
     async function promptSentFor(
       attachments: unknown[],
