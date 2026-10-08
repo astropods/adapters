@@ -10,6 +10,7 @@ import {
 import type { LanguageModelV2StreamPart } from "@ai-sdk/provider-v5";
 import type { StatusUpdate } from "@astropods/messaging";
 import type { StreamOptions, TraceContext } from "@astropods/adapter-core";
+import * as adapterCore from "@astropods/adapter-core";
 let mockLoggerWarnCalls: any[][] = [];
 
 class UnsupportedRenderableError extends Error {
@@ -19,7 +20,11 @@ class UnsupportedRenderableError extends Error {
   }
 }
 
+// Spreads the real module first: withActorContext/activeActor/withActorHeaders
+// stay the real AsyncLocalStorage-backed implementation, since mock.module
+// replaces this import for every test file in the run, not just this one.
 mock.module("@astropods/adapter-core", () => ({
+  ...adapterCore,
   createTraceparent: ({ traceId, spanId, traceFlags = "01" }: { traceId?: string; spanId?: string; traceFlags?: string | number }) => {
     if (!traceId || !spanId) return "";
     const flags = typeof traceFlags === "number" ? traceFlags.toString(16).padStart(2, "0") : traceFlags;
@@ -632,6 +637,50 @@ describe("MastraAdapter", () => {
       await adapter.stream("go", hooks, { ...defaultOptions, render });
 
       expect(hooks.chunks).toEqual(["processing", " Done."]);
+    });
+
+    test("runs the turn with the caller's userId as the active actor", async () => {
+      let capturedActorKey: string | undefined;
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model: new MastraLanguageModelV2Mock({
+          provider: "test",
+          modelId: "test-model",
+          doStream: async () => {
+            capturedActorKey = adapterCore.activeActor()?.actorKey;
+            return { stream: streamFromParts(textParts(["Hello"])) };
+          },
+        }),
+        instructions: "test",
+      });
+      const adapter = new MastraAdapter(agent);
+
+      await adapter.stream("hi", createHooks(), { ...defaultOptions, userId: "user_42" });
+
+      expect(capturedActorKey).toBe("user_42");
+    });
+
+    test("falls back to the anonymous actor key when userId is empty, same as the trace user id", async () => {
+      let capturedActorKey: string | undefined;
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model: new MastraLanguageModelV2Mock({
+          provider: "test",
+          modelId: "test-model",
+          doStream: async () => {
+            capturedActorKey = adapterCore.activeActor()?.actorKey;
+            return { stream: streamFromParts(textParts(["Hello"])) };
+          },
+        }),
+        instructions: "test",
+      });
+      const adapter = new MastraAdapter(agent);
+
+      await adapter.stream("hi", createHooks(), { ...defaultOptions, userId: "" });
+
+      expect(capturedActorKey).toBe("anonymous");
     });
 
     test("emits trace context when Mastra stream exposes trace IDs", async () => {

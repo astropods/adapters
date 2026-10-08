@@ -6,6 +6,7 @@ import type {
   StreamHooks,
   StreamOptions,
 } from "@astropods/adapter-core";
+import { withActorContext } from "@astropods/adapter-core";
 
 import { ConversationHistory } from "./history";
 
@@ -65,6 +66,25 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
         options.history.messages.map(({ role, content }) => ({ role, content }) as ModelMessage)
       );
     }
+    // Active for the whole turn, so a gateway call this agent makes
+    // attributes its cost to this actor instead of landing as an
+    // account-wide, unattributed total — see billed-vs-estimated-cost-spec.md,
+    // "Telling gateway traffic apart, and merging it". The AI Gateway
+    // client that actually reads this (createOpenAI({ fetch:
+    // withActorHeaders() }) in the scaffold template) picks it up through
+    // withActorHeaders.
+    return withActorContext({ actorKey: options.userId || "anonymous" }, () =>
+      this.runStream(prompt, hooks, options, conversationId, history)
+    );
+  }
+
+  private async runStream(
+    prompt: string,
+    hooks: StreamHooks,
+    options: StreamOptions,
+    conversationId: string | undefined,
+    history: ConversationHistory | undefined
+  ): Promise<void> {
     const ask: ModelMessage = { role: "user", content: prompt };
     let failed = false;
     let aborted = false;
