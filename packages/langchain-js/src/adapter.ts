@@ -1,10 +1,8 @@
 import { trace, SpanStatusCode } from "@opentelemetry/api";
-import type {
-  AgentConfig as MessagingAgentConfig,
-  AgentToolConfig,
-} from "@astropods/messaging";
+import type { AgentToolConfig } from "@astropods/messaging";
 import type {
   AgentAdapter,
+  AgentConfig,
   StreamHooks,
   StreamOptions,
 } from "@astropods/adapter-core";
@@ -43,12 +41,18 @@ export interface LangChainAdapterOptions {
    * `agent.options.tools` for `createAgent` agents; set this to override.
    */
   tools?: LangChainTool[];
+  /**
+   * Rebuild the checkpointer thread from `StreamOptions.history`. Defaults to
+   * true unless the checkpointer cannot delete a thread.
+   */
+  supportsHistory?: boolean;
 }
 
 export class LangChainAdapter implements AgentAdapter {
   readonly name: string;
   private readonly instructions: string;
   private readonly tools: LangChainTool[];
+  private readonly declaredHistory: boolean | undefined;
 
   constructor(
     private agent: LangChainAgent,
@@ -58,6 +62,12 @@ export class LangChainAdapter implements AgentAdapter {
     this.name = options.name ?? "LangChain Agent";
     this.instructions = options.instructions ?? derived.instructions;
     this.tools = options.tools ?? derived.tools;
+    this.declaredHistory = options.supportsHistory;
+  }
+
+  // serve() installs a MemorySaver after construction.
+  private get supportsHistory(): boolean {
+    return this.declaredHistory ?? canResetThreads(this.agent);
   }
 
   async stream(
@@ -96,12 +106,20 @@ export class LangChainAdapter implements AgentAdapter {
     hooks: StreamHooks,
     options: StreamOptions
   ): Promise<string> {
+    const messages = [{ role: "user", content: prompt }];
+    if (options.history && this.supportsHistory) {
+      await this.deleteThread(options.conversationId);
+      messages.unshift(...options.history.messages.map(({ role, content }) => ({ role, content })));
+    }
+
     // messages → token-level assistant text; updates → tool call/result lifecycle.
     const stream = await this.agent.stream(
-      { messages: [{ role: "user", content: prompt }] },
+      { messages },
       {
         streamMode: ["messages", "updates"],
         configurable: { thread_id: options.conversationId },
+        // A stopped turn must end its run, or it writes the old branch back after an edit.
+        signal: options.signal,
       }
     );
 
@@ -139,7 +157,14 @@ export class LangChainAdapter implements AgentAdapter {
     return output;
   }
 
-  getConfig(): MessagingAgentConfig {
+  private async deleteThread(threadId: string): Promise<void> {
+    const checkpointer = checkpointerOf(this.agent);
+    if (typeof checkpointer === "object" && typeof checkpointer?.deleteThread === "function") {
+      await checkpointer.deleteThread(threadId);
+    }
+  }
+
+  getConfig(): AgentConfig {
     const tools: AgentToolConfig[] = this.tools.map((tool) => ({
       name: tool.name ?? "tool",
       title: tool.name ?? "tool",
@@ -150,8 +175,27 @@ export class LangChainAdapter implements AgentAdapter {
     return {
       systemPrompt: this.instructions,
       tools,
+      supportsHistory: this.supportsHistory,
     };
   }
+}
+
+type Checkpointer =
+  | { deleteThread?: (threadId: string) => Promise<void> }
+  | boolean
+  | null
+  | undefined;
+
+function checkpointerOf(agent: LangChainAgent): Checkpointer {
+  return (agent as { checkpointer?: Checkpointer }).checkpointer;
+}
+
+/** No checkpointer stores nothing; `true` inherits a parent's, which the adapter cannot reach. */
+function canResetThreads(agent: LangChainAgent): boolean {
+  const checkpointer = checkpointerOf(agent);
+  if (checkpointer == null || checkpointer === false) return true;
+  if (checkpointer === true) return false;
+  return typeof checkpointer.deleteThread === "function";
 }
 
 interface NodeUpdate {

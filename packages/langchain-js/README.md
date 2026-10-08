@@ -99,6 +99,7 @@ Connects the agent to the messaging service.
 | `tools` | `Array<{ name?, description? }>` | Optional. Overrides the playground's tool list (auto-read from `agent.options.tools`). |
 | `instrument` | `boolean` | Enable process-global instrumentation before serving. Defaults to `true`. |
 | `memory` | `boolean` | Install an in-process `MemorySaver` when the agent has no checkpointer. Defaults to `true`. A checkpointer configured on the agent is always respected. |
+| `supportsHistory` | `boolean` | When the conversation's earlier turns change (the user edited a message or switched versions in the web chat, or the agent never answered the previous turn), delete the checkpointer thread and start it over from the turns the message carries. The turns are text only, so tool calls and their results are not restored. Defaults to `true` when the checkpointer can delete a thread or there is none, which lets the chat offer editing. Set `false` for an agent that keeps state outside its checkpointer. |
 | `serverAddress` | `string` | Override the gRPC address. Defaults to `process.env.GRPC_SERVER_ADDR ?? "localhost:9090"`. |
 
 ### `instrumentLangChain()`
@@ -154,6 +155,13 @@ const agent = createDeepAgent({
 The name is the sandbox. Use the thread id: one thread is one sandbox, so a
 conversation that resumes reattaches to its own files and two threads never
 share a filesystem.
+
+An edited message does not reset the sandbox. When a user edits a message in
+the web chat, the adapter rebuilds the thread's memory, but a sandbox keyed on
+the thread keeps the files the replaced turns wrote. The agent can then see
+work from a version of the conversation the user abandoned. If that matters,
+pass `supportsHistory: false` to `serve()`, which turns off editing for the
+agent.
 
 `BaseSandbox` needs only `id`, `execute`, `uploadFiles` and `downloadFiles`;
 it builds `read`, `write`, `edit`, `ls`, `glob` and `grep` on `execute`

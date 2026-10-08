@@ -51,8 +51,11 @@ The `options` argument contains per-request context from the messaging platform:
 |---|---|
 | `conversationId` | Stable ID for the conversation thread |
 | `userId` | ID of the user who sent the message |
+| `history` | The turns before this message, set only when they differ from what the agent last answered |
 
 Use these for memory/context management if your framework supports it.
+
+When `history` is set, the user edited a message or switched to another version of the conversation. Replace the memory you keep for `conversationId` with `history.messages` before you run the turn, and report `supportsHistory: true` from `getConfig()`. The chat offers message editing only for adapters that report it. `packages/mastra`, `packages/langchain-js`, and `packages/ai-sdk` show three ways to reset memory: rewrite a Mastra memory thread, delete a LangGraph checkpointer thread, and replace an in-process history.
 
 ## Step-by-step: building a LangChain adapter
 

@@ -70,6 +70,8 @@ When the agent calls a tool, the playground will show status indicators like "Ru
 
 Mastra's memory integration is wired up automatically. Each conversation gets its own thread keyed by `conversationId`, and each user is tracked by their `userId` from the messaging platform. If your Mastra Agent has a `memory` configured, it will persist context across messages in the same conversation.
 
+When a user edits a message in the web chat, or switches to another version of the conversation, the next message carries the turns before it. The same happens after a turn the agent did not finish answering. The adapter deletes the conversation's memory thread and saves those turns into a new thread with the same ID, keeping the title. The turns are text only, so tool calls and their results are not restored. Thread-scoped working memory resets with it; resource-scoped working memory, Mastra's default, is untouched. The adapter reports `supportsHistory`, so the chat offers editing. Pass `serve(agent, { supportsHistory: false })` for an agent that keeps conversation state outside Mastra memory.
+
 ## Overriding the server address
 
 The gRPC address is read from `GRPC_SERVER_ADDR` by default. You can override it:
