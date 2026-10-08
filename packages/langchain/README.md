@@ -29,7 +29,7 @@ serve(adapter)
 
 ### The sender's name
 
-`configurable["user_name"]` carries the sender's display name on the source platform (their Slack display name, or their Astro name in web chat). It is absent when the platform sent none. A tool reads it from its run config:
+`configurable["user_name"]` carries the sender's name on the source platform (their full name in Slack, or their Astro name in web chat). It is absent when the platform sent none. A tool reads it from its run config:
 
 ```python
 from langchain_core.runnables import RunnableConfig

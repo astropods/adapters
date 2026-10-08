@@ -2,7 +2,7 @@
 
 ## The sender's name
 
-Each turn's request context carries `userName`, the sender's display name on the source platform (their Slack display name, or their Astro name in web chat). It is absent when the platform sent none, so check for it. Tell the model how to use the name, or it may repeat it in every reply:
+Each turn's request context carries `userName`, the sender's name on the source platform (their full name in Slack, or their Astro name in web chat). It is absent when the platform sent none, so check for it. Tell the model how to use the name, or it may repeat it in every reply:
 
 ```ts
 const agent = new Agent({

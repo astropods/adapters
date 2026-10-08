@@ -1,4 +1,4 @@
-# Sender display name for every adapter
+# Sender name for every adapter
 
 Closes astropods/astro#3126
 

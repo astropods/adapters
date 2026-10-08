@@ -57,7 +57,7 @@ Passing `instructions` into the `serve()` function allows your agent's system pr
 
 ## The sender's name
 
-An AI SDK agent reads per-turn context through its call options. Declare them on the agent, then map each turn's `StreamOptions` onto them with `callOptions`. `userName` is the sender's display name on the source platform (their Slack display name, or their Astro name in web chat), and is absent when the platform sent none. Tell the model how to use the name, or it may repeat it in every reply.
+An AI SDK agent reads per-turn context through its call options. Declare them on the agent, then map each turn's `StreamOptions` onto them with `callOptions`. `userName` is the sender's name on the source platform (their full name in Slack, or their Astro name in web chat), and is absent when the platform sent none. Tell the model how to use the name, or it may repeat it in every reply.
 
 ```typescript
 import { ToolLoopAgent } from "ai";

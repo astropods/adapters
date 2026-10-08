@@ -94,7 +94,7 @@ Per-request context passed to `stream()`:
 |-------|-------------|
 | `conversation_id` | Stable ID for the conversation thread |
 | `user_id` | ID of the user who sent the message |
-| `user_name` | The sender's display name on the source platform, such as their Slack display name. Empty when the platform sent none. |
+| `user_name` | The sender's name on the source platform, such as their full name in Slack. Empty when the platform sent none. |
 | `platform_context` | `Optional[PlatformContext]` — platform-specific fields (channel, thread, workspace, event kind). `None` for messages from non-platform sources (playground, direct gRPC). |
 
 #### Using `platform_context`
