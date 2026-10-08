@@ -477,6 +477,50 @@ class TestPlatformContextForwarding:
         assert len(captured) == 1
         assert captured[0].platform_context is None
 
+    @pytest.mark.asyncio
+    async def test_passes_the_senders_display_name_as_user_name(self):
+        captured: list[StreamOptions] = []
+
+        async def stream(prompt, hooks, options):
+            captured.append(options)
+
+        adapter = MagicMock()
+        adapter.stream = stream
+
+        bridge = self._make_bridge(adapter)
+
+        msg = Message(
+            conversation_id="conv-90",
+            content="hi",
+            platform="slack",
+            user=User(id="user_alice", username="Alice"),
+        )
+
+        await bridge._handle_message(msg)
+
+        assert len(captured) == 1
+        assert captured[0].user_name == "Alice"
+        assert captured[0].user_id == "user_alice"
+
+    @pytest.mark.asyncio
+    async def test_user_name_is_empty_when_the_platform_sent_no_name(self):
+        captured: list[StreamOptions] = []
+
+        async def stream(prompt, hooks, options):
+            captured.append(options)
+
+        adapter = MagicMock()
+        adapter.stream = stream
+
+        bridge = self._make_bridge(adapter)
+
+        msg = Message(conversation_id="conv-91", content="hi", platform="slack")
+
+        await bridge._handle_message(msg)
+
+        assert len(captured) == 1
+        assert captured[0].user_name == ""
+
 
 # --- Stop generation (StreamControl STOP) ---
 

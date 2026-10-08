@@ -159,6 +159,12 @@ export interface StreamOptions {
   conversationId: string;
   userId: string;
   /**
+   * The sender's display name on the source platform, such as their Slack
+   * display name. Undefined when the platform supplied none. `userId` may be
+   * the linked Astro user ID instead of a platform ID.
+   */
+  userName?: string;
+  /**
    * Platform-specific context from the source event (channel/thread IDs,
    * workspace, event kind, raw platform user ID, etc.). Undefined when the
    * message did not originate from a platform adapter (e.g. playground or

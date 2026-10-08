@@ -187,6 +187,10 @@ class StreamOptions:
     get_thread_history: Optional[
         Callable[[int], Awaitable[list["ThreadMessage"]]]
     ] = None
+    # The sender's display name on the source platform, such as their Slack
+    # display name. Empty when the platform supplied none. user_id may be the
+    # linked Astro user ID instead of a platform ID.
+    user_name: str = ""
 
 
 @dataclass
