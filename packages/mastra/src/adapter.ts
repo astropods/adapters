@@ -12,7 +12,7 @@ import type {
   StreamHooks,
   StreamOptions,
 } from "@astropods/adapter-core";
-import { UnsupportedRenderableError, createTraceparent, logger } from "@astropods/adapter-core";
+import { UnsupportedRenderableError, createTraceparent, logger, withActorContext } from "@astropods/adapter-core";
 
 /** The object agent.stream()/approveToolCall()/resumeStream() all resolve to. */
 type MastraStream = Awaited<ReturnType<Agent["stream"]>>;
@@ -158,6 +158,24 @@ export class MastraAdapter implements AgentAdapter {
     // Unattributed); memory.resource keeps the original to scope memory.
     const traceUserId = options.userId || "anonymous";
 
+    // Active for the whole turn, including every tool-approval/suspension
+    // resume below: any of those can issue its own fresh gateway call, and
+    // each needs the same actor attribution as the initial one. The AI
+    // Gateway client that actually reads this (createOpenAI({ fetch:
+    // withActorHeaders() }) in the scaffold template) picks it up through
+    // withActorHeaders — see billed-vs-estimated-cost-spec.md, "Telling
+    // gateway traffic apart, and merging it".
+    return withActorContext({ actorKey: traceUserId }, () =>
+      this.runStream(prompt, hooks, options, traceUserId)
+    );
+  }
+
+  private async runStream(
+    prompt: string,
+    hooks: StreamHooks,
+    options: StreamOptions,
+    traceUserId: string
+  ): Promise<void> {
     // When the message carried images, hand the model a single user message
     // whose content mixes the prompt text with image parts (bytes ride in each
     // image's data-URI `url`). Otherwise pass the plain prompt string so the
