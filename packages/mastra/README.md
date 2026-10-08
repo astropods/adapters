@@ -2,15 +2,19 @@
 
 ## The sender's name
 
-Each turn's request context carries `userName`, the sender's display name on the source platform (their Slack display name, or their Astro name in web chat). It is absent when the platform sent none, so give it a fallback:
+Each turn's request context carries `userName`, the sender's display name on the source platform (their Slack display name, or their Astro name in web chat). It is absent when the platform sent none, so check for it. Tell the model how to use the name, or it may repeat it in every reply:
 
 ```ts
 const agent = new Agent({
   id: "greeter",
   name: "Greeter",
   model,
-  instructions: ({ requestContext }) =>
-    `You are talking to ${requestContext.get("userName") ?? "a user"}.`,
+  instructions: ({ requestContext }) => {
+    const name = requestContext.get("userName");
+    return name
+      ? `The user's name is ${name}. Greet them by name in your first reply only; don't repeat it after that.`
+      : "You are a helpful assistant.";
+  },
 });
 ```
 
