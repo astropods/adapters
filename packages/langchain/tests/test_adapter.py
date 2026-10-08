@@ -194,6 +194,15 @@ class TestLangChainAdapterSessionContext:
             "configurable": {"thread_id": "conv-123"}
         }
 
+    def test_configurable_omits_user_name_on_a_core_without_the_field(self):
+        from types import SimpleNamespace
+
+        from astropods_adapter_langchain.adapter import _configurable
+
+        old_core_options = SimpleNamespace(conversation_id="conv-123", user_id="u1")
+
+        assert _configurable(old_core_options) == {"thread_id": "conv-123"}
+
     @pytest.mark.asyncio
     async def test_configurable_carries_the_senders_display_name(self, hooks):
         executor = make_executor_with_updates([make_model_update("hi")])

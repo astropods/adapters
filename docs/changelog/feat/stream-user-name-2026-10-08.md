@@ -30,7 +30,7 @@ Each adapter leaves the key out when no name was sent, rather than setting it em
 
 The AI SDK has no general per-call context: an `Agent` takes per-call data only as call options, typed by its `callOptionsSchema`. `AISDKAdapter` and `serve()` gained a `CALL_OPTIONS` type parameter and a `callOptions: (options: StreamOptions) => CALL_OPTIONS` option. The adapter passes its result as the agent's `options`, and the agent's `prepareCall` reads it. An agent without call options is unchanged, and no `options` key is sent.
 
-`astropods-adapter-langchain` now requires `astropods-adapter-core>=0.10.0`, the release that adds `user_name`. An older core would raise `AttributeError` on every turn.
+The LangChain Python adapter reads `user_name` with `getattr`, so it still runs against an `astropods-adapter-core` older than the release that adds the field, and sends no name. Its core floor stays at `>=0.6.0`: release-please sets the next core version at release time, so a floor naming it cannot resolve in CI, which installs core from the checkout.
 
 ## Migration
 

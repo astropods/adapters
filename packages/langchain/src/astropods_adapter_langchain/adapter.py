@@ -39,8 +39,10 @@ def _text_from_content(content: Any) -> str:
 
 def _configurable(options: StreamOptions) -> dict[str, str]:
     configurable = {"thread_id": options.conversation_id}
-    if options.user_name:
-        configurable["user_name"] = options.user_name
+    # astropods-adapter-core before 0.10 has no user_name.
+    user_name = getattr(options, "user_name", "")
+    if user_name:
+        configurable["user_name"] = user_name
     return configurable
 
 
