@@ -53,6 +53,19 @@ serve(agent, { name: "My Agent", instructions });
 
 Passing `instructions` into the `serve()` function allows your agent's system prompt to be visible in the Astropods playground. This is optional. To hide your prompts exclude `instructions` from the `serve` call.
 
+The adapter keeps each conversation's history in process, keyed by the messaging conversation ID. It sends that history to the model as `messages`, so a follow-up sees the earlier turns, tool calls and results included. History resets when the agent restarts, and each replica keeps its own. The messaging service's saved copy of the chat is separate.
+
+The adapter bounds the history in four ways:
+
+- It drops a tool call the turn never answered, such as one awaiting approval.
+- Past `maxHistoryBytes`, it replaces the oldest tool outputs with a size note, then drops the oldest turns.
+- After a failed turn, it drops the older half of that conversation's history. A stopped turn changes nothing.
+- Past `maxConversations`, it forgets the least recently used conversation. At the defaults, history takes at most about 50 MB.
+
+When a user edits a message in the web chat, or switches to another version of the conversation, the next message carries the turns before it, and the adapter replaces the conversation's history with them. The same happens after a turn the agent did not finish answering. The turns are text only, so earlier tool calls and their results drop out of the history. The adapter reports `supportsHistory` while memory is on, so the chat offers editing. With `memory: false` it does not, because the agent keeps its own memory.
+
+With memory on, the agent receives `messages` instead of `prompt`. Pass `memory: false` if the agent's `prepareCall` reads `prompt`, or if it keeps its own memory.
+
 `serve()` blocks until `SIGINT` or `SIGTERM`. Under `ast dev`, the CLI injects `GRPC_SERVER_ADDR` for you.
 
 ## API
@@ -65,6 +78,10 @@ Connects the agent to the messaging service.
 |--------|------|-------------|
 | `name` | `string` | Display name shown in logs and the playground. Defaults to `agent.id`, then `"AI SDK Agent"`. |
 | `instructions` | `string` | Optional. System prompt shown in the playground when provided. |
+| `memory` | `boolean` | Send each conversation's earlier turns to the model. Defaults to `true`; `false` sends only `prompt`. |
+| `maxTurns` | `number` | Turns of history each conversation keeps. Defaults to `20`; `0` turns history off. |
+| `maxHistoryBytes` | `number` | Serialized size a conversation's history may reach. Defaults to 256 KiB, about 64K tokens. |
+| `maxConversations` | `number` | Conversations kept in memory; the least recently used is forgotten first. Defaults to `200`. |
 | `serverAddress` | `string` | Override the gRPC address. Defaults to `process.env.GRPC_SERVER_ADDR ?? "localhost:9090"`. |
 
 ### `astroTelemetry()`

@@ -19,6 +19,13 @@ The name is the sandbox. Use the thread id: one thread is one sandbox, so a
 conversation that resumes reattaches to its own files and two threads never
 share a filesystem.
 
+An edited message does not reset the sandbox. When a user edits a message in
+the web chat, the adapter rebuilds the thread's memory, but a sandbox keyed on
+the thread keeps the files the replaced turns wrote. The agent can then see
+work from a version of the conversation the user abandoned. If that matters,
+pass `supportsHistory: false` to `serve()`, which turns off editing for the
+agent.
+
 ### What it maps onto
 
 | Mastra | Astro |

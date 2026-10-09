@@ -1,8 +1,11 @@
 export type {
   AgentAdapter,
+  AgentConfig,
   AudioInput,
   ElicitOptions,
   FeedbackEvent,
+  HistoryInput,
+  HistoryMessageInput,
   RenderableInput,
   SaveConversationInput,
   SaveConversationResponse,

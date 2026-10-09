@@ -120,6 +120,25 @@ class ImageInput:
 
 
 @dataclass
+class HistoryMessageInput:
+    """One turn of ``StreamOptions.history``."""
+
+    id: str
+    role: str  # "user" or "assistant"
+    content: str  # text only, without attachments
+
+
+@dataclass
+class HistoryInput:
+    """The turns before this message on the user's current branch."""
+
+    # Oldest first.
+    messages: list[HistoryMessageInput] = field(default_factory=list)
+    # False when older turns were left out to bound the size.
+    is_complete: bool = False
+
+
+@dataclass
 class SavedMessageInput:
     """One turn of an external conversation being copied in."""
 
@@ -168,6 +187,9 @@ class StreamOptions:
     # The bytes are staged on the shared files volume; read each at its ``path``.
     attachments: list[AttachmentInput] = field(default_factory=list)
     images: list[ImageInput] = field(default_factory=list)
+    # Set when the earlier turns differ from what the agent last answered. Replace
+    # what you store for conversation_id with these turns, then handle the prompt.
+    history: Optional[HistoryInput] = None
     # Copy a conversation from somewhere else (a Slack thread, an email chain)
     # into a user's Astro chat history, returning the id it lands on.
     #
