@@ -52,9 +52,10 @@ export function withActorHeaders(
     const actor = activeActor();
     if (!actor?.actorKey) return baseFetch(input, init);
 
-    // input's own headers first (when input is a Request), then init's —
-    // init wins on a conflict, matching how the Fetch API itself resolves
-    // a Request passed alongside an init.
+    // input's own headers first (when input is a Request), then init's,
+    // with init winning on a conflict. The Fetch API's own Request
+    // constructor does not merge the two this way: init.headers, when
+    // present, replaces input's headers outright.
     const headers = new Headers();
     if (typeof input === "object" && !(input instanceof URL)) {
       input.headers.forEach((value, key) => headers.set(key, value));
