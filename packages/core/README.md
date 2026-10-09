@@ -83,6 +83,7 @@ Per-request context passed to `stream()`:
 |-------|-------------|
 | `conversationId` | Stable ID for the conversation thread |
 | `userId` | ID of the user who sent the message |
+| `userName?` | `string \| undefined`: the sender's name on the source platform, such as their full name in Slack. `undefined` when the platform sent none. |
 | `platformContext?` | `PlatformContext \| undefined` — platform-specific fields (channel, thread, workspace, event kind). `undefined` for messages from non-platform sources (playground, direct gRPC). |
 
 #### Using `platformContext`

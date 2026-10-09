@@ -101,7 +101,10 @@ export class LangChainAdapter implements AgentAdapter {
       { messages: [{ role: "user", content: prompt }] },
       {
         streamMode: ["messages", "updates"],
-        configurable: { thread_id: options.conversationId },
+        configurable: {
+          thread_id: options.conversationId,
+          ...(options.userName ? { user_name: options.userName } : {}),
+        },
       }
     );
 

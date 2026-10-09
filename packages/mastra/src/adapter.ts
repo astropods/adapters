@@ -149,6 +149,7 @@ export class MastraAdapter implements AgentAdapter {
       requestContext: new RequestContext([
         ["threadId", options.conversationId],
         ["resourceId", options.userId],
+        ...(options.userName ? [["userName", options.userName] as [string, string]] : []),
       ]),
       tracingOptions: {
         metadata: {

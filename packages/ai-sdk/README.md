@@ -55,6 +55,33 @@ Passing `instructions` into the `serve()` function allows your agent's system pr
 
 `serve()` blocks until `SIGINT` or `SIGTERM`. Under `ast dev`, the CLI injects `GRPC_SERVER_ADDR` for you.
 
+## The sender's name
+
+An AI SDK agent reads per-turn context through its call options. Declare them on the agent, then map each turn's `StreamOptions` onto them with `callOptions`. `userName` is the sender's name on the source platform (their full name in Slack, or their Astro name in web chat), and is absent when the platform sent none. Tell the model how to use the name, or it may repeat it in every reply.
+
+```typescript
+import { ToolLoopAgent } from "ai";
+import { z } from "zod";
+
+const agent = new ToolLoopAgent({
+  model: openai("gpt-4o"),
+  callOptionsSchema: z.object({ userName: z.string().optional() }),
+  prepareCall: ({ options, ...rest }) => ({
+    ...rest,
+    instructions: options.userName
+      ? `The user's name is ${options.userName}. Greet them by name in your first reply only; don't repeat it after that.`
+      : "You are a helpful assistant.",
+  }),
+});
+
+serve(agent, {
+  name: "My Agent",
+  callOptions: (turn) => ({ userName: turn.userName }),
+});
+```
+
+An agent without call options needs no `callOptions`.
+
 ## API
 
 ### `serve(agent, options?)`
@@ -65,6 +92,7 @@ Connects the agent to the messaging service.
 |--------|------|-------------|
 | `name` | `string` | Display name shown in logs and the playground. Defaults to `agent.id`, then `"AI SDK Agent"`. |
 | `instructions` | `string` | Optional. System prompt shown in the playground when provided. |
+| `callOptions` | `(options: StreamOptions) => CALL_OPTIONS` | Optional. Builds the agent's call options for each turn. See [The sender's name](#the-senders-name). |
 | `serverAddress` | `string` | Override the gRPC address. Defaults to `process.env.GRPC_SERVER_ADDR ?? "localhost:9090"`. |
 
 ### `astroTelemetry()`

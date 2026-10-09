@@ -27,6 +27,20 @@ serve(adapter)
 
 `serve()` blocks until `SIGINT` or `SIGTERM`. Under `ast dev`, `GRPC_SERVER_ADDR` is injected automatically.
 
+### The sender's name
+
+`configurable["user_name"]` carries the sender's name on the source platform (their full name in Slack, or their Astro name in web chat). It is absent when the platform sent none. A tool reads it from its run config:
+
+```python
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
+
+@tool
+def who_am_i(config: RunnableConfig) -> str:
+    """Name the current user."""
+    return config["configurable"].get("user_name", "unknown")
+```
+
 ## API
 
 ### `LangChainAdapter(executor, name, system_prompt?, tools?)`

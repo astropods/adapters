@@ -37,6 +37,15 @@ def _text_from_content(content: Any) -> str:
     return ""
 
 
+def _configurable(options: StreamOptions) -> dict[str, str]:
+    configurable = {"thread_id": options.conversation_id}
+    # astropods-adapter-core before 0.10 has no user_name.
+    user_name = getattr(options, "user_name", "")
+    if user_name:
+        configurable["user_name"] = user_name
+    return configurable
+
+
 class LangChainAdapter:
     """Adapts a LangGraph/LangChain agent executor to the Astro messaging protocol.
 
@@ -86,7 +95,7 @@ class LangChainAdapter:
         try:
             async for chunk in self._executor.astream(
                 {"messages": [_user_message(prompt, options.images, options.attachments)]},
-                config={"configurable": {"thread_id": options.conversation_id}},
+                config={"configurable": _configurable(options)},
                 stream_mode="updates",
             ):
                 # "model" = langchain.agents.create_agent; "agent" = langgraph.prebuilt.create_react_agent

@@ -867,6 +867,63 @@ describe("MessagingBridge", () => {
       expect(capturedOptions!.userId).toBe("anonymous");
     });
 
+    test("passes the sender's display name as userName", async () => {
+      let capturedOptions: StreamOptions | null = null;
+
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks, options) => {
+          capturedOptions = options;
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      mockResponseHandlers[0]({
+        conversationId: "conv-90",
+        incomingMessage: {
+          conversationId: "conv-90",
+          content: "hi",
+          platform: "slack",
+          user: { id: "user_alice", username: "Alice" },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(capturedOptions!.userName).toBe("Alice");
+      expect(capturedOptions!.userId).toBe("user_alice");
+    });
+
+    test("leaves userName undefined when the platform sent no name", async () => {
+      let capturedOptions: StreamOptions | null = null;
+
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks, options) => {
+          capturedOptions = options;
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      mockResponseHandlers[0]({
+        conversationId: "conv-91",
+        incomingMessage: {
+          conversationId: "conv-91",
+          content: "hi",
+          platform: "slack",
+          user: { id: "U1", username: "" },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(capturedOptions!.userName).toBeUndefined();
+    });
+
     test("full streaming sequence: START, status, deltas, status, END", async () => {
       const adapter = createMockAdapter({
         stream: async (_prompt, hooks) => {

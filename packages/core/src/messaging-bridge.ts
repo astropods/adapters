@@ -531,6 +531,7 @@ export class MessagingBridge {
         conversationId,
         // || catches empty strings too — ?? would let "" through.
         userId: message.user?.id || "anonymous",
+        userName: message.user?.username || undefined,
         platformContext: message.platformContext,
         attachments: this.resolveAttachments(message),
         images: this.resolveImages(message),
