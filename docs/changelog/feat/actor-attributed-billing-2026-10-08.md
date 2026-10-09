@@ -33,10 +33,12 @@ sent as the Langfuse trace's `userId` — astro-server classifies its kind
 server-side from that same shape, so the agent never needs to send one.
 
 `withActorHeaders` merges headers the same way `otel/fetch.ts`'s
-`injectTraceContext` already does for trace context (input's own headers
-first, then init's, matching how the Fetch API itself resolves a `Request`
-passed alongside an `init`) — a second, small instance of that shape rather
-than a shared helper, since the two call sites have nothing else in common.
+`injectTraceContext` already does for trace context: input's own headers
+first, then init's, with init winning on a conflict. This is a deliberate
+departure from the Fetch API's own `Request` constructor, which replaces
+input's headers outright when `init.headers` is present rather than merging
+them — a second, small instance of the merge shape rather than a shared
+helper, since the two call sites have nothing else in common.
 
 ## Migration
 
@@ -45,3 +47,10 @@ Installing an agent framework scaffold that doesn't yet wire
 `withActorHeaders()` into its gateway client (Claude Agent SDK, LangChain)
 still works exactly as before — its spend is still billed, just not yet
 attributed to an actor.
+
+## Follow-up fix
+
+An independent review caught the Design section's own claim above (and a
+matching comment in `actor-context.ts`) getting the native Fetch API's
+behavior backwards — now corrected. The merge behavior itself was already
+correct; only the claim about what native `fetch` does was wrong.
