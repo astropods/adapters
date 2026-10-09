@@ -507,6 +507,19 @@ export class MastraAdapter implements AgentAdapter {
     hooks: StreamHooks,
     options: StreamOptions
   ): Promise<void> {
+    // Active for the whole turn, including the STT and TTS legs below: both
+    // are their own gateway-routed calls, same reasoning as stream()'s wrap.
+    const traceUserId = options.userId || "anonymous";
+    return withActorContext({ actorKey: traceUserId }, () =>
+      this.runStreamAudio(audio, hooks, options)
+    );
+  }
+
+  private async runStreamAudio(
+    audio: AudioInput,
+    hooks: StreamHooks,
+    options: StreamOptions
+  ): Promise<void> {
     const voice = this.agent.voice;
     if (!voice) {
       logger.error("[MastraAdapter] streamAudio called but agent has no voice provider");

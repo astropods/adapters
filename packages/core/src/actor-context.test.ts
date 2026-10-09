@@ -117,6 +117,22 @@ describe("withActorHeaders", () => {
     expect(init?.headers).toBeUndefined();
   });
 
+  test("a header-illegal actorKey does not fail the call, just goes unattributed", async () => {
+    const { fetch: base, calls } = stubFetch();
+    const wrapped = withActorHeaders(base);
+
+    await withActorContext({ actorKey: "bad\r\nkey" }, () =>
+      wrapped("https://gateway.example/v1/chat/completions", { headers: { "x-from-init": "1" } }),
+    );
+
+    expect(calls).toHaveLength(1);
+    const [, init] = calls[0];
+    const headers = new Headers(init?.headers);
+    expect(headers.has("x-bf-dim-actor_key")).toBe(false);
+    // Headers that had already been merged before the invalid set survive.
+    expect(headers.get("x-from-init")).toBe("1");
+  });
+
   test("defaults to globalThis.fetch when no base fetch is given", () => {
     // Just needs to construct without throwing; behavior is covered above
     // via the stubbed-base tests.
