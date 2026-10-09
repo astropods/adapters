@@ -689,3 +689,39 @@ describe("AISDKAdapter edited conversations", () => {
     expect(new AISDKAdapter(agent, { maxTurns: 0 }).getConfig().supportsHistory).toBe(false);
   });
 });
+
+describe("AISDKAdapter response messages on an early return", () => {
+  async function unhandledDuring(run: () => Promise<void>): Promise<unknown[]> {
+    const seen: unknown[] = [];
+    const record = (reason: unknown) => seen.push(reason);
+    process.on("unhandledRejection", record);
+    try {
+      await run();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } finally {
+      process.off("unhandledRejection", record);
+    }
+    return seen;
+  }
+
+  function agentRejectingResponse(parts: TextStreamPart<any>[]) {
+    return fakeAgent([], {
+      stream: async () =>
+        ({ fullStream: asyncFrom(parts), responseMessages: Promise.reject(new Error("response rejected")) }) as any,
+    });
+  }
+
+  const cases: Array<[string, TextStreamPart<any>[], { memory?: boolean }]> = [
+    ["an aborted turn", [{ type: "abort" } as TextStreamPart<any>], {}],
+    ["a failed turn", [{ type: "error", error: new Error("boom") } as TextStreamPart<any>], {}],
+    ["a turn with memory off", [], { memory: false }],
+  ];
+
+  for (const [name, parts, adapterOptions] of cases) {
+    test(`${name} leaves no unhandled rejection`, async () => {
+      const adapter = new AISDKAdapter(agentRejectingResponse(parts), adapterOptions);
+      const seen = await unhandledDuring(() => adapter.stream("q", createHooks(), defaultOptions));
+      expect(seen, "the SDK's rejected response promise must have a handler").toEqual([]);
+    });
+  }
+});

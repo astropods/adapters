@@ -107,8 +107,7 @@ export class LangChainAdapter implements AgentAdapter {
     options: StreamOptions
   ): Promise<string> {
     const messages = [{ role: "user", content: prompt }];
-    if (options.history && this.supportsHistory) {
-      await this.deleteThread(options.conversationId);
+    if (options.history && this.supportsHistory && (await this.deleteThread(options.conversationId))) {
       messages.unshift(...options.history.messages.map(({ role, content }) => ({ role, content })));
     }
 
@@ -157,11 +156,15 @@ export class LangChainAdapter implements AgentAdapter {
     return output;
   }
 
-  private async deleteThread(threadId: string): Promise<void> {
+  /** False when the checkpointer cannot delete, so the old thread still holds the turns. */
+  private async deleteThread(threadId: string): Promise<boolean> {
     const checkpointer = checkpointerOf(this.agent);
-    if (typeof checkpointer === "object" && typeof checkpointer?.deleteThread === "function") {
+    if (checkpointer == null || checkpointer === false) return true;
+    if (typeof checkpointer === "object" && typeof checkpointer.deleteThread === "function") {
       await checkpointer.deleteThread(threadId);
+      return true;
     }
+    return false;
   }
 
   getConfig(): AgentConfig {

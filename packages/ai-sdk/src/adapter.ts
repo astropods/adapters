@@ -67,6 +67,9 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
           ? { messages: [...history.messages(conversationId), ask], abortSignal: options.signal }
           : { prompt, abortSignal: options.signal }
       );
+      // Rejects after an abort or an error, on paths that never await it.
+      const turnMessages = responseMessages(result);
+      turnMessages.catch(() => {});
 
       // tool-input-end carries only the call id; track id → name on -start.
       const toolNames = new Map<string, string>();
@@ -136,7 +139,7 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
         history.shrink(conversationId);
         return;
       }
-      history.append(conversationId, [ask, ...(await responseMessages(result))]);
+      history.append(conversationId, [ask, ...(await turnMessages)]);
     } catch (err) {
       if (history && !options.signal?.aborted) history.shrink(conversationId);
       throw err;

@@ -96,6 +96,25 @@ describe("LangChainAdapter conversation history", () => {
     expect(await threadTexts(checkpointer)).toEqual(["q1", "ok", "q2", "ok", "q2 edited", "ok"]);
   });
 
+  test("supportsHistory: true on a checkpointer that cannot delete keeps the thread and skips the history", async () => {
+    const checkpointer = new MemorySaver();
+    Object.defineProperty(checkpointer, "deleteThread", { value: undefined });
+    const agent = createAgent({
+      model: new FakeListChatModel({ responses: ["ok"] }),
+      tools: [],
+      checkpointer,
+    }) as unknown as LangChainAgent;
+    const adapter = new LangChainAdapter(agent, { supportsHistory: true });
+
+    await seed(adapter);
+    await adapter.stream("q2 edited", hooks, { ...options, history: edit });
+
+    expect(
+      await threadTexts(checkpointer),
+      "history prepended onto a thread that was not deleted would duplicate q1 and a1",
+    ).toEqual(["q1", "ok", "q2", "ok", "q2 edited", "ok"]);
+  });
+
   test("declares history support by default, and not when opted out", () => {
     const { agent } = agentWithMemory();
     expect(new LangChainAdapter(agent).getConfig().supportsHistory).toBe(true);
