@@ -1051,6 +1051,60 @@ describe("MastraAdapter", () => {
       expect(hooks.audioEndCount).toBe(1);
     });
 
+    test("runs STT, the LLM call, and TTS all under the caller's userId as the active actor", async () => {
+      let sttActorKey: string | undefined;
+      let llmActorKey: string | undefined;
+      let ttsActorKey: string | undefined;
+
+      const model = new MastraLanguageModelV2Mock({
+        provider: "test",
+        modelId: "test-model",
+        doStream: async () => {
+          llmActorKey = adapterCore.activeActor()?.actorKey;
+          return { stream: streamFromParts(textParts(["Hello"])) };
+        },
+      });
+
+      const agent = new Agent({
+        id: "test",
+        name: "Test",
+        model,
+        instructions: "test",
+      });
+
+      Object.defineProperty(agent, "voice", {
+        value: {
+          listen: async () => {
+            sttActorKey = adapterCore.activeActor()?.actorKey;
+            return "transcribed text";
+          },
+          speak: async (text: string) => {
+            ttsActorKey = adapterCore.activeActor()?.actorKey;
+            return new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.close();
+              },
+            });
+          },
+        },
+        configurable: true,
+      });
+
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const audioInput = {
+        stream: new ReadableStream<Uint8Array>(),
+        config: { encoding: "MULAW", sampleRate: 8000, channels: 1, conversationId: "c1" },
+        filetype: "wav",
+      };
+
+      await adapter.streamAudio!(audioInput as any, hooks, { ...defaultOptions, userId: "user_voice" });
+
+      expect(sttActorKey).toBe("user_voice");
+      expect(llmActorKey).toBe("user_voice");
+      expect(ttsActorKey).toBe("user_voice");
+    });
+
     test("defers onFinish until after TTS completes", async () => {
       const parts = textParts(["Reply"]);
       const callOrder: string[] = [];
@@ -1439,6 +1493,29 @@ describe("MastraAdapter", () => {
       expect(decline).toHaveBeenCalledTimes(1);
       expect(approve).not.toHaveBeenCalled();
     });
+
+    test("keeps the caller's userId as the active actor through the approveToolCall resume", async () => {
+      let approveActorKey: string | undefined;
+      const agent = new Agent({
+        id: "t", name: "T", model: modelFromParts(textParts(["x"])), instructions: "t",
+      });
+      (agent as any).stream = mock(async () =>
+        segment("run-1", [{ type: "tool-call-approval", payload }])
+      );
+      const approve = mock(async () => {
+        approveActorKey = adapterCore.activeActor()?.actorKey;
+        return segment("run-1", textThenFinish("deleted"));
+      });
+      (agent as any).approveToolCall = approve;
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const render = mock(async () => ({ id: "r", action: "RENDERABLE_ACTION_SUBMIT" }));
+
+      await adapter.stream("delete abc", hooks, { ...defaultOptions, userId: "user_resume", render });
+
+      expect(approve).toHaveBeenCalledTimes(1);
+      expect(approveActorKey).toBe("user_resume");
+    });
   });
 
   describe("input elicitation (suspend)", () => {
@@ -1515,6 +1592,26 @@ describe("MastraAdapter", () => {
 
       expect(resume).not.toHaveBeenCalled();
       expect(hooks.finishCount).toBe(1);
+    });
+
+    test("keeps the caller's userId as the active actor through the resumeStream resume", async () => {
+      let resumeActorKey: string | undefined;
+      const { agent } = agentWithSuspend(payload, []);
+      const resume = mock(async () => {
+        resumeActorKey = adapterCore.activeActor()?.actorKey;
+        return segment("run-2", textThenFinish("72F"));
+      });
+      (agent as any).resumeStream = resume;
+      const adapter = new MastraAdapter(agent);
+      const hooks = createHooks();
+      const elicit = mock(async () => ({
+        id: "e", action: "RENDERABLE_ACTION_SUBMIT", contentJson: JSON.stringify({ city: "SF" }),
+      }));
+
+      await adapter.stream("weather", hooks, { ...defaultOptions, userId: "user_resume", elicit });
+
+      expect(resume).toHaveBeenCalledTimes(1);
+      expect(resumeActorKey).toBe("user_resume");
     });
 
     test("does not re-feed on RESPOND — the surface owns the follow-up turn", async () => {

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { logger } from "./logger";
 
 /**
  * The actor attributed to any AI Gateway request made while active.
@@ -63,7 +64,14 @@ export function withActorHeaders(
     if (init?.headers) {
       new Headers(init.headers).forEach((value, key) => headers.set(key, value));
     }
-    headers.set("x-bf-dim-actor_key", actor.actorKey);
+    // actorKey rides in untouched from the caller (ultimately options.userId),
+    // so a value Headers rejects as an invalid header value (e.g. a stray
+    // CR/LF) must not fail the gateway call over a best-effort attribution tag.
+    try {
+      headers.set("x-bf-dim-actor_key", actor.actorKey);
+    } catch (err) {
+      logger.warn({ err }, "[withActorHeaders] actorKey is not a valid header value, sending request unattributed");
+    }
 
     return baseFetch(input, { ...init, headers });
   };

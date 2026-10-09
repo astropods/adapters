@@ -54,3 +54,16 @@ An independent review caught the Design section's own claim above (and a
 matching comment in `actor-context.ts`) getting the native Fetch API's
 behavior backwards — now corrected. The merge behavior itself was already
 correct; only the claim about what native `fetch` does was wrong.
+
+## Follow-up fixes from a later review pass
+
+- `MastraAdapter.streamAudio()` generated its text response inside
+  `withActorContext` (through its own call to `stream()`), but ran its STT
+  and TTS legs outside it — the only method whose turn is three gateway
+  calls instead of one, with the middle one attributed and the other two
+  not. Now wraps the whole method, mirroring `stream()`'s own wrap.
+- `withActorHeaders` called `Headers.set` with the active actor's key
+  unvalidated. A key containing a stray CR/LF — a malformed `userId`, not
+  anything this wrapper controls — throws there, failing the whole gateway
+  call over what is meant to be a best-effort attribution tag. Now caught;
+  the request still goes out, just unattributed.
