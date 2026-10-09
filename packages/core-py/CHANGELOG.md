@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/astropods/adapters/compare/astropods-adapter-core-v0.9.1...astropods-adapter-core-v0.9.2) (2026-10-09)
+
+
+### Bug Fixes
+
+* trace AI SDK 7 agents and make agent errors traceable ([#98](https://github.com/astropods/adapters/issues/98)) ([7391944](https://github.com/astropods/adapters/commit/7391944a618e26d7273a0912ebf36ac702ba7cf1))
+
 ## [0.9.1](https://github.com/astropods/adapters/compare/astropods-adapter-core-v0.9.0...astropods-adapter-core-v0.9.1) (2026-09-30)
 
 

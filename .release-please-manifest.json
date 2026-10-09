@@ -1,4 +1,4 @@
 {
-  "packages/core-py": "0.9.1",
+  "packages/core-py": "0.9.2",
   "packages/langchain": "0.4.0"
 }
