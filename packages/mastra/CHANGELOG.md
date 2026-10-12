@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.9.0](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.8.4...@astropods/adapter-mastra@0.9.0) (2026-10-12)
+
+
+### Features
+
+* pass the sender's name to every adapter ([#102](https://github.com/astropods/adapters/issues/102)) ([93541dc](https://github.com/astropods/adapters/commit/93541dcae74e8d59e57c656605b46ea39b1ac34c)), closes [astropods/astro#3126](https://github.com/astropods/astro/issues/3126) [astropods/astro#3126](https://github.com/astropods/astro/issues/3126) [astropods/astro#3126](https://github.com/astropods/astro/issues/3126) [astropods/astro#3126](https://github.com/astropods/astro/issues/3126) [astropods/astro#3126](https://github.com/astropods/astro/issues/3126)
+* replace agent memory from the chat branch on an edit ([#101](https://github.com/astropods/adapters/issues/101)) ([3df2495](https://github.com/astropods/adapters/commit/3df2495352361ddaaf35ec571d9787e05c1fb35e))
+
+
+### Bug Fixes
+
+* **mastra:** inject a space between two text blocks separated by a tool call ([#91](https://github.com/astropods/adapters/issues/91)) ([872701a](https://github.com/astropods/adapters/commit/872701a921b565f7be541e562c62d77b2c1f7d77))
+
+
+
 ## [0.8.4](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.8.3...@astropods/adapter-mastra@0.8.4) (2026-09-30)
 
 **Note:** Version bump only for package @astropods/adapter-mastra

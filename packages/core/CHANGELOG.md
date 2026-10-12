@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.14.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.13.1...@astropods/adapter-core@0.14.0) (2026-10-12)
+
+
+### Features
+
+* pass the sender's name to every adapter ([#102](https://github.com/astropods/adapters/issues/102)) ([93541dc](https://github.com/astropods/adapters/commit/93541dcae74e8d59e57c656605b46ea39b1ac34c)), closes [astropods/astro#3126](https://github.com/astropods/astro/issues/3126) [astropods/astro#3126](https://github.com/astropods/astro/issues/3126) [astropods/astro#3126](https://github.com/astropods/astro/issues/3126) [astropods/astro#3126](https://github.com/astropods/astro/issues/3126) [astropods/astro#3126](https://github.com/astropods/astro/issues/3126)
+* replace agent memory from the chat branch on an edit ([#101](https://github.com/astropods/adapters/issues/101)) ([3df2495](https://github.com/astropods/adapters/commit/3df2495352361ddaaf35ec571d9787e05c1fb35e))
+
+
+### Bug Fixes
+
+* trace AI SDK 7 agents and make agent errors traceable ([#98](https://github.com/astropods/adapters/issues/98)) ([7391944](https://github.com/astropods/adapters/commit/7391944a618e26d7273a0912ebf36ac702ba7cf1))
+
+
+
 ## [0.13.1](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.13.0...@astropods/adapter-core@0.13.1) (2026-09-30)
 
 

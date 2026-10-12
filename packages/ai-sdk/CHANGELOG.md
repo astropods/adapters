@@ -3,6 +3,24 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.5.0](https://github.com/astropods/adapters/compare/@astropods/adapter-ai-sdk@0.4.3...@astropods/adapter-ai-sdk@0.5.0) (2026-10-12)
+
+
+### Features
+
+* **ai-sdk:** keep conversation history and forward the stop signal ([#93](https://github.com/astropods/adapters/issues/93)) ([c11d84e](https://github.com/astropods/adapters/commit/c11d84ec6b0e5b7490b1787ffaea57ad221d8743))
+* pass the sender's name to every adapter ([#102](https://github.com/astropods/adapters/issues/102)) ([93541dc](https://github.com/astropods/adapters/commit/93541dcae74e8d59e57c656605b46ea39b1ac34c)), closes [astropods/astro#3126](https://github.com/astropods/astro/issues/3126) [astropods/astro#3126](https://github.com/astropods/astro/issues/3126) [astropods/astro#3126](https://github.com/astropods/astro/issues/3126) [astropods/astro#3126](https://github.com/astropods/astro/issues/3126) [astropods/astro#3126](https://github.com/astropods/astro/issues/3126)
+* replace agent memory from the chat branch on an edit ([#101](https://github.com/astropods/adapters/issues/101)) ([3df2495](https://github.com/astropods/adapters/commit/3df2495352361ddaaf35ec571d9787e05c1fb35e))
+
+
+### Bug Fixes
+
+* **ai-sdk:** adapt to upstream changes for ai@7.0.136 ([#100](https://github.com/astropods/adapters/issues/100)) ([db1c863](https://github.com/astropods/adapters/commit/db1c863099adc3b8c910eb18cef3e2d059fae30b))
+* **ai-sdk:** adapt to upstream changes for ai@7.0.138 ([#104](https://github.com/astropods/adapters/issues/104)) ([eab58a9](https://github.com/astropods/adapters/commit/eab58a90faefcc3b934ce36372660decf276fe77))
+* trace AI SDK 7 agents and make agent errors traceable ([#98](https://github.com/astropods/adapters/issues/98)) ([7391944](https://github.com/astropods/adapters/commit/7391944a618e26d7273a0912ebf36ac702ba7cf1))
+
+
+
 ## [0.4.3](https://github.com/astropods/adapters/compare/@astropods/adapter-ai-sdk@0.4.2...@astropods/adapter-ai-sdk@0.4.3) (2026-09-30)
 
 **Note:** Version bump only for package @astropods/adapter-ai-sdk
