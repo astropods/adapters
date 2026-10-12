@@ -389,6 +389,64 @@ describe("MessagingBridge", () => {
       expect(atts[1].key).toBe("legacy.txt");
     });
 
+    test("passes Message.history to the adapter as StreamOptions.history", async () => {
+      const captured: Array<StreamOptions["history"]> = [];
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks, options) => {
+          captured.push(options.history);
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      const send = (history: unknown) =>
+        mockResponseHandlers[0]({
+          conversationId: "conv-1",
+          incomingMessage: {
+            conversationId: "conv-1",
+            content: "q2 edited",
+            platform: "web",
+            user: { id: "user-1" },
+            history,
+          } as Message,
+        });
+      send({
+        messages: [
+          { id: "m1", role: "user", content: "q1" },
+          { id: "m2", role: "assistant", content: "a1" },
+        ],
+        isComplete: true,
+      });
+      await new Promise((r) => setTimeout(r, 10));
+      send({ messages: [], isComplete: false });
+      await new Promise((r) => setTimeout(r, 10));
+      send(null);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(captured[0]).toEqual({
+        messages: [
+          { id: "m1", role: "user", content: "q1" },
+          { id: "m2", role: "assistant", content: "a1" },
+        ],
+        isComplete: true,
+      });
+      // Empty, not undefined, so the adapter still clears its memory.
+      expect(captured[1]).toEqual({ messages: [], isComplete: false });
+      expect(captured[2]).toBeUndefined();
+    });
+
+    test("sends the adapter's supportsHistory flag with the agent config", async () => {
+      const adapter = createMockAdapter({
+        getConfig: () => ({ systemPrompt: "", tools: [], supportsHistory: true }),
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      expect(mockSendAgentConfigArgs).toMatchObject({ supportsHistory: true });
+    });
+
     test("passes inbound IMAGE attachments to the adapter as StreamOptions.images", async () => {
       let capturedOptions: StreamOptions | null = null;
       const adapter = createMockAdapter({
