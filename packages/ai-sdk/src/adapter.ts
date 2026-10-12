@@ -82,7 +82,7 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
     prompt: string,
     hooks: StreamHooks,
     options: StreamOptions,
-    conversationId: string | undefined,
+    conversationId: string,
     history: ConversationHistory | undefined
   ): Promise<void> {
     const ask: ModelMessage = { role: "user", content: prompt };

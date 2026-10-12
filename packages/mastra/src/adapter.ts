@@ -166,7 +166,7 @@ export class MastraAdapter implements AgentAdapter {
     // withActorHeaders — see billed-vs-estimated-cost-spec.md, "Telling
     // gateway traffic apart, and merging it".
     return withActorContext({ actorKey: traceUserId }, () =>
-      this.runStream(prompt, hooks, options, traceUserId)
+      this.runStream(prompt, hooks, options, traceUserId, previous, runs)
     );
   }
 
@@ -174,7 +174,9 @@ export class MastraAdapter implements AgentAdapter {
     prompt: string,
     hooks: StreamHooks,
     options: StreamOptions,
-    traceUserId: string
+    traceUserId: string,
+    previous: Promise<void> | undefined,
+    runs: Promise<unknown>[]
   ): Promise<void> {
     // When the message carried images, hand the model a single user message
     // whose content mixes the prompt text with image parts (bytes ride in each
