@@ -8,9 +8,9 @@ export { AISDKAdapter } from "./adapter";
 export type { AISDKAdapterOptions } from "./adapter";
 export { astroTelemetry } from "./telemetry";
 
-export function serve<TOOLS extends ToolSet = ToolSet>(
-  agent: Agent<never, TOOLS, any>,
-  options: AISDKAdapterOptions & ServeOptions = {}
+export function serve<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>(
+  agent: Agent<CALL_OPTIONS, TOOLS, any>,
+  options: AISDKAdapterOptions<CALL_OPTIONS> & ServeOptions = {}
 ): void {
   const adapter = new AISDKAdapter(agent, options);
   serveAdapter(adapter, options);

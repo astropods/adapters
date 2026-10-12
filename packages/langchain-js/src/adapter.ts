@@ -116,7 +116,10 @@ export class LangChainAdapter implements AgentAdapter {
       { messages },
       {
         streamMode: ["messages", "updates"],
-        configurable: { thread_id: options.conversationId },
+        configurable: {
+          thread_id: options.conversationId,
+          ...(options.userName ? { user_name: options.userName } : {}),
+        },
         // A stopped turn must end its run, or it writes the old branch back after an edit.
         signal: options.signal,
       }

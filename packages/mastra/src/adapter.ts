@@ -192,6 +192,7 @@ export class MastraAdapter implements AgentAdapter {
     const requestContext: RequestContext = new RequestContext([
       ["threadId", options.conversationId],
       ["resourceId", options.userId],
+      ...(options.userName ? [["userName", options.userName] as [string, string]] : []),
     ]);
     if (options.history && this.supportsHistory) {
       if (previous) await settleWithin(previous, PREVIOUS_TURN_WAIT_MS);

@@ -350,6 +350,25 @@ describe("LangChainAdapter", () => {
       expect(captured.options?.streamMode).toEqual(["messages", "updates"]);
       expect(captured.options?.configurable).toEqual({ thread_id: "conv-42" });
     });
+
+    test("adds the sender's display name to configurable as user_name", async () => {
+      let configurable: unknown;
+      const agent: LangChainAgent = {
+        async stream(_input, options) {
+          configurable = (options as Record<string, unknown>).configurable;
+          return asyncFrom([]);
+        },
+      };
+      const adapter = new LangChainAdapter(agent);
+
+      await adapter.stream("hi", createHooks(), {
+        conversationId: "conv-42",
+        userId: "user_alice",
+        userName: "Alice",
+      });
+
+      expect(configurable).toEqual({ thread_id: "conv-42", user_name: "Alice" });
+    });
   });
 
   describe("getConfig", () => {

@@ -9,10 +9,16 @@ import type {
 
 import { ConversationHistory } from "./history";
 
-export interface AISDKAdapterOptions {
+export interface AISDKAdapterOptions<CALL_OPTIONS = never> {
   name?: string;
   /** The AI SDK `Agent` interface exposes no `instructions` field, so accept them here for the playground. */
   instructions?: string;
+  /**
+   * Builds the agent's call options for each turn, for an agent declared with
+   * `callOptionsSchema`. Its `prepareCall` receives them, which is how the
+   * agent reads per-turn context such as `userName`.
+   */
+  callOptions?: (options: StreamOptions) => CALL_OPTIONS;
   /** Send each conversation's earlier turns to the model as `messages`. Defaults to `true`; `false` sends only `prompt`. */
   memory?: boolean;
   /** Turns of history each conversation keeps. Defaults to 20. */
@@ -23,19 +29,21 @@ export interface AISDKAdapterOptions {
   maxConversations?: number;
 }
 
-export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
+export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
   implements AgentAdapter
 {
   readonly name: string;
   private readonly instructions: string;
+  private readonly callOptions?: (options: StreamOptions) => CALL_OPTIONS;
   private readonly history: ConversationHistory | undefined;
 
   constructor(
-    private agent: Agent<never, TOOLS, any>,
-    options: AISDKAdapterOptions = {}
+    private agent: Agent<CALL_OPTIONS, TOOLS, any>,
+    options: AISDKAdapterOptions<CALL_OPTIONS> = {}
   ) {
     this.name = options.name ?? agent.id ?? "AI SDK Agent";
     this.instructions = options.instructions ?? "";
+    this.callOptions = options.callOptions;
     const history = new ConversationHistory({
       maxTurns: options.maxTurns ?? 20,
       maxHistoryBytes: options.maxHistoryBytes ?? 256 * 1024,
@@ -62,10 +70,15 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
     let aborted = false;
 
     try {
+      const input = history
+        ? { messages: [...history.messages(conversationId), ask], abortSignal: options.signal }
+        : { prompt, abortSignal: options.signal };
+      // `options` is required or forbidden depending on CALL_OPTIONS, which a
+      // generic class cannot narrow.
       const result = await this.agent.stream(
-        history
-          ? { messages: [...history.messages(conversationId), ask], abortSignal: options.signal }
-          : { prompt, abortSignal: options.signal }
+        (this.callOptions ? { ...input, options: this.callOptions(options) } : input) as Parameters<
+          Agent<CALL_OPTIONS, TOOLS, any>["stream"]
+        >[0]
       );
       // Rejects after an abort or an error, on paths that never await it.
       const turnMessages = responseMessages(result);
