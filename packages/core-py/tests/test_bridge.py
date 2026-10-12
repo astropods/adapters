@@ -18,6 +18,8 @@ from astropods_adapter_core.bridge import (
     DEFAULT_SERVER_ADDR,
 )
 from astropods_adapter_core.types import (
+    HistoryInput,
+    HistoryMessageInput,
     FeedbackEvent,
     ServeOptions,
     StreamHooks,
@@ -956,3 +958,71 @@ class TestAgentConfigCapabilities:
 
     def test_file_support_defaults_off(self):
         assert _agent_config({"system_prompt": "sp"}, []).supports_files is False
+
+
+_SDK_HAS_HISTORY = "history" in Message.DESCRIPTOR.fields_by_name
+_needs_history_sdk = pytest.mark.skipif(
+    not _SDK_HAS_HISTORY,
+    reason="needs an astropods-messaging release with Message.history and AgentConfig.supports_history",
+)
+
+
+class TestHistoryForwarding:
+    async def _options_for(self, **message_fields) -> StreamOptions:
+        captured: list[StreamOptions] = []
+
+        async def stream(prompt, hooks, options):
+            captured.append(options)
+
+        adapter = MagicMock()
+        adapter.stream = stream
+        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+        await bridge._handle_message(
+            Message(conversation_id="conv-1", content="q2 edited", platform="web",
+                    user=User(id="user-1"), **message_fields)
+        )
+        return captured[0]
+
+    @pytest.mark.asyncio
+    async def test_no_history_on_an_ordinary_turn(self):
+        assert (await self._options_for()).history is None
+
+    @_needs_history_sdk
+    @pytest.mark.asyncio
+    async def test_history_reaches_the_adapter(self):
+        from astropods_messaging import ConversationHistory, HistoryMessage
+
+        options = await self._options_for(history=ConversationHistory(
+            messages=[
+                HistoryMessage(id="m1", role="user", content="q1"),
+                HistoryMessage(id="m2", role="assistant", content="a1"),
+            ],
+            is_complete=True,
+        ))
+
+        assert options.history == HistoryInput(
+            messages=[
+                HistoryMessageInput(id="m1", role="user", content="q1"),
+                HistoryMessageInput(id="m2", role="assistant", content="a1"),
+            ],
+            is_complete=True,
+        )
+
+    @_needs_history_sdk
+    @pytest.mark.asyncio
+    async def test_an_empty_history_is_present_so_the_adapter_clears_its_memory(self):
+        from astropods_messaging import ConversationHistory
+
+        options = await self._options_for(history=ConversationHistory())
+
+        assert options.history == HistoryInput(messages=[], is_complete=False)
+
+    def test_declared_history_support_builds_a_config_on_any_sdk(self):
+        config = _agent_config({"system_prompt": "sp", "supports_history": True}, [])
+
+        assert config.system_prompt == "sp"
+
+    @_needs_history_sdk
+    def test_declared_history_support_reaches_the_wire(self):
+        assert _agent_config({"supports_history": True}, []).supports_history is True
+        assert _agent_config({}, []).supports_history is False

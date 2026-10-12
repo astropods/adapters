@@ -1,6 +1,7 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { Agent } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
+import { MockMemory } from "@mastra/core/memory";
 import { z } from "zod";
 import {
   MastraLanguageModelV2Mock,
@@ -185,6 +186,218 @@ describe("MastraAdapter", () => {
     });
   });
 
+  describe("conversation history", () => {
+    type PromptMessage = { role: string; content: string | Array<{ type: string; text?: string }> };
+
+    function texts(messages: PromptMessage[]): string[] {
+      return messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) =>
+          typeof m.content === "string"
+            ? m.content
+            : m.content.map((p) => p.text ?? "").join("")
+        );
+    }
+
+    function memoryAgent(memory: MockMemory) {
+      const prompts: PromptMessage[][] = [];
+      const model = new MastraLanguageModelV2Mock({
+        provider: "test",
+        modelId: "test-model",
+        doStream: async (call: { prompt: PromptMessage[] }) => {
+          prompts.push(call.prompt);
+          return { stream: streamFromParts(textParts(["ok"])) };
+        },
+      });
+      const agent = new Agent({ id: "mem", name: "Mem", model, instructions: "test", memory });
+      return { agent, prompts };
+    }
+
+    async function storedTexts(memory: MockMemory): Promise<string[]> {
+      await memory.settled();
+      const { messages } = await memory.recall({ threadId: "conv-1", resourceId: "user-1" });
+      return texts(
+        messages.map((m) => ({ role: m.role, content: m.content.parts as PromptMessage["content"] }))
+      );
+    }
+
+    const edit = {
+      messages: [
+        { id: "h1", role: "user" as const, content: "q1" },
+        { id: "h2", role: "assistant" as const, content: "a1" },
+      ],
+      isComplete: true,
+    };
+
+    async function seed(adapter: MastraAdapter) {
+      await adapter.stream("q1", createHooks(), defaultOptions);
+      await adapter.stream("q2", createHooks(), defaultOptions);
+    }
+
+    test("an edit replaces the thread with the given history", async () => {
+      const memory = new MockMemory();
+      const { agent, prompts } = memoryAgent(memory);
+      const adapter = new MastraAdapter(agent);
+      await seed(adapter);
+
+      await adapter.stream("q2 edited", createHooks(), { ...defaultOptions, history: edit });
+
+      expect(texts(prompts.at(-1)!)).toEqual(["q1", "a1", "q2 edited"]);
+      expect(await storedTexts(memory)).toEqual(["q1", "a1", "q2 edited", "ok"]);
+    });
+
+    test("an empty history clears the thread", async () => {
+      const memory = new MockMemory();
+      const { agent, prompts } = memoryAgent(memory);
+      const adapter = new MastraAdapter(agent);
+      await seed(adapter);
+
+      await adapter.stream("q1 edited", createHooks(), {
+        ...defaultOptions,
+        history: { messages: [], isComplete: true },
+      });
+
+      expect(texts(prompts.at(-1)!)).toEqual(["q1 edited"]);
+    });
+
+    test("a send without history keeps the thread", async () => {
+      const memory = new MockMemory();
+      const { agent, prompts } = memoryAgent(memory);
+      const adapter = new MastraAdapter(agent);
+      await seed(adapter);
+
+      await adapter.stream("q3", createHooks(), defaultOptions);
+
+      expect(texts(prompts.at(-1)!)).toEqual(["q1", "ok", "q2", "ok", "q3"]);
+    });
+
+    test("supportsHistory: false leaves the thread alone", async () => {
+      const memory = new MockMemory();
+      const { agent, prompts } = memoryAgent(memory);
+      const adapter = new MastraAdapter(agent, { supportsHistory: false });
+      await seed(adapter);
+
+      await adapter.stream("q2 edited", createHooks(), { ...defaultOptions, history: edit });
+
+      expect(texts(prompts.at(-1)!)).toEqual(["q1", "ok", "q2", "ok", "q2 edited"]);
+    });
+
+    test("a stopped turn whose tool is still running does not write into the edited thread", async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      // Ignores the abort signal, so the stopped run outlives stream().
+      const slow = createTool({
+        id: "slow",
+        description: "slow",
+        inputSchema: z.object({}),
+        outputSchema: z.object({ done: z.boolean() }),
+        execute: async () => {
+          await gate;
+          return { done: true };
+        },
+      });
+      const usage = { inputTokens: 1, outputTokens: 1, totalTokens: 2 };
+      const callSlowTool: LanguageModelV2StreamPart[] = [
+        { type: "tool-input-start", id: "tc-1", toolName: "slow" },
+        { type: "tool-input-delta", id: "tc-1", delta: "{}" },
+        { type: "tool-input-end", id: "tc-1" },
+        { type: "finish", finishReason: "tool-calls", usage },
+      ];
+      const model = new MastraLanguageModelV2Mock({
+        provider: "test",
+        modelId: "test-model",
+        doStream: async (call: { prompt: PromptMessage[] }) => {
+          const last = texts(call.prompt).at(-1);
+          return { stream: streamFromParts(last === "q2" ? callSlowTool : textParts(["ok"])) };
+        },
+      });
+      const memory = new MockMemory();
+      const agent = new Agent({
+        id: "mem",
+        name: "Mem",
+        model,
+        instructions: "test",
+        memory,
+        tools: { slow },
+        defaultOptions: { maxSteps: 5 },
+      });
+      const adapter = new MastraAdapter(agent);
+      await adapter.stream("q1", createHooks(), defaultOptions);
+
+      const stop = new AbortController();
+      const superseded = adapter.stream("q2", createHooks(), { ...defaultOptions, signal: stop.signal });
+      await new Promise((r) => setTimeout(r, 50));
+      stop.abort();
+      await new Promise((r) => setTimeout(r, 50));
+      const edited = adapter.stream("q2 edited", createHooks(), {
+        ...defaultOptions,
+        history: {
+          messages: [
+            { id: "m1", role: "user", content: "q1" },
+            { id: "m2", role: "assistant", content: "ok" },
+          ],
+          isComplete: true,
+        },
+      });
+      // The superseded turn's tool returns while the edit waits.
+      await new Promise((r) => setTimeout(r, 100));
+      release();
+      await Promise.all([superseded, edited]);
+
+      expect(
+        await storedTexts(memory),
+        "the stopped q2 turn must not write into the thread the edit rebuilt"
+      ).toEqual(["q1", "ok", "q2 edited", "ok"]);
+    });
+
+    test("a retry after a failed reset keeps the thread's title", async () => {
+      class FlakyMemory extends MockMemory {
+        failNextCreate = false;
+        override async createThread(args: Parameters<MockMemory["createThread"]>[0]) {
+          if (this.failNextCreate) {
+            this.failNextCreate = false;
+            throw new Error("storage unavailable");
+          }
+          return super.createThread(args);
+        }
+      }
+      const memory = new FlakyMemory();
+      const { agent } = memoryAgent(memory);
+      const adapter = new MastraAdapter(agent);
+      await seed(adapter);
+      await memory.updateThread({ id: "conv-1", title: "Deploy help" });
+
+      memory.failNextCreate = true;
+      const failed = createHooks();
+      await adapter.stream("q2 edited", failed, { ...defaultOptions, history: edit }).catch(() => {});
+      await adapter.stream("q2 edited", createHooks(), { ...defaultOptions, history: edit });
+
+      expect((await memory.getThreadById({ threadId: "conv-1" }))?.title).toBe("Deploy help");
+      expect(await storedTexts(memory)).toEqual(["q1", "a1", "q2 edited", "ok"]);
+    });
+
+    test("an agent without memory streams the prompt unchanged", async () => {
+      const prompts: PromptMessage[][] = [];
+      const agent = new Agent({
+        id: "nomem",
+        name: "NoMem",
+        instructions: "test",
+        model: new MastraLanguageModelV2Mock({
+          provider: "test",
+          modelId: "test-model",
+          doStream: async (call: { prompt: PromptMessage[] }) => {
+            prompts.push(call.prompt);
+            return { stream: streamFromParts(textParts(["ok"])) };
+          },
+        }),
+      });
+
+      await new MastraAdapter(agent).stream("q2 edited", createHooks(), { ...defaultOptions, history: edit });
+
+      expect(texts(prompts.at(-1)!)).toEqual(["q2 edited"]);
+    });
+  });
+
   describe("getConfig", () => {
     const configAgent = () =>
       new Agent({
@@ -196,6 +409,13 @@ describe("MastraAdapter", () => {
 
     test("does not declare file support by default", () => {
       expect(new MastraAdapter(configAgent()).getConfig().supportsFiles).toBe(false);
+    });
+
+    test("declares history support by default, and not when opted out", () => {
+      expect(new MastraAdapter(configAgent()).getConfig().supportsHistory).toBe(true);
+      expect(
+        new MastraAdapter(configAgent(), { supportsHistory: false }).getConfig().supportsHistory
+      ).toBe(false);
     });
 
     test("declares file support when the agent opts in", () => {

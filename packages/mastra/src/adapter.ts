@@ -4,7 +4,14 @@ import type {
   AgentConfig as MessagingAgentConfig,
   RenderableAction,
 } from "@astropods/messaging";
-import type { AgentAdapter, AudioInput, StreamHooks, StreamOptions } from "@astropods/adapter-core";
+import type {
+  AgentAdapter,
+  AgentConfig,
+  AudioInput,
+  HistoryInput,
+  StreamHooks,
+  StreamOptions,
+} from "@astropods/adapter-core";
 import { UnsupportedRenderableError, createTraceparent, logger } from "@astropods/adapter-core";
 
 /** The object agent.stream()/approveToolCall()/resumeStream() all resolve to. */
@@ -80,8 +87,20 @@ function attachmentNote(
   return `The user attached these files. Open them with a file-reading tool at the paths below. Do not guess their contents. ${list}`;
 }
 
+const PREVIOUS_TURN_WAIT_MS = 10_000;
+
+function settleWithin(promise: Promise<void>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 export interface MastraAdapterOptions {
   supportsFiles?: boolean;
+  /** Rebuild the Mastra memory thread from `StreamOptions.history`. Defaults to true. */
+  supportsHistory?: boolean;
 }
 
 /**
@@ -95,16 +114,45 @@ export interface MastraAdapterOptions {
 export class MastraAdapter implements AgentAdapter {
   readonly name: string;
   private readonly supportsFiles: boolean;
+  private readonly supportsHistory: boolean;
+  // A stopped run outlives stream(): its tool keeps running, then Mastra saves to memory.
+  private readonly inFlight = new Map<string, Promise<void>>();
+  // Titles of threads deleted by a reset that failed before it recreated them.
+  private readonly resetTitles = new Map<string, string>();
 
   constructor(private agent: Agent, options: MastraAdapterOptions = {}) {
     this.name = agent.name;
     this.supportsFiles = options.supportsFiles ?? false;
+    this.supportsHistory = options.supportsHistory ?? true;
   }
 
   async stream(
     prompt: string,
     hooks: StreamHooks,
     options: StreamOptions
+  ): Promise<void> {
+    const id = options.conversationId;
+    const previous = this.inFlight.get(id);
+    const runs: Promise<unknown>[] = [];
+    const turn = this.runTurn(prompt, hooks, options, previous, runs);
+    const settled = turn
+      .catch(() => {})
+      .then(() => Promise.all(runs))
+      .then(() => {});
+    this.inFlight.set(id, settled);
+    try {
+      await turn;
+    } finally {
+      if (this.inFlight.get(id) === settled) this.inFlight.delete(id);
+    }
+  }
+
+  private async runTurn(
+    prompt: string,
+    hooks: StreamHooks,
+    options: StreamOptions,
+    previous: Promise<void> | undefined,
+    runs: Promise<unknown>[]
   ): Promise<void> {
     // Backfill the langfuse trace user_id only (Unauthorized bucket, not
     // Unattributed); memory.resource keeps the original to scope memory.
@@ -137,19 +185,25 @@ export class MastraAdapter implements AgentAdapter {
           ]
         : text;
 
+    // A dynamic workspace or tool set resolves from the request context,
+    // which is the only place it can read the conversation from: the
+    // resolver signature carries no thread. An agent keying a sandbox on
+    // the thread needs this to be here.
+    const requestContext: RequestContext = new RequestContext([
+      ["threadId", options.conversationId],
+      ["resourceId", options.userId],
+    ]);
+    if (options.history && this.supportsHistory) {
+      if (previous) await settleWithin(previous, PREVIOUS_TURN_WAIT_MS);
+      await this.replaceThread(options.conversationId, options.userId, options.history, requestContext);
+    }
+
     const stream = await this.agent.stream(input, {
       memory: {
         thread: options.conversationId,
         resource: options.userId,
       },
-      // A dynamic workspace or tool set resolves from the request context,
-      // which is the only place it can read the conversation from: the
-      // resolver signature carries no thread. An agent keying a sandbox on
-      // the thread needs this to be here.
-      requestContext: new RequestContext([
-        ["threadId", options.conversationId],
-        ["resourceId", options.userId],
-      ]),
+      requestContext,
       tracingOptions: {
         metadata: {
           "langfuse.user.id": traceUserId,
@@ -184,11 +238,45 @@ export class MastraAdapter implements AgentAdapter {
     // a continuation to resume. Consume each segment until the turn ends.
     let segment: MastraStream | null = stream;
     while (segment) {
+      // Resolves when Mastra's run ends, after its memory write.
+      if (typeof segment.getFullOutput === "function") runs.push(segment.getFullOutput().catch(() => {}));
       // Every resumed segment opens what the reader perceives as a new block,
       // whether Mastra emits an explicit `text-start` first or not.
       boundary.forceNewBlock = boundary.lastTextChar !== "";
       segment = await this.consumeSegment(segment, hooks, options, toolNames, boundary);
     }
+  }
+
+  /** Deleting the thread drops thread-scoped working memory and metadata, not resource-scoped. */
+  private async replaceThread(
+    threadId: string,
+    resourceId: string,
+    history: HistoryInput,
+    requestContext: RequestContext
+  ): Promise<void> {
+    const memory = await this.agent.getMemory({ requestContext });
+    if (!memory) return;
+    await memory.settled();
+    const existing = await memory.getThreadById({ threadId });
+    const title = existing?.title ?? this.resetTitles.get(threadId);
+    if (title) this.resetTitles.set(threadId, title);
+    if (existing) await memory.deleteThread(threadId);
+    await memory.createThread({ threadId, resourceId, title });
+    this.resetTitles.delete(threadId);
+    if (history.messages.length === 0) return;
+    // Stamped before now so the turn about to run sorts after them.
+    const start = Date.now() - history.messages.length;
+    await memory.saveMessages({
+      messages: history.messages.map((m, i) => ({
+        id: m.id || memory.generateId(),
+        role: m.role,
+        createdAt: new Date(start + i),
+        threadId,
+        resourceId,
+        type: "text",
+        content: { format: 2, parts: [{ type: "text", text: m.content }], content: m.content },
+      })),
+    });
   }
 
   /**
@@ -482,7 +570,7 @@ export class MastraAdapter implements AgentAdapter {
     }
   }
 
-  getConfig(): MessagingAgentConfig {
+  getConfig(): AgentConfig {
     // getInstructions() is sync when instructions are static strings (the common case).
     // Dynamic instruction functions return a Promise and are skipped here since
     // getConfig() is called once at startup for playground display.
@@ -517,6 +605,7 @@ export class MastraAdapter implements AgentAdapter {
       systemPrompt,
       tools: toolConfigs,
       supportsFiles: this.supportsFiles,
+      supportsHistory: this.supportsHistory,
     };
   }
 }

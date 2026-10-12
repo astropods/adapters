@@ -34,6 +34,7 @@ export function serve(
   setupObservability(agent);
   const adapter = new MastraAdapter(agent, {
     supportsFiles: options?.supportsFiles,
+    supportsHistory: options?.supportsHistory,
   });
   serveAdapter(adapter, options);
 }

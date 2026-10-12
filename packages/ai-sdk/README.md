@@ -62,6 +62,8 @@ The adapter bounds the history in four ways:
 - After a failed turn, it drops the older half of that conversation's history. A stopped turn changes nothing.
 - Past `maxConversations`, it forgets the least recently used conversation. At the defaults, history takes at most about 50 MB.
 
+When a user edits a message in the web chat, or switches to another version of the conversation, the next message carries the turns before it, and the adapter replaces the conversation's history with them. The same happens after a turn the agent did not finish answering. The turns are text only, so earlier tool calls and their results drop out of the history. The adapter reports `supportsHistory` while memory is on, so the chat offers editing. With `memory: false` it does not, because the agent keeps its own memory.
+
 With memory on, the agent receives `messages` instead of `prompt`. Pass `memory: false` if the agent's `prepareCall` reads `prompt`, or if it keeps its own memory.
 
 `serve()` blocks until `SIGINT` or `SIGTERM`. Under `ast dev`, the CLI injects `GRPC_SERVER_ADDR` for you.

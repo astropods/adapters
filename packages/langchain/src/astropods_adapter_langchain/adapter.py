@@ -4,7 +4,7 @@ import logging
 import os
 from typing import Any, Optional
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from opentelemetry import trace as otel_trace
 
 from astropods_adapter_core import TraceContext, create_traceparent
@@ -56,6 +56,7 @@ class LangChainAdapter:
         tools: Optional[list] = None,
         voice: Optional[VoiceProvider] = None,
         supports_files: bool = False,
+        supports_history: Optional[bool] = None,
     ) -> None:
         self.name = name
         self._executor = executor
@@ -63,6 +64,7 @@ class LangChainAdapter:
         self._tools = tools or []
         self._voice = voice
         self._supports_files = supports_files
+        self._declared_history = supports_history
 
     async def stream(
         self, prompt: str, hooks: StreamHooks, options: StreamOptions
@@ -84,8 +86,15 @@ class LangChainAdapter:
         self, prompt: str, hooks: StreamHooks, options: StreamOptions
     ) -> None:
         try:
+            messages: list[BaseMessage] = [_user_message(prompt, options.images, options.attachments)]
+            # getattr: an astropods-adapter-core older than 0.10.0 has no history.
+            history = getattr(options, "history", None)
+            if history is not None and self._supports_history() and await self._delete_thread(
+                options.conversation_id
+            ):
+                messages = [_history_message(m) for m in history.messages] + messages
             async for chunk in self._executor.astream(
-                {"messages": [_user_message(prompt, options.images, options.attachments)]},
+                {"messages": messages},
                 config={"configurable": {"thread_id": options.conversation_id}},
                 stream_mode="updates",
             ):
@@ -193,6 +202,26 @@ class LangChainAdapter:
         except Exception as e:
             hooks.on_error(e)
 
+    def _supports_history(self) -> bool:
+        if self._declared_history is not None:
+            return self._declared_history
+        return _can_delete_threads(getattr(self._executor, "checkpointer", None)) is not False
+
+    async def _delete_thread(self, thread_id: str) -> bool:
+        """Returns False when the checkpointer cannot delete threads."""
+        checkpointer = getattr(self._executor, "checkpointer", None)
+        deletes = _can_delete_threads(checkpointer)
+        if deletes is None:
+            return True
+        if deletes is False:
+            logger.warning("checkpointer cannot delete threads; history ignored: %s", type(checkpointer).__name__)
+            return False
+        if _overrides(checkpointer, "adelete_thread"):
+            await checkpointer.adelete_thread(thread_id)
+        else:
+            checkpointer.delete_thread(thread_id)
+        return True
+
     def get_config(self) -> dict:
         tool_configs = [
             {
@@ -207,6 +236,7 @@ class LangChainAdapter:
             "system_prompt": self._system_prompt,
             "tools": tool_configs,
             "supports_files": self._supports_files,
+            "supports_history": self._supports_history(),
         }
 
 
@@ -232,6 +262,31 @@ def _user_message(prompt: str, images: list, attachments: list) -> HumanMessage:
     ]
     blocks.append({"type": "text", "text": text})
     return HumanMessage(content=blocks)
+
+
+def _overrides(checkpointer: Any, method: str) -> bool:
+    """BaseCheckpointSaver's own implementation only raises NotImplementedError."""
+    try:
+        from langgraph.checkpoint.base import BaseCheckpointSaver
+    except ImportError:
+        return callable(getattr(checkpointer, method, None))
+    impl = getattr(type(checkpointer), method, None)
+    return callable(impl) and impl is not getattr(BaseCheckpointSaver, method, None)
+
+
+def _can_delete_threads(checkpointer: Any) -> Optional[bool]:
+    """None without a checkpointer, which stores nothing; checkpointer=True inherits an unreachable parent's."""
+    if checkpointer is None or checkpointer is False:
+        return None
+    if checkpointer is True:
+        return False
+    return _overrides(checkpointer, "adelete_thread") or _overrides(checkpointer, "delete_thread")
+
+
+def _history_message(message: Any) -> BaseMessage:
+    if message.role == "assistant":
+        return AIMessage(content=message.content)
+    return HumanMessage(content=message.content)
 
 
 def _traceparent_from_span(span: Any) -> str:

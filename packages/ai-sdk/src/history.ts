@@ -40,6 +40,16 @@ export class ConversationHistory {
     this.store(conversationId, this.trim([...(this.conversations.get(conversationId) ?? []), turn]));
   }
 
+  replace(conversationId: string, messages: ModelMessage[]): void {
+    if (!this.enabled) return;
+    const turns: ModelMessage[][] = [];
+    for (const message of messages) {
+      if (message.role === "user" || turns.length === 0) turns.push([message]);
+      else turns[turns.length - 1].push(message);
+    }
+    this.store(conversationId, this.trim(turns.map((t) => toTurn(t))));
+  }
+
   /** Drops the older half of a conversation after a failed turn, down to nothing on repeated failures. */
   shrink(conversationId: string): void {
     const turns = this.conversations.get(conversationId);

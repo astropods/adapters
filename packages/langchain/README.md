@@ -37,6 +37,7 @@ serve(adapter)
 | `name` | `str` | Display name shown in logs and the playground |
 | `system_prompt` | `str` | Shown in the playground's config panel |
 | `tools` | `list` | LangChain tool objects — populates the playground tool list |
+| `supports_history` | `Optional[bool]` | When the conversation's earlier turns change (the user edited a message or switched versions in the web chat, or the agent never answered the previous turn), delete the checkpointer thread and start it over from the turns the message carries, as text only. Defaults to `None`, which means true when the checkpointer implements `adelete_thread` or `delete_thread`, or when there is none. |
 
 ### `serve(adapter, options?)`
 

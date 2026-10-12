@@ -37,6 +37,8 @@ from astropods_messaging import (
 from .types import (
     AgentAdapter,
     AttachmentInput,
+    HistoryInput,
+    HistoryMessageInput,
     ImageInput,
     AudioInput,
     FeedbackEvent,
@@ -196,11 +198,32 @@ class _StreamHooksImpl:
         self._enqueue(ConversationRequest(agent_response=response))
 
 
+def _has_field(message_type: type, name: str) -> bool:
+    """The installed astropods-messaging release may predate the field."""
+    return name in message_type.DESCRIPTOR.fields_by_name
+
+
 def _agent_config(config_dict: dict, tool_configs: list) -> AgentConfig:
-    return AgentConfig(
+    config = AgentConfig(
         system_prompt=config_dict.get("system_prompt", ""),
         tools=tool_configs,
         supports_files=bool(config_dict.get("supports_files", False)),
+    )
+    if config_dict.get("supports_history") and _has_field(AgentConfig, "supports_history"):
+        config.supports_history = True
+    return config
+
+
+def _resolve_history(message: Message) -> Optional[HistoryInput]:
+    if not _has_field(Message, "history") or not message.HasField("history"):
+        return None
+    return HistoryInput(
+        messages=[
+            HistoryMessageInput(id=m.id, role=m.role, content=m.content)
+            for m in message.history.messages
+            if m.role in ("user", "assistant")
+        ],
+        is_complete=message.history.is_complete,
     )
 
 
@@ -621,6 +644,7 @@ class MessagingBridge:
             ),
             attachments=self._resolve_attachments(message),
             images=self._resolve_images(message),
+            history=_resolve_history(message),
             save_conversation=lambda inp: self._save_conversation(
                 (message.user.id if message.user else ""), inp
             ),  # noqa: E731

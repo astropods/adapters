@@ -84,6 +84,19 @@ Per-request context passed to `stream()`:
 | `conversationId` | Stable ID for the conversation thread |
 | `userId` | ID of the user who sent the message |
 | `platformContext?` | `PlatformContext \| undefined` — platform-specific fields (channel, thread, workspace, event kind). `undefined` for messages from non-platform sources (playground, direct gRPC). |
+| `history?` | `HistoryInput \| undefined`: the turns before this message, set only when they differ from what the agent last answered. See [Edited messages](#edited-messages). |
+
+#### Edited messages
+
+In the web chat a user can edit a message they sent, or switch to another version of the conversation. The next message then carries `history`: the turns before it on the version the user is on, oldest first. It also arrives after a turn the agent did not finish answering. The turns are text only; a user turn that carried only files reads as a line naming them. Replace what you store for `conversationId` with `history.messages`, then handle the prompt. An empty `messages` means there are no earlier turns. `isComplete` is `false` when older turns were left out to bound the size.
+
+Declare that you do this with `supportsHistory: true` in `getConfig()`. The chat offers editing only for agents that set it. The packaged adapters set it and reset their framework's memory for you.
+
+```ts
+getConfig() {
+  return { systemPrompt: "", tools: [], supportsHistory: true };
+}
+```
 
 #### Using `platformContext`
 

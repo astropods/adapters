@@ -608,3 +608,120 @@ describe("AISDKAdapter history rules", () => {
     expect(contents(calls[1])).toEqual(["first", "v6 reply", "second"]);
   });
 });
+
+describe("AISDKAdapter edited conversations", () => {
+  function recordingAgent() {
+    const calls: any[] = [];
+    const agent = fakeAgent([], {
+      stream: async (params: any) => {
+        calls.push(params);
+        const reply = `reply ${calls.length}`;
+        return {
+          fullStream: asyncFrom([{ type: "text-delta", id: "t-0", text: reply }]),
+          responseMessages: Promise.resolve([{ role: "assistant", content: reply }]),
+        } as any;
+      },
+    });
+    return { agent, calls };
+  }
+
+  const edit: NonNullable<StreamOptions["history"]> = {
+    messages: [
+      { id: "h1", role: "user", content: "first" },
+      { id: "h2", role: "assistant", content: "reply 1" },
+    ],
+    isComplete: true,
+  };
+
+  async function seed(adapter: AISDKAdapter) {
+    await adapter.stream("first", createHooks(), defaultOptions);
+    await adapter.stream("second", createHooks(), defaultOptions);
+  }
+
+  test("an edit replaces the conversation's history with the given turns", async () => {
+    const { agent, calls } = recordingAgent();
+    const adapter = new AISDKAdapter(agent);
+    await seed(adapter);
+
+    await adapter.stream("second edited", createHooks(), { ...defaultOptions, history: edit });
+
+    expect(calls[2].messages).toEqual([
+      { role: "user", content: "first" },
+      { role: "assistant", content: "reply 1" },
+      { role: "user", content: "second edited" },
+    ]);
+  });
+
+  test("an empty history clears the conversation", async () => {
+    const { agent, calls } = recordingAgent();
+    const adapter = new AISDKAdapter(agent);
+    await seed(adapter);
+
+    await adapter.stream("first edited", createHooks(), {
+      ...defaultOptions,
+      history: { messages: [], isComplete: true },
+    });
+
+    expect(calls[2].messages).toEqual([{ role: "user", content: "first edited" }]);
+  });
+
+  test("a send without history keeps the edited branch", async () => {
+    const { agent, calls } = recordingAgent();
+    const adapter = new AISDKAdapter(agent);
+    await seed(adapter);
+    await adapter.stream("second edited", createHooks(), { ...defaultOptions, history: edit });
+
+    await adapter.stream("third", createHooks(), defaultOptions);
+
+    expect(calls[3].messages).toEqual([
+      { role: "user", content: "first" },
+      { role: "assistant", content: "reply 1" },
+      { role: "user", content: "second edited" },
+      { role: "assistant", content: "reply 3" },
+      { role: "user", content: "third" },
+    ]);
+  });
+
+  test("declares history support only when the adapter keeps the history", () => {
+    const { agent } = recordingAgent();
+    expect(new AISDKAdapter(agent).getConfig().supportsHistory).toBe(true);
+    expect(new AISDKAdapter(agent, { memory: false }).getConfig().supportsHistory).toBe(false);
+    expect(new AISDKAdapter(agent, { maxTurns: 0 }).getConfig().supportsHistory).toBe(false);
+  });
+});
+
+describe("AISDKAdapter response messages on an early return", () => {
+  async function unhandledDuring(run: () => Promise<void>): Promise<unknown[]> {
+    const seen: unknown[] = [];
+    const record = (reason: unknown) => seen.push(reason);
+    process.on("unhandledRejection", record);
+    try {
+      await run();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } finally {
+      process.off("unhandledRejection", record);
+    }
+    return seen;
+  }
+
+  function agentRejectingResponse(parts: TextStreamPart<any>[]) {
+    return fakeAgent([], {
+      stream: async () =>
+        ({ fullStream: asyncFrom(parts), responseMessages: Promise.reject(new Error("response rejected")) }) as any,
+    });
+  }
+
+  const cases: Array<[string, TextStreamPart<any>[], { memory?: boolean }]> = [
+    ["an aborted turn", [{ type: "abort" } as TextStreamPart<any>], {}],
+    ["a failed turn", [{ type: "error", error: new Error("boom") } as TextStreamPart<any>], {}],
+    ["a turn with memory off", [], { memory: false }],
+  ];
+
+  for (const [name, parts, adapterOptions] of cases) {
+    test(`${name} leaves no unhandled rejection`, async () => {
+      const adapter = new AISDKAdapter(agentRejectingResponse(parts), adapterOptions);
+      const seen = await unhandledDuring(() => adapter.stream("q", createHooks(), defaultOptions));
+      expect(seen, "the SDK's rejected response promise must have a handler").toEqual([]);
+    });
+  }
+});

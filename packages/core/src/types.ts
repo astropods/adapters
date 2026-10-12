@@ -146,6 +146,27 @@ export interface SaveConversationInput {
   onConflict?: "SKIP" | "REPLACE" | "APPEND";
 }
 
+/** One turn of {@link StreamOptions.history}. */
+export interface HistoryMessageInput {
+  id: string;
+  role: "user" | "assistant";
+  /** Text only, without attachments. */
+  content: string;
+}
+
+/** The turns before this message on the user's current branch. */
+export interface HistoryInput {
+  /** Oldest first. */
+  messages: HistoryMessageInput[];
+  /** False when older turns were left out to bound the size. */
+  isComplete: boolean;
+}
+
+export type AgentConfig = MessagingAgentConfig & {
+  /** Replaces stored memory with {@link StreamOptions.history}; required for chat editing. */
+  supportsHistory?: boolean;
+};
+
 /** Options for {@link StreamOptions.elicit}, the MCP-elicitation-shaped convenience. */
 export interface ElicitOptions {
   value?: unknown;
@@ -180,6 +201,11 @@ export interface StreamOptions {
    * no images.
    */
   images?: ImageInput[];
+  /**
+   * Set when the earlier turns differ from what the agent last answered. Replace
+   * what you store for `conversationId` with these turns, then handle the prompt.
+   */
+  history?: HistoryInput;
   /**
    * Aborted when the user stops generation (a `StreamControl` STOP arrives for
    * this conversation, e.g. the chat "stop generating" button). Adapters should
@@ -301,8 +327,8 @@ export interface AgentAdapter {
     options: StreamOptions
   ): Promise<void>;
 
-  /** Return agent metadata for playground display (system prompt, tool list). */
-  getConfig(): MessagingAgentConfig;
+  /** Return agent metadata for playground display (system prompt, tool list) and capabilities. */
+  getConfig(): AgentConfig;
 
   /**
    * Receive inbound platform feedback (thumbs up/down, free-form comment,

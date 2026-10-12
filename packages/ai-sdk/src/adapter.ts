@@ -2,6 +2,7 @@ import type { Agent, ModelMessage, ToolSet } from "ai";
 import type { AgentConfig as MessagingAgentConfig } from "@astropods/messaging";
 import type {
   AgentAdapter,
+  AgentConfig,
   StreamHooks,
   StreamOptions,
 } from "@astropods/adapter-core";
@@ -50,6 +51,12 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
   ): Promise<void> {
     const conversationId = options.conversationId;
     const history = conversationId ? this.history : undefined;
+    if (history && options.history) {
+      history.replace(
+        conversationId,
+        options.history.messages.map(({ role, content }) => ({ role, content }) as ModelMessage)
+      );
+    }
     const ask: ModelMessage = { role: "user", content: prompt };
     let failed = false;
     let aborted = false;
@@ -60,6 +67,9 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
           ? { messages: [...history.messages(conversationId), ask], abortSignal: options.signal }
           : { prompt, abortSignal: options.signal }
       );
+      // Rejects after an abort or an error, on paths that never await it.
+      const turnMessages = responseMessages(result);
+      turnMessages.catch(() => {});
 
       // tool-input-end carries only the call id; track id → name on -start.
       const toolNames = new Map<string, string>();
@@ -129,14 +139,14 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
         history.shrink(conversationId);
         return;
       }
-      history.append(conversationId, [ask, ...(await responseMessages(result))]);
+      history.append(conversationId, [ask, ...(await turnMessages)]);
     } catch (err) {
       if (history && !options.signal?.aborted) history.shrink(conversationId);
       throw err;
     }
   }
 
-  getConfig(): MessagingAgentConfig {
+  getConfig(): AgentConfig {
     // An Agent created without a `tools` option has `tools === undefined`,
     // so default to an empty set before enumerating.
     const tools = (this.agent.tools ?? {}) as Record<
@@ -156,6 +166,8 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet>
     return {
       systemPrompt: this.instructions,
       tools: toolConfigs,
+      // With memory off the agent keeps its own, which the adapter cannot reset.
+      supportsHistory: this.history !== undefined,
     };
   }
 }
