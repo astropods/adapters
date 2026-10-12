@@ -167,7 +167,7 @@ describe("AISDKAdapter", () => {
       const agent = fakeAgent([], {
         stream: async () => {
           capturedActorKey = activeActor()?.actorKey;
-          return { fullStream: asyncFrom([]) } as any;
+          return { fullStream: asyncFrom([]), response: Promise.resolve({ messages: [] }) } as any;
         },
       });
       const adapter = new AISDKAdapter(agent);
@@ -182,7 +182,7 @@ describe("AISDKAdapter", () => {
       const agent = fakeAgent([], {
         stream: async () => {
           capturedActorKey = activeActor()?.actorKey;
-          return { fullStream: asyncFrom([]) } as any;
+          return { fullStream: asyncFrom([]), response: Promise.resolve({ messages: [] }) } as any;
         },
       });
       const adapter = new AISDKAdapter(agent);

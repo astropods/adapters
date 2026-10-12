@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { logger } from "./logger";
+import { logger } from "./logger.js";
 
 /**
  * The actor attributed to any AI Gateway request made while active.
