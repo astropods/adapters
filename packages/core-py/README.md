@@ -97,6 +97,7 @@ Per-request context passed to `stream()`:
 | `user_name` | The sender's name on the source platform, such as their full name in Slack. Empty when the platform sent none. |
 | `platform_context` | `Optional[PlatformContext]` — platform-specific fields (channel, thread, workspace, event kind). `None` for messages from non-platform sources (playground, direct gRPC). |
 | `history` | `Optional[HistoryInput]`: the turns before this message, set only when they differ from what the agent last answered. Replace what you store for `conversation_id` with `history.messages`, then handle the prompt. Report `"supports_history": True` from `get_config()`; the chat offers message editing only then. |
+| `model` | `Optional[ModelChoice]`: the `entry` and `model` to answer with, set when the deployment lists live models. Pass `model.model` to your framework where it picks the model for a run. |
 
 #### Using `platform_context`
 

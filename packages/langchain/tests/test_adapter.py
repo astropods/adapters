@@ -219,6 +219,27 @@ class TestLangChainAdapterSessionContext:
         }
 
     @pytest.mark.asyncio
+    async def test_configurable_carries_the_model_chosen_for_the_turn(self, hooks):
+        from astropods_adapter_core.types import ModelChoice
+
+        executor = make_executor_with_updates([make_model_update("hi")])
+        adapter = LangChainAdapter(executor)
+
+        await adapter.stream(
+            "hello",
+            hooks,
+            StreamOptions(
+                conversation_id="conv-123",
+                user_id="user_alice",
+                model=ModelChoice(entry="claude", model="claude-opus-4-7"),
+            ),
+        )
+
+        assert executor.last_astream_kwargs.get("config") == {
+            "configurable": {"thread_id": "conv-123", "model": "claude-opus-4-7", "model_entry": "claude"}
+        }
+
+    @pytest.mark.asyncio
     async def test_span_sets_langfuse_user_and_session(self, hooks, stream_options):
         exporter = InMemorySpanExporter()
         provider = TracerProvider()

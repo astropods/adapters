@@ -6,6 +6,7 @@ export type {
   FeedbackEvent,
   HistoryInput,
   HistoryMessageInput,
+  ModelChoice,
   RenderableInput,
   SaveConversationInput,
   SaveConversationResponse,

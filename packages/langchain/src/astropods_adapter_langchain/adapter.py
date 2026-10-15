@@ -43,6 +43,12 @@ def _configurable(options: StreamOptions) -> dict[str, str]:
     user_name = getattr(options, "user_name", "")
     if user_name:
         configurable["user_name"] = user_name
+    # getattr: an older astropods-adapter-core has no model. "model" is the key
+    # init_chat_model reads when "model" is a configurable field.
+    model = getattr(options, "model", None)
+    if model is not None:
+        configurable["model"] = model.model
+        configurable["model_entry"] = model.entry
     return configurable
 
 

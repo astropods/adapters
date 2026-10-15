@@ -110,6 +110,49 @@ describe("AISDKAdapter", () => {
       expect(hooks.chunks.join("")).toBe("Hi Ada");
     });
 
+    test("lets a ToolLoopAgent's prepareCall answer with the chosen model", async () => {
+      const { ToolLoopAgent, simulateReadableStream } = await import("ai");
+      const { MockLanguageModelV4 } = await import("ai/test");
+      const answeredBy: string[] = [];
+      const mockModel = (id: string) =>
+        new MockLanguageModelV4({
+          modelId: id,
+          doStream: async () => {
+            answeredBy.push(id);
+            return {
+              stream: simulateReadableStream({
+                chunks: [
+                  {
+                    type: "finish",
+                    finishReason: { unified: "stop", raw: "stop" },
+                    usage: {
+                      inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                      outputTokens: { total: 1, text: 1, reasoning: 0 },
+                    },
+                  },
+                ],
+              }),
+            } as any;
+          },
+        });
+      const models = { sonnet: mockModel("sonnet"), opus: mockModel("opus") };
+      const agent = new ToolLoopAgent<{ model?: string }>({
+        model: models.sonnet,
+        prepareCall: ({ options, ...rest }) => ({
+          ...rest,
+          model: models[options.model as keyof typeof models] ?? rest.model,
+        }),
+      });
+      const adapter = new AISDKAdapter(agent, {
+        callOptions: (options) => ({ model: options.model?.model }),
+      });
+
+      await adapter.stream("hi", createHooks(), { ...defaultOptions, model: { entry: "default", model: "opus" } });
+      await adapter.stream("hi", createHooks(), defaultOptions);
+
+      expect(answeredBy).toEqual(["opus", "sonnet"]);
+    });
+
     test("sends no call options when none are configured", async () => {
       let received: unknown;
       const agent = fakeAgent([], {

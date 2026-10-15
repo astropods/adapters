@@ -135,6 +135,32 @@ describe("MastraAdapter", () => {
     test("leaves userName out when the platform sent no name", async () => {
       expect(await userNameSeenFor(undefined)).toBeUndefined();
     });
+
+    async function modelSeenFor(model: StreamOptions["model"]) {
+      let seen: unknown = "not called";
+      const agent = new Agent({
+        id: "switcher",
+        name: "Switcher",
+        instructions: "Answer.",
+        model: ({ requestContext }) => {
+          seen = requestContext.get("model");
+          return modelFromParts(textParts(["ok"]));
+        },
+      });
+      await new MastraAdapter(agent).stream("hi", createHooks(), { ...defaultOptions, model });
+      return seen;
+    }
+
+    test("gives a dynamic model the model chosen for the turn", async () => {
+      expect(await modelSeenFor({ entry: "default", model: "claude-opus-4-7" })).toEqual({
+        entry: "default",
+        model: "claude-opus-4-7",
+      });
+    });
+
+    test("leaves model out when the deployment offers no choice", async () => {
+      expect(await modelSeenFor(undefined)).toBeUndefined();
+    });
   });
 
   describe("file attachments", () => {
@@ -1379,6 +1405,18 @@ describe("MastraAdapter", () => {
       expect(approve).not.toHaveBeenCalled();
     });
 
+    test("approves with the turn's request context, so the run keeps its model", async () => {
+      const { agent, approve } = agentWithApproval(payload, textThenFinish("deleted"));
+      const render = mock(async () => ({ id: "r", action: "RENDERABLE_ACTION_SUBMIT" }));
+      const model = { entry: "default", model: "claude-opus-4-7" };
+
+      await new MastraAdapter(agent).stream("delete abc", createHooks(), { ...defaultOptions, render, model });
+
+      const requestContext = (approve.mock.calls[0] as any[])[0].requestContext;
+      expect(requestContext.get("model")).toEqual(model);
+      expect(requestContext.get("threadId")).toBe(defaultOptions.conversationId);
+    });
+
     test("declines when the surface cannot render (UnsupportedRenderableError)", async () => {
       const { agent, approve, decline } = agentWithApproval(payload, textThenFinish("ok"));
       const adapter = new MastraAdapter(agent);
@@ -1428,6 +1466,7 @@ describe("MastraAdapter", () => {
       expect(elicit.mock.calls[0][2].allowedActions).toContain("RENDERABLE_ACTION_RESPOND");
       expect(resume).toHaveBeenCalledTimes(1);
       expect(resume.mock.calls[0][0]).toEqual({ city: "SF" });
+      expect((resume.mock.calls[0] as any[])[1].requestContext.get("threadId")).toBe(defaultOptions.conversationId);
       expect(resume.mock.calls[0][1]).toMatchObject({ runId: "run-2", toolCallId: "tc-9" });
       expect(hooks.chunks).toEqual(["72F"]);
       expect(hooks.finishCount).toBe(1);

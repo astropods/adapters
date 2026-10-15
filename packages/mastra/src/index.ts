@@ -7,6 +7,7 @@ import { setupObservability } from "./observability";
 
 export { MastraAdapter } from "./adapter";
 export type { MastraAdapterOptions } from "./adapter";
+export type { ModelChoice } from "@astropods/adapter-core";
 
 /**
  * Connect a Mastra Agent to the Astro messaging service and start listening.

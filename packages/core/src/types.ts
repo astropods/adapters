@@ -162,6 +162,12 @@ export interface HistoryInput {
   isComplete: boolean;
 }
 
+/** A model id under a models entry of astropods.yml. */
+export interface ModelChoice {
+  entry: string;
+  model: string;
+}
+
 export type AgentConfig = MessagingAgentConfig & {
   /** Replaces stored memory with {@link StreamOptions.history}; required for chat editing. */
   supportsHistory?: boolean;
@@ -212,6 +218,8 @@ export interface StreamOptions {
    * what you store for `conversationId` with these turns, then handle the prompt.
    */
   history?: HistoryInput;
+  /** The model to answer with, one of the deployment's live models. Undefined when it has none. */
+  model?: ModelChoice;
   /**
    * Aborted when the user stops generation (a `StreamControl` STOP arrives for
    * this conversation, e.g. the chat "stop generating" button). Adapters should
