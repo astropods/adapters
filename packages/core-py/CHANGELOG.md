@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.0](https://github.com/astropods/adapters/compare/astropods-adapter-core-v0.9.1...astropods-adapter-core-v0.10.0) (2026-10-12)
+
+
+### Features
+
+* pass the sender's name to every adapter ([#102](https://github.com/astropods/adapters/issues/102)) ([93541dc](https://github.com/astropods/adapters/commit/93541dcae74e8d59e57c656605b46ea39b1ac34c))
+* replace agent memory from the chat branch on an edit ([#101](https://github.com/astropods/adapters/issues/101)) ([3df2495](https://github.com/astropods/adapters/commit/3df2495352361ddaaf35ec571d9787e05c1fb35e))
+
+
+### Bug Fixes
+
+* trace AI SDK 7 agents and make agent errors traceable ([#98](https://github.com/astropods/adapters/issues/98)) ([7391944](https://github.com/astropods/adapters/commit/7391944a618e26d7273a0912ebf36ac702ba7cf1))
+
 ## [0.9.1](https://github.com/astropods/adapters/compare/astropods-adapter-core-v0.9.0...astropods-adapter-core-v0.9.1) (2026-09-30)
 
 
