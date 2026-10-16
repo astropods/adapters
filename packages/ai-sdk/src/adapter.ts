@@ -6,7 +6,7 @@ import type {
   StreamHooks,
   StreamOptions,
 } from "@astropods/adapter-core";
-import { withActorContext } from "@astropods/adapter-core";
+import { withActorContext, ANONYMOUS_ACTOR_KEY } from "@astropods/adapter-core";
 
 import { ConversationHistory } from "./history";
 
@@ -73,7 +73,7 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
     // client that actually reads this (createOpenAI({ fetch:
     // withActorHeaders() }) in the scaffold template) picks it up through
     // withActorHeaders.
-    return withActorContext({ actorKey: options.userId || "anonymous" }, () =>
+    return withActorContext({ actorKey: options.userId || ANONYMOUS_ACTOR_KEY }, () =>
       this.runStream(prompt, hooks, options, conversationId, history)
     );
   }

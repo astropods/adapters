@@ -33,7 +33,7 @@ export { AgentCoreServer } from "./agentcore-server.js";
 export { logger } from "./logger.js";
 export { createTraceparent } from "./trace.js";
 export type { TraceparentInput } from "./trace.js";
-export { withActorContext, withActorHeaders, activeActor } from "./actor-context.js";
+export { withActorContext, withActorHeaders, activeActor, ANONYMOUS_ACTOR_KEY } from "./actor-context.js";
 export type { ActorContext } from "./actor-context.js";
 export { instrumentHttp } from "./otel/instrument.js";
 export type { InstrumentHttpOptions } from "./otel/instrument.js";
