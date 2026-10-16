@@ -369,6 +369,24 @@ describe("LangChainAdapter", () => {
 
       expect(configurable).toEqual({ thread_id: "conv-42", user_name: "Alice" });
     });
+
+    test("adds the model chosen for the turn to configurable as model and model_entry", async () => {
+      let configurable: unknown;
+      const agent: LangChainAgent = {
+        async stream(_input, options) {
+          configurable = (options as Record<string, unknown>).configurable;
+          return asyncFrom([]);
+        },
+      };
+
+      await new LangChainAdapter(agent).stream("hi", createHooks(), {
+        conversationId: "conv-42",
+        userId: "user_alice",
+        model: { entry: "claude", model: "claude-opus-4-7" },
+      });
+
+      expect(configurable).toEqual({ thread_id: "conv-42", model: "claude-opus-4-7", model_entry: "claude" });
+    });
   });
 
   describe("getConfig", () => {

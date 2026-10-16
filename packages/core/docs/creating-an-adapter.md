@@ -52,6 +52,7 @@ The `options` argument contains per-request context from the messaging platform:
 | `conversationId` | Stable ID for the conversation thread |
 | `userId` | ID of the user who sent the message |
 | `history` | The turns before this message, set only when they differ from what the agent last answered |
+| `model` | The `{ entry, model }` to answer with, when the deployment lists live models. Put it where the framework resolves its model per run |
 
 Use these for memory/context management if your framework supports it.
 

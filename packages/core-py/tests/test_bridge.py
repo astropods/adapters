@@ -19,6 +19,7 @@ from astropods_adapter_core.bridge import (
 )
 from astropods_adapter_core.types import (
     HistoryInput,
+    ModelChoice,
     HistoryMessageInput,
     FeedbackEvent,
     ServeOptions,
@@ -1070,3 +1071,27 @@ class TestHistoryForwarding:
     def test_declared_history_support_reaches_the_wire(self):
         assert _agent_config({"supports_history": True}, []).supports_history is True
         assert _agent_config({}, []).supports_history is False
+
+
+_SDK_HAS_MODEL = "model" in Message.DESCRIPTOR.fields_by_name
+_needs_model_sdk = pytest.mark.skipif(
+    not _SDK_HAS_MODEL,
+    reason="needs an astropods-messaging release with Message.model",
+)
+
+
+class TestModelForwarding:
+    _options_for = TestHistoryForwarding._options_for
+
+    @pytest.mark.asyncio
+    async def test_no_model_when_the_deployment_lists_none(self):
+        assert (await self._options_for()).model is None
+
+    @_needs_model_sdk
+    @pytest.mark.asyncio
+    async def test_the_chosen_model_reaches_the_adapter(self):
+        from astropods_messaging import ModelChoice as WireModelChoice
+
+        options = await self._options_for(model=WireModelChoice(entry="claude", model="claude-opus-4-7"))
+
+        assert options.model == ModelChoice(entry="claude", model="claude-opus-4-7")

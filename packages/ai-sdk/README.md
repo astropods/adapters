@@ -95,6 +95,26 @@ serve(agent, {
 
 An agent without call options needs no `callOptions`.
 
+## The chosen model
+
+When the deployment lists live models, `StreamOptions.model` is the `{ entry, model }` the user picked in chat, or the default. Pass it through `callOptions`, and return the model from `prepareCall`. Fall back to the model chosen at deploy:
+
+```typescript
+const agent = new ToolLoopAgent({
+  model: gateway.chat(process.env.MODEL_DEFAULT ?? "claude-sonnet-4-6"),
+  callOptionsSchema: z.object({ model: z.string().optional() }),
+  prepareCall: ({ options, ...rest }) => ({
+    ...rest,
+    model: options.model ? gateway.chat(options.model) : rest.model,
+  }),
+});
+
+serve(agent, {
+  name: "My Agent",
+  callOptions: (turn) => ({ model: turn.model?.model }),
+});
+```
+
 ## API
 
 ### `serve(agent, options?)`

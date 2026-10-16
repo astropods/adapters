@@ -95,6 +95,8 @@ const whoAmI = tool(
 );
 ```
 
+When the deployment lists live models, `configurable.model` is the model id the user picked in chat, or the default, and `configurable.model_entry` is its entry in `astropods.yml`. Both are absent otherwise. `initChatModel` reads `configurable.model` when `model` is one of its `configurableFields`.
+
 ## API
 
 ### `serve(agent, options?)`

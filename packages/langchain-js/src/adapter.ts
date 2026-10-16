@@ -119,6 +119,8 @@ export class LangChainAdapter implements AgentAdapter {
         configurable: {
           thread_id: options.conversationId,
           ...(options.userName ? { user_name: options.userName } : {}),
+          // `model` is the key initChatModel reads when "model" is a configurable field.
+          ...(options.model ? { model: options.model.model, model_entry: options.model.entry } : {}),
         },
         // A stopped turn must end its run, or it writes the old branch back after an edit.
         signal: options.signal,

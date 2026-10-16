@@ -21,6 +21,7 @@ import type {
   FeedbackEvent,
   HistoryInput,
   ImageInput,
+  ModelChoice,
   OutgoingFile,
   RenderableInput,
   SaveConversationInput,
@@ -50,12 +51,13 @@ type WireAttachment = Attachment & {
   url?: string;
 };
 
-/** proto-loader decodes an unset `history` as `null`. Declared for SDKs that predate the field. */
+/** proto-loader decodes an unset message field as `null`. Declared for SDKs that predate these fields. */
 type WireMessage = Message & {
   history?: {
     messages?: Array<{ id?: string; role?: string; content?: string }>;
     isComplete?: boolean;
   } | null;
+  model?: { entry?: string; model?: string } | null;
 };
 
 const DEFAULT_SERVER_ADDR = "localhost:9090";
@@ -532,6 +534,12 @@ export class MessagingBridge {
     };
   }
 
+  private resolveModel(message: Message): ModelChoice | undefined {
+    const model = (message as WireMessage).model;
+    if (!model?.model) return undefined;
+    return { entry: model.entry ?? "", model: model.model };
+  }
+
   private handleMessage(message: Message): void {
     if (!this.stream) return;
 
@@ -558,6 +566,7 @@ export class MessagingBridge {
         attachments: this.resolveAttachments(message),
         images: this.resolveImages(message),
         history: this.resolveHistory(message),
+        model: this.resolveModel(message),
         signal: controller.signal,
         render: (input) =>
           this.sendRenderable(conversationId, this.buildRenderable(input)),
