@@ -14,6 +14,9 @@ export interface ActorContext {
   actorKey: string;
 }
 
+/** Fallback actorKey/userId when a request carries no identity. */
+export const ANONYMOUS_ACTOR_KEY = "anonymous";
+
 const storage = new AsyncLocalStorage<ActorContext>();
 
 /**

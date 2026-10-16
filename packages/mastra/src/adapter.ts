@@ -12,7 +12,7 @@ import type {
   StreamHooks,
   StreamOptions,
 } from "@astropods/adapter-core";
-import { UnsupportedRenderableError, createTraceparent, logger, withActorContext } from "@astropods/adapter-core";
+import { UnsupportedRenderableError, createTraceparent, logger, withActorContext, ANONYMOUS_ACTOR_KEY } from "@astropods/adapter-core";
 
 /** The object agent.stream()/approveToolCall()/resumeStream() all resolve to. */
 type MastraStream = Awaited<ReturnType<Agent["stream"]>>;
@@ -156,7 +156,7 @@ export class MastraAdapter implements AgentAdapter {
   ): Promise<void> {
     // Backfill the langfuse trace user_id only (Unauthorized bucket, not
     // Unattributed); memory.resource keeps the original to scope memory.
-    const traceUserId = options.userId || "anonymous";
+    const traceUserId = options.userId || ANONYMOUS_ACTOR_KEY;
 
     // Active for the whole turn, including every tool-approval/suspension
     // resume below: any of those can issue its own fresh gateway call, and
@@ -511,7 +511,7 @@ export class MastraAdapter implements AgentAdapter {
   ): Promise<void> {
     // Active for the whole turn, including the STT and TTS legs below: both
     // are their own gateway-routed calls, same reasoning as stream()'s wrap.
-    const traceUserId = options.userId || "anonymous";
+    const traceUserId = options.userId || ANONYMOUS_ACTOR_KEY;
     return withActorContext({ actorKey: traceUserId }, () =>
       this.runStreamAudio(audio, hooks, options)
     );
