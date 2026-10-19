@@ -1,6 +1,6 @@
 tasks:
   build:
-    command: "bun install && bun x lerna run build"
+    script: "bun install && bun x lerna run build"
     inputs:
       - "packages/**/*"
       - "package.json"
@@ -11,6 +11,6 @@ tasks:
       - "packages/ai-sdk/dist"
       - "packages/langchain-js/dist"
   "install-local":
-    command: "bash -c 'BUN_CONFIG_REGISTRY=http://localhost:4873 bun install'"
+    script: "BUN_CONFIG_REGISTRY=http://localhost:4873 bun install"
   "publish-local":
-    command: "bash -c 'BUN_CONFIG_REGISTRY=http://localhost:4873 bun install && bun x lerna run build && bash scripts/publish-local.sh'"
+    script: "BUN_CONFIG_REGISTRY=http://localhost:4873 bun install && bun x lerna run build && bash scripts/publish-local.sh"
