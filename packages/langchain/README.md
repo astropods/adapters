@@ -43,7 +43,7 @@ def who_am_i(config: RunnableConfig) -> str:
 
 ### The chosen model
 
-When the deployment lists live models, `configurable["model"]` is the model id the user picked in chat, or the default, and `configurable["model_entry"]` is its entry in `astropods.yml`. Both are absent otherwise. `init_chat_model` reads `configurable["model"]` when `model` is one of its `configurable_fields`.
+Pass the models a chat user can pick from as `models=[...]`; the first is the default. With two or more, the web chat shows a model picker, and `configurable["model"]` is the pick. It is absent when no model was picked. `init_chat_model` reads `configurable["model"]` when `model` is one of its `configurable_fields`.
 
 ## API
 

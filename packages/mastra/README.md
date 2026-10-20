@@ -22,20 +22,20 @@ The request context also carries `threadId` and `resourceId`.
 
 ## The chosen model
 
-When the deployment lists live models, each turn's request context carries `model`: the `{ entry, model }` the user picked in chat, or the default. Resolve the agent's model from it, and fall back to the model chosen at deploy:
+Pass the models a chat user can pick from to `serve()`; the first is the default. With two or more, the web chat shows a model picker, and each turn's request context carries the pick as `model`. It is absent when no model was picked, as on a Slack turn, so fall back to your default:
 
 ```ts
-import type { ModelChoice } from "@astropods/adapter-mastra";
+const MODELS = [process.env.MODEL_DEFAULT ?? "claude-sonnet-4-6", "claude-opus-4-7"];
 
 const agent = new Agent({
   id: "assistant",
   name: "Assistant",
   instructions: "You are a helpful assistant.",
   model: ({ requestContext }) =>
-    gateway.chat(
-      requestContext.get<"model", ModelChoice | undefined>("model")?.model ?? process.env.MODEL_DEFAULT ?? "claude-sonnet-4-6",
-    ),
+    gateway.chat(requestContext.get<"model", string | undefined>("model") ?? MODELS[0]),
 });
+
+serve(agent, { models: MODELS });
 ```
 
 A resumed run, after a tool approval or a form, gets the same request context.
