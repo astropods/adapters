@@ -458,13 +458,24 @@ describe("MessagingBridge", () => {
             model,
           } as Message,
         });
-      send({ entry: "default", model: "claude-opus-4-7" });
+      send("claude-opus-4-7");
       await new Promise((r) => setTimeout(r, 10));
-      send(null);
+      send("");
       await new Promise((r) => setTimeout(r, 10));
 
-      expect(captured[0]).toEqual({ entry: "default", model: "claude-opus-4-7" });
-      expect(captured[1]).toBeUndefined();
+      expect(captured[0]).toBe("claude-opus-4-7");
+      expect(captured[1], "proto-loader decodes an unset string as empty").toBeUndefined();
+    });
+
+    test("sends the adapter's models with the agent config", async () => {
+      const adapter = createMockAdapter({
+        getConfig: () => ({ systemPrompt: "", tools: [], models: ["claude-sonnet-4-6", "claude-opus-4-7"] }),
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      expect(mockSendAgentConfigArgs).toMatchObject({ models: ["claude-sonnet-4-6", "claude-opus-4-7"] });
     });
 
     test("sends the adapter's supportsHistory flag with the agent config", async () => {

@@ -101,6 +101,8 @@ export interface MastraAdapterOptions {
   supportsFiles?: boolean;
   /** Rebuild the Mastra memory thread from `StreamOptions.history`. Defaults to true. */
   supportsHistory?: boolean;
+  /** Models a chat user can pick from, the first being the default. Read the pick from `requestContext.get("model")`. */
+  models?: string[];
 }
 
 /**
@@ -115,6 +117,7 @@ export class MastraAdapter implements AgentAdapter {
   readonly name: string;
   private readonly supportsFiles: boolean;
   private readonly supportsHistory: boolean;
+  private readonly models: string[] | undefined;
   // A stopped run outlives stream(): its tool keeps running, then Mastra saves to memory.
   private readonly inFlight = new Map<string, Promise<void>>();
   // Titles of threads deleted by a reset that failed before it recreated them.
@@ -124,6 +127,7 @@ export class MastraAdapter implements AgentAdapter {
     this.name = agent.name;
     this.supportsFiles = options.supportsFiles ?? false;
     this.supportsHistory = options.supportsHistory ?? true;
+    this.models = options.models;
   }
 
   async stream(
@@ -626,6 +630,7 @@ export class MastraAdapter implements AgentAdapter {
       tools: toolConfigs,
       supportsFiles: this.supportsFiles,
       supportsHistory: this.supportsHistory,
+      ...(this.models ? { models: this.models } : {}),
     };
   }
 }

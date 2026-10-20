@@ -38,7 +38,6 @@ from .types import (
     AgentAdapter,
     AttachmentInput,
     HistoryInput,
-    ModelChoice,
     HistoryMessageInput,
     ImageInput,
     AudioInput,
@@ -212,6 +211,8 @@ def _agent_config(config_dict: dict, tool_configs: list) -> AgentConfig:
     )
     if config_dict.get("supports_history") and _has_field(AgentConfig, "supports_history"):
         config.supports_history = True
+    if config_dict.get("models") and _has_field(AgentConfig, "models"):
+        config.models.extend(config_dict["models"])
     return config
 
 
@@ -226,12 +227,6 @@ def _resolve_history(message: Message) -> Optional[HistoryInput]:
         ],
         is_complete=message.history.is_complete,
     )
-
-
-def _resolve_model(message: Message) -> Optional[ModelChoice]:
-    if not _has_field(Message, "model") or not message.HasField("model") or not message.model.model:
-        return None
-    return ModelChoice(entry=message.model.entry, model=message.model.model)
 
 
 class MessagingBridge:
@@ -653,7 +648,7 @@ class MessagingBridge:
             attachments=self._resolve_attachments(message),
             images=self._resolve_images(message),
             history=_resolve_history(message),
-            model=_resolve_model(message),
+            model=message.model if _has_field(Message, "model") else "",
             save_conversation=lambda inp: self._save_conversation(
                 (message.user.id if message.user else ""), inp
             ),  # noqa: E731

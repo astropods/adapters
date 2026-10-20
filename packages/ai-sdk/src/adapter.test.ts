@@ -144,10 +144,12 @@ describe("AISDKAdapter", () => {
         }),
       });
       const adapter = new AISDKAdapter(agent, {
-        callOptions: (options) => ({ model: options.model?.model }),
+        callOptions: (options) => ({ model: options.model }),
+        models: ["sonnet", "opus"],
       });
+      expect(adapter.getConfig().models).toEqual(["sonnet", "opus"]);
 
-      await adapter.stream("hi", createHooks(), { ...defaultOptions, model: { entry: "default", model: "opus" } });
+      await adapter.stream("hi", createHooks(), { ...defaultOptions, model: "opus" });
       await adapter.stream("hi", createHooks(), defaultOptions);
 
       expect(answeredBy).toEqual(["opus", "sonnet"]);

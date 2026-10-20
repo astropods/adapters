@@ -45,10 +45,9 @@ def _configurable(options: StreamOptions) -> dict[str, str]:
         configurable["user_name"] = user_name
     # getattr: an older astropods-adapter-core has no model. "model" is the key
     # init_chat_model reads when "model" is a configurable field.
-    model = getattr(options, "model", None)
-    if model is not None:
-        configurable["model"] = model.model
-        configurable["model_entry"] = model.entry
+    model = getattr(options, "model", "")
+    if model:
+        configurable["model"] = model
     return configurable
 
 
@@ -72,6 +71,7 @@ class LangChainAdapter:
         voice: Optional[VoiceProvider] = None,
         supports_files: bool = False,
         supports_history: Optional[bool] = None,
+        models: Optional[list[str]] = None,
     ) -> None:
         self.name = name
         self._executor = executor
@@ -80,6 +80,7 @@ class LangChainAdapter:
         self._voice = voice
         self._supports_files = supports_files
         self._declared_history = supports_history
+        self._models = models or []
 
     async def stream(
         self, prompt: str, hooks: StreamHooks, options: StreamOptions
@@ -252,6 +253,7 @@ class LangChainAdapter:
             "tools": tool_configs,
             "supports_files": self._supports_files,
             "supports_history": self._supports_history(),
+            **({"models": self._models} if self._models else {}),
         }
 
 

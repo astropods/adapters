@@ -21,7 +21,6 @@ import type {
   FeedbackEvent,
   HistoryInput,
   ImageInput,
-  ModelChoice,
   OutgoingFile,
   RenderableInput,
   SaveConversationInput,
@@ -57,7 +56,7 @@ type WireMessage = Message & {
     messages?: Array<{ id?: string; role?: string; content?: string }>;
     isComplete?: boolean;
   } | null;
-  model?: { entry?: string; model?: string } | null;
+  model?: string;
 };
 
 const DEFAULT_SERVER_ADDR = "localhost:9090";
@@ -534,12 +533,6 @@ export class MessagingBridge {
     };
   }
 
-  private resolveModel(message: Message): ModelChoice | undefined {
-    const model = (message as WireMessage).model;
-    if (!model?.model) return undefined;
-    return { entry: model.entry ?? "", model: model.model };
-  }
-
   private handleMessage(message: Message): void {
     if (!this.stream) return;
 
@@ -566,7 +559,7 @@ export class MessagingBridge {
         attachments: this.resolveAttachments(message),
         images: this.resolveImages(message),
         history: this.resolveHistory(message),
-        model: this.resolveModel(message),
+        model: (message as WireMessage).model || undefined,
         signal: controller.signal,
         render: (input) =>
           this.sendRenderable(conversationId, this.buildRenderable(input)),

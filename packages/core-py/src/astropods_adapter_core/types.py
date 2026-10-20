@@ -139,14 +139,6 @@ class HistoryInput:
 
 
 @dataclass
-class ModelChoice:
-    """A model id under a models entry of astropods.yml."""
-
-    entry: str
-    model: str
-
-
-@dataclass
 class SavedMessageInput:
     """One turn of an external conversation being copied in."""
 
@@ -221,8 +213,8 @@ class StreamOptions:
     # Slack. Empty when the platform supplied none. user_id may be the
     # linked Astro user ID instead of a platform ID.
     user_name: str = ""
-    # The model to answer with, one of the deployment's live models. None when it has none.
-    model: Optional[ModelChoice] = None
+    # The model the user picked in chat, one of get_config()["models"]. Empty when none was picked.
+    model: str = ""
 
 
 @dataclass

@@ -152,13 +152,19 @@ describe("MastraAdapter", () => {
     }
 
     test("gives a dynamic model the model chosen for the turn", async () => {
-      expect(await modelSeenFor({ entry: "default", model: "claude-opus-4-7" })).toEqual({
-        entry: "default",
-        model: "claude-opus-4-7",
-      });
+      expect(await modelSeenFor("claude-opus-4-7")).toBe("claude-opus-4-7");
     });
 
-    test("leaves model out when the deployment offers no choice", async () => {
+    test("reports the models the agent offers in its config", () => {
+      const agent = new Agent({ id: "a", name: "A", instructions: "x", model: modelFromParts(textParts(["ok"])) });
+      expect(new MastraAdapter(agent, { models: ["claude-sonnet-4-6", "claude-opus-4-7"] }).getConfig().models).toEqual([
+        "claude-sonnet-4-6",
+        "claude-opus-4-7",
+      ]);
+      expect(new MastraAdapter(agent).getConfig()).not.toHaveProperty("models");
+    });
+
+    test("leaves model out when the user picked none", async () => {
       expect(await modelSeenFor(undefined)).toBeUndefined();
     });
   });
@@ -1408,7 +1414,7 @@ describe("MastraAdapter", () => {
     test("approves with the turn's request context, so the run keeps its model", async () => {
       const { agent, approve } = agentWithApproval(payload, textThenFinish("deleted"));
       const render = mock(async () => ({ id: "r", action: "RENDERABLE_ACTION_SUBMIT" }));
-      const model = { entry: "default", model: "claude-opus-4-7" };
+      const model = "claude-opus-4-7";
 
       await new MastraAdapter(agent).stream("delete abc", createHooks(), { ...defaultOptions, render, model });
 
