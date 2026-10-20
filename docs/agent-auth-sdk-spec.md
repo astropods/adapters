@@ -256,7 +256,7 @@ before adding new ones.
 
 ## Cross-repo follow-up
 
-Shipping this makes two current statements wrong, and CLAUDE.md's workflow step 4
+Shipping this makes two current statements wrong, and AGENTS.md's workflow step 4
 requires resolving that rather than leaving it silent. Both are one-line edits in
 `astropods/astro`:
 
