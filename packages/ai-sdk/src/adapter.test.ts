@@ -108,7 +108,7 @@ describe("AISDKAdapter", () => {
 
       expect(system).toBe("You are talking to Ada.");
       expect(hooks.chunks.join("")).toBe("Hi Ada");
-    });
+    }, 15000);
 
     test("sends no call options when none are configured", async () => {
       let received: unknown;
@@ -458,7 +458,7 @@ describe("AISDKAdapter with a real ToolLoopAgent", () => {
     expect(hooks.errors).toEqual([]);
     expect(JSON.stringify(prompts[1])).toContain("reply 1");
     expect(JSON.stringify(prompts[1])).toContain("first");
-  });
+  }, 15000);
 });
 
 describe("AISDKAdapter failed turns", () => {

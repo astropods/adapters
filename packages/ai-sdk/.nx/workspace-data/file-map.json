@@ -1,0 +1,56 @@
+{
+  "version": "6.0",
+  "nxVersion": "22.7.6",
+  "pathMappings": {},
+  "nxJsonPlugins": [],
+  "fileMap": {
+    "projectFileMap": {},
+    "nonProjectFiles": [
+      {
+        "file": "CHANGELOG.md",
+        "hash": "7530008985878206368"
+      },
+      {
+        "file": "README.md",
+        "hash": "4633219211152108149"
+      },
+      {
+        "file": "moon.yml",
+        "hash": "8306238229700881497"
+      },
+      {
+        "file": "package.json",
+        "hash": "8122436690834779274"
+      },
+      {
+        "file": "src/adapter.test.ts",
+        "hash": "16514759282490420380"
+      },
+      {
+        "file": "src/adapter.ts",
+        "hash": "15223483940057611194"
+      },
+      {
+        "file": "src/history.ts",
+        "hash": "6036933909508803267"
+      },
+      {
+        "file": "src/index.ts",
+        "hash": "12042351384696819967"
+      },
+      {
+        "file": "src/telemetry.test.ts",
+        "hash": "14818392552745721217"
+      },
+      {
+        "file": "src/telemetry.ts",
+        "hash": "4231590552351226734"
+      },
+      {
+        "file": "tsconfig.json",
+        "hash": "15044474240667887260"
+      }
+    ]
+  },
+  "externalNodesHash": "3244421341483603138"
+}
