@@ -35,6 +35,7 @@ export function serve(
   const adapter = new MastraAdapter(agent, {
     supportsFiles: options?.supportsFiles,
     supportsHistory: options?.supportsHistory,
+    models: options?.models,
   });
   serveAdapter(adapter, options);
 }

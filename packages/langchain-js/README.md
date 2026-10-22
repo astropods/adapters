@@ -95,6 +95,8 @@ const whoAmI = tool(
 );
 ```
 
+Pass the models a chat user can pick from as `models`; the first is the default. With two or more, the web chat shows a model picker, and `configurable.model` is the pick. It is absent when no model was picked. `initChatModel` reads `configurable.model` when `model` is one of its `configurableFields`.
+
 ## API
 
 ### `serve(agent, options?)`

@@ -1070,3 +1070,32 @@ class TestHistoryForwarding:
     def test_declared_history_support_reaches_the_wire(self):
         assert _agent_config({"supports_history": True}, []).supports_history is True
         assert _agent_config({}, []).supports_history is False
+
+
+
+_SDK_HAS_MODEL = "model" in Message.DESCRIPTOR.fields_by_name
+_needs_model_sdk = pytest.mark.skipif(
+    not _SDK_HAS_MODEL,
+    reason="needs an astropods-messaging release with Message.model and AgentConfig.models",
+)
+
+
+class TestModelForwarding:
+    _options_for = TestHistoryForwarding._options_for
+
+    @pytest.mark.asyncio
+    async def test_no_model_when_the_user_picked_none(self):
+        assert (await self._options_for()).model == ""
+
+    @_needs_model_sdk
+    @pytest.mark.asyncio
+    async def test_the_picked_model_reaches_the_adapter(self):
+        assert (await self._options_for(model="claude-opus-4-7")).model == "claude-opus-4-7"
+
+    def test_declared_models_build_a_config_on_any_sdk(self):
+        assert _agent_config({"system_prompt": "sp", "models": ["a", "b"]}, []).system_prompt == "sp"
+
+    @_needs_model_sdk
+    def test_declared_models_reach_the_wire_in_order(self):
+        assert list(_agent_config({"models": ["a", "b"]}, []).models) == ["a", "b"]
+        assert list(_agent_config({}, []).models) == []

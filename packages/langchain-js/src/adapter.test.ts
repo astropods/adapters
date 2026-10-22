@@ -369,9 +369,32 @@ describe("LangChainAdapter", () => {
 
       expect(configurable).toEqual({ thread_id: "conv-42", user_name: "Alice" });
     });
+
+    test("adds the model picked for the turn to configurable as model", async () => {
+      let configurable: unknown;
+      const agent: LangChainAgent = {
+        async stream(_input, options) {
+          configurable = (options as Record<string, unknown>).configurable;
+          return asyncFrom([]);
+        },
+      };
+
+      await new LangChainAdapter(agent).stream("hi", createHooks(), {
+        conversationId: "conv-42",
+        userId: "user_alice",
+        model: "claude-opus-4-7",
+      });
+
+      expect(configurable).toEqual({ thread_id: "conv-42", model: "claude-opus-4-7" });
+    });
   });
 
   describe("getConfig", () => {
+    test("reports the models the agent offers", () => {
+      expect(new LangChainAdapter(fakeAgent([]), { models: ["a", "b"] }).getConfig().models).toEqual(["a", "b"]);
+      expect(new LangChainAdapter(fakeAgent([])).getConfig()).not.toHaveProperty("models");
+    });
+
     test("returns the instructions option as systemPrompt", () => {
       const adapter = new LangChainAdapter(fakeAgent([]), {
         instructions: "You are a helpful assistant.",

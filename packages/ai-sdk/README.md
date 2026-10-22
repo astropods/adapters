@@ -95,6 +95,29 @@ serve(agent, {
 
 An agent without call options needs no `callOptions`.
 
+## The chosen model
+
+Pass the models a chat user can pick from as `models`; the first is the default. With two or more, the web chat shows a model picker, and `StreamOptions.model` is the pick. It is undefined when no model was picked, as on a Slack turn. Pass it through `callOptions`, and return the model from `prepareCall`:
+
+```typescript
+const MODELS = ["claude-sonnet-4-6", "claude-opus-4-7"];
+
+const agent = new ToolLoopAgent({
+  model: gateway.chat(MODELS[0]),
+  callOptionsSchema: z.object({ model: z.string().optional() }),
+  prepareCall: ({ options, ...rest }) => ({
+    ...rest,
+    model: options.model ? gateway.chat(options.model) : rest.model,
+  }),
+});
+
+serve(agent, {
+  name: "My Agent",
+  models: MODELS,
+  callOptions: (turn) => ({ model: turn.model }),
+});
+```
+
 ## API
 
 ### `serve(agent, options?)`

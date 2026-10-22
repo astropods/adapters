@@ -50,12 +50,13 @@ type WireAttachment = Attachment & {
   url?: string;
 };
 
-/** proto-loader decodes an unset `history` as `null`. Declared for SDKs that predate the field. */
+/** proto-loader decodes an unset message field as `null`. Declared for SDKs that predate these fields. */
 type WireMessage = Message & {
   history?: {
     messages?: Array<{ id?: string; role?: string; content?: string }>;
     isComplete?: boolean;
   } | null;
+  model?: string;
 };
 
 const DEFAULT_SERVER_ADDR = "localhost:9090";
@@ -558,6 +559,7 @@ export class MessagingBridge {
         attachments: this.resolveAttachments(message),
         images: this.resolveImages(message),
         history: this.resolveHistory(message),
+        model: (message as WireMessage).model || undefined,
         signal: controller.signal,
         render: (input) =>
           this.sendRenderable(conversationId, this.buildRenderable(input)),

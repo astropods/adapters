@@ -165,6 +165,8 @@ export interface HistoryInput {
 export type AgentConfig = MessagingAgentConfig & {
   /** Replaces stored memory with {@link StreamOptions.history}; required for chat editing. */
   supportsHistory?: boolean;
+  /** Models a chat user can pick from, the first being the default. Two or more show a picker. */
+  models?: string[];
 };
 
 /** Options for {@link StreamOptions.elicit}, the MCP-elicitation-shaped convenience. */
@@ -212,6 +214,8 @@ export interface StreamOptions {
    * what you store for `conversationId` with these turns, then handle the prompt.
    */
   history?: HistoryInput;
+  /** The model the user picked in chat, one of `getConfig().models`. Undefined when none was picked. */
+  model?: string;
   /**
    * Aborted when the user stops generation (a `StreamControl` STOP arrives for
    * this conversation, e.g. the chat "stop generating" button). Adapters should

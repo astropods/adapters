@@ -219,6 +219,30 @@ class TestLangChainAdapterSessionContext:
         }
 
     @pytest.mark.asyncio
+    async def test_configurable_carries_the_model_picked_for_the_turn(self, hooks):
+        executor = make_executor_with_updates([make_model_update("hi")])
+        adapter = LangChainAdapter(executor)
+
+        await adapter.stream(
+            "hello",
+            hooks,
+            StreamOptions(
+                conversation_id="conv-123",
+                user_id="user_alice",
+                model="claude-opus-4-7",
+            ),
+        )
+
+        assert executor.last_astream_kwargs.get("config") == {
+            "configurable": {"thread_id": "conv-123", "model": "claude-opus-4-7"}
+        }
+
+    def test_get_config_reports_the_models_the_agent_offers(self):
+        executor = make_executor_with_updates([])
+        assert LangChainAdapter(executor, models=["a", "b"]).get_config()["models"] == ["a", "b"]
+        assert "models" not in LangChainAdapter(executor).get_config()
+
+    @pytest.mark.asyncio
     async def test_span_sets_langfuse_user_and_session(self, hooks, stream_options):
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
