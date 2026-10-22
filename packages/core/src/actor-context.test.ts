@@ -1,4 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { trace } from "@opentelemetry/api";
+import {
+  InMemorySpanExporter,
+  NodeTracerProvider,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-node";
 
 import { activeActor, withActorContext, withActorHeaders } from "./actor-context";
 
@@ -137,5 +143,52 @@ describe("withActorHeaders", () => {
     // Just needs to construct without throwing; behavior is covered above
     // via the stubbed-base tests.
     expect(() => withActorHeaders()).not.toThrow();
+  });
+
+  // Pins today's answer to open question 2 of
+  // docs/01-spec/billed-vs-estimated-cost-spec.md (astropods/astro): a gateway
+  // request carries the actor but no W3C trace context, so bifrost-otel's
+  // billed record cannot share the agent's trace id and a trace page cannot
+  // join the two. Insights is unaffected, being keyed by day, deployment,
+  // model and actor rather than by trace. When trace-context injection moves
+  // into withActorHeaders, invert the traceparent assertion here.
+  describe("W3C trace context", () => {
+    let provider: NodeTracerProvider;
+
+    beforeEach(() => {
+      provider = new NodeTracerProvider({
+        spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())],
+      });
+      provider.register();
+    });
+
+    afterEach(async () => {
+      trace.disable();
+      await provider.shutdown();
+    });
+
+    test("sends no traceparent, even from inside a recording span", async () => {
+      const { fetch: base, calls } = stubFetch();
+      const wrapped = withActorHeaders(base);
+
+      await trace.getTracer("actor-context-test").startActiveSpan("agent turn", async (span) => {
+        // Without a real recording span there would be nothing for any
+        // propagator to inject, and the assertion below would pass for the
+        // wrong reason.
+        expect(span.isRecording()).toBe(true);
+        expect(span.spanContext().traceId).toMatch(/^[0-9a-f]{32}$/);
+
+        await withActorContext({ actorKey: "user_123" }, () =>
+          wrapped("https://gateway.example/v1/chat/completions", { method: "POST" }),
+        );
+        span.end();
+      });
+
+      expect(calls).toHaveLength(1);
+      const [, init] = calls[0];
+      const headers = new Headers(init?.headers);
+      expect(headers.get("x-bf-dim-actor_key")).toBe("user_123");
+      expect(headers.get("traceparent")).toBeNull();
+    });
   });
 });

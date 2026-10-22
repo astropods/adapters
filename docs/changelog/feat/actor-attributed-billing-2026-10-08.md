@@ -40,6 +40,26 @@ input's headers outright when `init.headers` is present rather than merging
 them — a second, small instance of the merge shape rather than a shared
 helper, since the two call sites have nothing else in common.
 
+### What the wrapper does not send
+
+`withActorHeaders` adds the actor and nothing else. In particular it sends no
+W3C trace context, so the gateway request starts a trace the agent's own span
+is not part of. The only thing in this package that injects `traceparent` is
+`patchGlobalFetch`, behind the opt-in `@astropods/adapter-core/instrument`
+entry point, which the scaffold templates do not import.
+
+A test pins that, asserting the absence from inside a recording span so it
+cannot pass for want of one. It matters downstream: astro's `bifrost-otel`
+records a billed figure per gateway call keyed by the call's own trace and
+span ids, and without shared trace context a trace page cannot join its
+estimated figure to the billed one. Per-actor spend on Insights is unaffected,
+being keyed by day, deployment, model and actor rather than by trace.
+
+If that join is wanted, the fix belongs here rather than in the opt-in entry
+point: this wrapper already builds the header set and this package already
+depends on `@opentelemetry/api`, so attribution and trace linking would travel
+together instead of depending on an import a user can drop.
+
 ## Migration
 
 Existing deployments pick this up on their next build; no action required.
