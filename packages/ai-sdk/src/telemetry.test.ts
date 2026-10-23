@@ -1,12 +1,24 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
+import {
+  _resetAstroTracerProviderForTests,
+  getOrCreateAstroTracerProvider,
+} from "@astropods/adapter-core";
 import { trace } from "@opentelemetry/api";
 
 import { astroTelemetry } from "./telemetry";
 
 // The endpoint-unset case (astroTelemetry → { isEnabled: false }) is covered by
-// core's provider tests; replicating it here would need cache reset between
-// tests, which leaks process-wide state.
-process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
+// core's provider tests.
+//
+// Set per test rather than once at module load: the provider is cached and the
+// endpoint is read at creation, so another test file deleting the variable
+// between this module's load and its tests would otherwise cache a null
+// provider here and fail every test below for an unrelated reason.
+beforeEach(() => {
+  _resetAstroTracerProviderForTests();
+  trace.disable();
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
+});
 
 const globalDelegate = (): unknown =>
   (trace.getTracerProvider() as { getDelegate(): unknown }).getDelegate();
@@ -21,10 +33,17 @@ describe("astroTelemetry", () => {
     span.end();
   });
 
-  test("does NOT register the provider as the OpenTelemetry global", () => {
-    const before = globalDelegate();
+  // withActorHeaders puts W3C trace context on gateway requests through
+  // propagation.inject, which writes nothing without a globally registered
+  // propagator and context manager. Without this the gateway call starts a
+  // trace the agent's span is not part of, and bifrost-otel's billed record
+  // cannot be joined to the agent's trace.
+  test("registers the provider as the OpenTelemetry global", () => {
     astroTelemetry();
-    expect(globalDelegate()).toBe(before);
+    // Asserted against the provider itself rather than a before/after
+    // comparison: the provider is cached process-wide, so an earlier call in
+    // this file may already have registered it.
+    expect(globalDelegate()).toBe(getOrCreateAstroTracerProvider());
   });
 });
 

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { logger } from "./logger.js";
+import { applyActiveTraceContext, mergeRequestHeaders } from "./otel/propagate.js";
 
 /**
  * The actor attributed to any AI Gateway request made while active.
@@ -43,7 +44,12 @@ type FetchCall = (input: FetchInput, init?: RequestInit) => Promise<Response>;
  * decodes to attribute billed AI Gateway cost to an actor
  * (billed-vs-estimated-cost-spec.md, "Telling gateway traffic apart, and
  * merging it"). Outside any `withActorContext` call, or with an empty
- * actorKey, requests pass through unchanged.
+ * actorKey, the request carries no actor.
+ *
+ * It also carries the active W3C trace context, so the gateway call joins the
+ * agent's own trace and `bifrost-otel`'s billed record shares its trace id.
+ * That part does not depend on an actor being active, but it does depend on a
+ * globally registered tracer provider — see `applyActiveTraceContext`.
  *
  * Pass the result as the `fetch` option to an AI SDK provider factory —
  * e.g. `createOpenAI({ fetch: withActorHeaders() })` — so every request
@@ -54,19 +60,21 @@ export function withActorHeaders(
 ): FetchCall {
   return async (input: FetchInput, init?: RequestInit): Promise<Response> => {
     const actor = activeActor();
-    if (!actor?.actorKey) return baseFetch(input, init);
+    const headers = mergeRequestHeaders(input, init);
 
-    // input's own headers first (when input is a Request), then init's,
-    // with init winning on a conflict. The Fetch API's own Request
-    // constructor does not merge the two this way: init.headers, when
-    // present, replaces input's headers outright.
-    const headers = new Headers();
-    if (typeof input === "object" && !(input instanceof URL)) {
-      input.headers.forEach((value, key) => headers.set(key, value));
+    // Trace context goes out whether or not an actor is active. An
+    // unattributed gateway call still belongs to the agent's trace, and
+    // bifrost-otel keys its billed record by the call's own trace and span
+    // ids, so dropping the context here is what stops a trace page joining a
+    // billed figure to its estimated one.
+    const traced = applyActiveTraceContext(headers);
+
+    if (!actor?.actorKey) {
+      // Nothing was added, so hand the call through exactly as it arrived
+      // rather than replacing the caller's headers with an equivalent copy.
+      return traced ? baseFetch(input, { ...init, headers }) : baseFetch(input, init);
     }
-    if (init?.headers) {
-      new Headers(init.headers).forEach((value, key) => headers.set(key, value));
-    }
+
     // actorKey rides in untouched from the caller (ultimately options.userId),
     // so a value Headers rejects as an invalid header value (e.g. a stray
     // CR/LF) must not fail the gateway call over a best-effort attribution tag.

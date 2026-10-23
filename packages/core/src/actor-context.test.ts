@@ -145,13 +145,12 @@ describe("withActorHeaders", () => {
     expect(() => withActorHeaders()).not.toThrow();
   });
 
-  // Pins today's answer to open question 2 of
-  // docs/01-spec/billed-vs-estimated-cost-spec.md (astropods/astro): a gateway
-  // request carries the actor but no W3C trace context, so bifrost-otel's
-  // billed record cannot share the agent's trace id and a trace page cannot
-  // join the two. Insights is unaffected, being keyed by day, deployment,
-  // model and actor rather than by trace. When trace-context injection moves
-  // into withActorHeaders, invert the traceparent assertion here.
+  // Open question 2 of docs/01-spec/billed-vs-estimated-cost-spec.md
+  // (astropods/astro): bifrost-otel keys its billed record by the gateway
+  // call's own trace and span ids, so a trace page can only join a billed
+  // figure to its estimated one if the request carries the agent's trace
+  // context. Insights never depended on this, being keyed by day, deployment,
+  // model and actor rather than by trace.
   describe("W3C trace context", () => {
     let provider: NodeTracerProvider;
 
@@ -167,16 +166,19 @@ describe("withActorHeaders", () => {
       await provider.shutdown();
     });
 
-    test("sends no traceparent, even from inside a recording span", async () => {
+    test("sends the active span's trace id, not merely a well-formed traceparent", async () => {
       const { fetch: base, calls } = stubFetch();
       const wrapped = withActorHeaders(base);
+      let expectedTraceId = "";
+      let expectedSpanId = "";
 
       await trace.getTracer("actor-context-test").startActiveSpan("agent turn", async (span) => {
-        // Without a real recording span there would be nothing for any
-        // propagator to inject, and the assertion below would pass for the
-        // wrong reason.
+        // Without a real recording span there is nothing for the propagator to
+        // inject, and the assertions below would pass for the wrong reason.
         expect(span.isRecording()).toBe(true);
-        expect(span.spanContext().traceId).toMatch(/^[0-9a-f]{32}$/);
+        expectedTraceId = span.spanContext().traceId;
+        expectedSpanId = span.spanContext().spanId;
+        expect(expectedTraceId).toMatch(/^[0-9a-f]{32}$/);
 
         await withActorContext({ actorKey: "user_123" }, () =>
           wrapped("https://gateway.example/v1/chat/completions", { method: "POST" }),
@@ -188,7 +190,62 @@ describe("withActorHeaders", () => {
       const [, init] = calls[0];
       const headers = new Headers(init?.headers);
       expect(headers.get("x-bf-dim-actor_key")).toBe("user_123");
-      expect(headers.get("traceparent")).toBeNull();
+      // The trace id is the point. A syntactically valid traceparent carrying
+      // some other trace would join a billed figure to the wrong trace, which
+      // is worse than showing none.
+      expect(headers.get("traceparent")).toBe(`00-${expectedTraceId}-${expectedSpanId}-01`);
+    });
+
+    test("sends trace context for a call with no actor at all", async () => {
+      const { fetch: base, calls } = stubFetch();
+      const wrapped = withActorHeaders(base);
+      let expectedTraceId = "";
+
+      await trace.getTracer("actor-context-test").startActiveSpan("agent turn", async (span) => {
+        expectedTraceId = span.spanContext().traceId;
+        // No withActorContext wrapper: an unattributed gateway call still
+        // belongs to the agent's trace.
+        await wrapped("https://gateway.example/v1/chat/completions", { method: "POST" });
+        span.end();
+      });
+
+      const [, init] = calls[0];
+      const headers = new Headers(init?.headers);
+      expect(headers.has("x-bf-dim-actor_key")).toBe(false);
+      expect(headers.get("traceparent")).toContain(expectedTraceId);
+    });
+
+    test("leaves a traceparent the caller set explicitly alone", async () => {
+      const { fetch: base, calls } = stubFetch();
+      const wrapped = withActorHeaders(base);
+      const caller = "00-11111111111111111111111111111111-2222222222222222-01";
+
+      await trace.getTracer("actor-context-test").startActiveSpan("agent turn", async (span) => {
+        await withActorContext({ actorKey: "user_123" }, () =>
+          wrapped("https://gateway.example/v1/chat/completions", {
+            method: "POST",
+            headers: { traceparent: caller },
+          }),
+        );
+        span.end();
+      });
+
+      const [, init] = calls[0];
+      expect(new Headers(init?.headers).get("traceparent")).toBe(caller);
+    });
+
+    test("passes a call through untouched when no provider is registered", async () => {
+      // The production shape before this change, and still the shape for any
+      // runtime that does not register globally: nothing to inject, no actor,
+      // so the caller's init must not be replaced by an equivalent copy.
+      trace.disable();
+      const { fetch: base, calls } = stubFetch();
+      const wrapped = withActorHeaders(base);
+
+      await wrapped("https://gateway.example/v1/chat/completions", { method: "POST" });
+
+      const [, init] = calls[0];
+      expect(init?.headers).toBeUndefined();
     });
   });
 });
