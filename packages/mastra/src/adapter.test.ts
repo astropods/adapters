@@ -1665,3 +1665,59 @@ describe("request context", () => {
     expect(seen?.get("resourceId")).toBe("user-3");
   });
 });
+
+// Mastra keeps its spans in @mastra/observability rather than the OTel
+// globals, so withActorHeaders has nothing to inject from. The adapter mints
+// the pair and gives it to both, which is what puts the agent's trace and its
+// gateway calls on one trace id. See billed-vs-estimated-cost-spec.md, open
+// question 2.
+describe("trace context", () => {
+  test("hands Mastra the same trace ids the actor context carries", async () => {
+    let tracing: { traceId?: string; parentSpanId?: string } | undefined;
+    let actorDuringStream: { traceId?: string; spanId?: string } | undefined;
+
+    const agent = {
+      stream: async (
+        _input: unknown,
+        options: { tracingOptions?: { traceId?: string; parentSpanId?: string } },
+      ) => {
+        tracing = options.tracingOptions;
+        // Read inside the call, which is where a gateway request would be made
+        // and where withActorHeaders would read the same store.
+        actorDuringStream = adapterCore.activeActor();
+        return { traceId: "t", spanId: "s", fullStream: (async function* () {})() };
+      },
+      getTools: () => ({}),
+    } as unknown as Parameters<typeof MastraAdapter.prototype.constructor>[0];
+
+    const adapter = new MastraAdapter(agent as never);
+    await adapter.stream("hi", {}, { conversationId: "conv-1", userId: "user-1" } as never);
+
+    expect(tracing?.traceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(tracing?.parentSpanId).toMatch(/^[0-9a-f]{16}$/);
+    // The pair being identical on both sides is the whole point: a gateway
+    // call carrying a different trace would join a billed figure to the wrong
+    // trace, which is worse than carrying none.
+    expect(actorDuringStream?.traceId).toBe(tracing?.traceId);
+    expect(actorDuringStream?.spanId).toBe(tracing?.parentSpanId);
+  });
+
+  test("gives each turn its own trace", async () => {
+    const seen: string[] = [];
+    const agent = {
+      stream: async (_input: unknown, options: { tracingOptions?: { traceId?: string } }) => {
+        seen.push(options.tracingOptions?.traceId ?? "");
+        return { traceId: "t", spanId: "s", fullStream: (async function* () {})() };
+      },
+      getTools: () => ({}),
+    } as unknown as Parameters<typeof MastraAdapter.prototype.constructor>[0];
+
+    const adapter = new MastraAdapter(agent as never);
+    const opts = { conversationId: "conv-1", userId: "user-1" } as never;
+    await adapter.stream("one", {}, opts);
+    await adapter.stream("two", {}, opts);
+
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).not.toBe(seen[1]);
+  });
+});

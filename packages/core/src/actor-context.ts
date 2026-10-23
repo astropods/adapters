@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { logger } from "./logger.js";
 import { applyActiveTraceContext, mergeRequestHeaders } from "./otel/propagate.js";
+import { createTraceparent } from "./trace.js";
 
 /**
  * The actor attributed to any AI Gateway request made while active.
@@ -13,6 +14,19 @@ import { applyActiveTraceContext, mergeRequestHeaders } from "./otel/propagate.j
  */
 export interface ActorContext {
   actorKey: string;
+  /**
+   * The trace this turn belongs to, for a framework that keeps its own tracing
+   * instead of the OTel globals. `withActorHeaders` prefers these over
+   * `propagation.inject`, which has nothing to read in that case.
+   *
+   * Mastra is the reason this exists: its spans live in
+   * `@mastra/observability`, so an agent turn has no OTel-active span. The
+   * adapter mints a pair, hands it to Mastra as `tracingOptions.traceId` /
+   * `parentSpanId`, and passes the same pair here, which puts the agent's
+   * trace and the gateway call on one trace id.
+   */
+  traceId?: string;
+  spanId?: string;
 }
 
 /** Fallback actorKey/userId when a request carries no identity. */
@@ -67,7 +81,11 @@ export function withActorHeaders(
     // bifrost-otel keys its billed record by the call's own trace and span
     // ids, so dropping the context here is what stops a trace page joining a
     // billed figure to its estimated one.
-    const traced = applyActiveTraceContext(headers);
+    //
+    // Ids carried on the context win over the OTel globals: a framework that
+    // supplies them does so precisely because it does not put its spans there,
+    // so injecting would otherwise write nothing.
+    const traced = applyTraceContext(headers, actor);
 
     if (!actor?.actorKey) {
       // Nothing was added, so hand the call through exactly as it arrived
@@ -86,4 +104,22 @@ export function withActorHeaders(
 
     return baseFetch(input, { ...init, headers });
   };
+}
+
+/**
+ * Adds trace context to `headers` from the actor context's own ids when it
+ * carries them, otherwise from the OTel globals. Returns whether anything was
+ * added. A `traceparent` the caller set explicitly is left alone either way.
+ */
+function applyTraceContext(headers: Headers, actor: ActorContext | undefined): boolean {
+  if (actor?.traceId && actor.spanId) {
+    if (headers.has("traceparent")) return false;
+    const traceparent = createTraceparent({ traceId: actor.traceId, spanId: actor.spanId });
+    // Empty when either id is malformed; a wrong traceparent would join a
+    // billed figure to the wrong trace, which is worse than sending none.
+    if (!traceparent) return false;
+    headers.set("traceparent", traceparent);
+    return true;
+  }
+  return applyActiveTraceContext(headers);
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { createTraceparent } from "./trace";
+import { createTraceparent, newTraceIds } from "./trace";
 
 describe("createTraceparent", () => {
   test("formats a valid W3C traceparent", () => {
@@ -35,5 +35,19 @@ describe("createTraceparent", () => {
         spanId: "0000000000000000",
       }),
     ).toBe("");
+  });
+});
+
+describe("newTraceIds", () => {
+  test("mints W3C-shaped ids that createTraceparent accepts", () => {
+    const { traceId, spanId } = newTraceIds();
+    expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(spanId).toMatch(/^[0-9a-f]{16}$/);
+    expect(createTraceparent({ traceId, spanId })).toBe(`00-${traceId}-${spanId}-01`);
+  });
+
+  test("does not repeat", () => {
+    const seen = new Set(Array.from({ length: 50 }, () => newTraceIds().traceId));
+    expect(seen.size).toBe(50);
   });
 });

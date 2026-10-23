@@ -7,6 +7,7 @@ import {
 } from "@opentelemetry/sdk-trace-node";
 
 import { activeActor, withActorContext, withActorHeaders } from "./actor-context";
+import { newTraceIds } from "./trace";
 
 describe("withActorContext / activeActor", () => {
   test("is undefined outside any withActorContext call", () => {
@@ -232,6 +233,41 @@ describe("withActorHeaders", () => {
 
       const [, init] = calls[0];
       expect(new Headers(init?.headers).get("traceparent")).toBe(caller);
+    });
+
+    test("prefers ids carried on the actor context over the OTel globals", async () => {
+      const { fetch: base, calls } = stubFetch();
+      const wrapped = withActorHeaders(base);
+      const ids = newTraceIds();
+
+      // A registered provider with an active span, so the globals have
+      // something to offer and losing to the context is a real preference
+      // rather than a fallback.
+      await trace.getTracer("actor-context-test").startActiveSpan("agent turn", async (span) => {
+        expect(span.spanContext().traceId).not.toBe(ids.traceId);
+        await withActorContext({ actorKey: "user_123", ...ids }, () =>
+          wrapped("https://gateway.example/v1/chat/completions", { method: "POST" }),
+        );
+        span.end();
+      });
+
+      const [, init] = calls[0];
+      expect(new Headers(init?.headers).get("traceparent")).toBe(
+        `00-${ids.traceId}-${ids.spanId}-01`,
+      );
+    });
+
+    test("ignores a malformed id pair rather than sending a wrong trace", async () => {
+      const { fetch: base, calls } = stubFetch();
+      const wrapped = withActorHeaders(base);
+
+      await withActorContext({ actorKey: "user_123", traceId: "nope", spanId: "nope" }, () =>
+        wrapped("https://gateway.example/v1/chat/completions", { method: "POST" }),
+      );
+
+      const headers = new Headers(calls[0][1]?.headers);
+      expect(headers.get("x-bf-dim-actor_key")).toBe("user_123");
+      expect(headers.get("traceparent")).toBeNull();
     });
 
     test("passes a call through untouched when no provider is registered", async () => {
