@@ -6,7 +6,7 @@ import type {
   StreamHooks,
   StreamOptions,
 } from "@astropods/adapter-core";
-import { createTraceparent } from "@astropods/adapter-core";
+import { createTraceparent, ANONYMOUS_ACTOR_KEY } from "@astropods/adapter-core";
 
 const tracer = trace.getTracer("@astropods/adapter-langchain");
 
@@ -79,7 +79,7 @@ export class LangChainAdapter implements AgentAdapter {
     // under it via the active context; a no-op span when uninstrumented.
     await tracer.startActiveSpan(this.name, async (span) => {
       hooks.onTraceContext?.({ traceparent: traceparentFromSpan(span) });
-      span.setAttribute("langfuse.user.id", options.userId || "anonymous");
+      span.setAttribute("langfuse.user.id", options.userId || ANONYMOUS_ACTOR_KEY);
       span.setAttribute("langfuse.session.id", options.conversationId);
       span.setAttribute("langfuse.trace.input", prompt);
 

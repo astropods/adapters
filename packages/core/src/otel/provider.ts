@@ -8,7 +8,9 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 let cached: NodeTracerProvider | null | undefined;
 
 export interface AstroTracerProviderOptions {
-  /** Whether to set the provider as the OTel global. Defaults to `true`. First caller wins because the provider is cached. */
+  /** Whether to set the provider as the OTel global. Defaults to `true`, and
+   *  `ASTRO_OTEL_REGISTER=false` overrides that default. First caller wins
+   *  because the provider is cached. */
   register?: boolean;
 }
 
@@ -39,7 +41,15 @@ export function getOrCreateAstroTracerProvider(
     ],
   });
 
-  if (options.register !== false) {
+  // First registration wins and OTel refuses later ones, so this cannot
+  // clobber a provider an embedding app already registered. The reverse is
+  // possible: an adapter registers at import time and pre-empts one the app
+  // sets up afterwards. ASTRO_OTEL_REGISTER=false opts out for an app running
+  // its own export. Registration is still worth defaulting to, because
+  // propagation.inject writes nothing without a global propagator and context
+  // manager, which is what withActorHeaders needs to put trace context on a
+  // gateway request.
+  if (options.register !== false && process.env.ASTRO_OTEL_REGISTER !== "false") {
     provider.register();
   }
 
