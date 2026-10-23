@@ -40,25 +40,36 @@ input's headers outright when `init.headers` is present rather than merging
 them — a second, small instance of the merge shape rather than a shared
 helper, since the two call sites have nothing else in common.
 
-### What the wrapper does not send
+### The request also carries trace context
 
-`withActorHeaders` adds the actor and nothing else. In particular it sends no
-W3C trace context, so the gateway request starts a trace the agent's own span
-is not part of. The only thing in this package that injects `traceparent` is
-`patchGlobalFetch`, behind the opt-in `@astropods/adapter-core/instrument`
-entry point, which the scaffold templates do not import.
-
-A test pins that, asserting the absence from inside a recording span so it
-cannot pass for want of one. It matters downstream: astro's `bifrost-otel`
-records a billed figure per gateway call keyed by the call's own trace and
-span ids, and without shared trace context a trace page cannot join its
-estimated figure to the billed one. Per-actor spend on Insights is unaffected,
+`withActorHeaders` adds the active W3C trace context alongside the actor, so
+the gateway call joins the agent's own trace rather than starting one the agent
+is not part of. astro's `bifrost-otel` keys each billed record by the call's
+own trace and span ids, so this is what lets a trace page show a billed figure
+next to its estimated one. Per-actor spend on Insights never depended on it,
 being keyed by day, deployment, model and actor rather than by trace.
 
-If that join is wanted, the fix belongs here rather than in the opt-in entry
-point: this wrapper already builds the header set and this package already
-depends on `@opentelemetry/api`, so attribution and trace linking would travel
-together instead of depending on an import a user can drop.
+Trace context goes out whether or not an actor is active: an unattributed
+gateway call still belongs to the agent's trace. A `traceparent` the caller set
+explicitly wins over the injected one.
+
+The header-merge and injection steps are shared with `patchGlobalFetch` rather
+than written twice (`otel/propagate.ts`), which also keeps the main entry point
+free of the tracer SDK: that module imports only `@opentelemetry/api`.
+
+Injection needs a globally registered propagator and context manager, which
+`provider.register()` installs and `propagation.inject` is a silent no-op
+without. The AI SDK adapter previously opted out of that registration, so it
+now takes the default. Registration is additive for the export either way,
+since the tracer handed to the AI SDK comes from the provider explicitly.
+`ASTRO_OTEL_REGISTER=false` opts out for an app running its own OTel export,
+because first registration wins and an adapter importing at startup can
+pre-empt one the app sets up later.
+
+Mastra does not go through that provider, registering its own OTel instance
+with Mastra Observability, so its gateway calls do not yet carry trace context.
+Its billed cost and per-actor attribution are unaffected; only the trace-page
+join is, and only for Mastra-built agents.
 
 ## Migration
 

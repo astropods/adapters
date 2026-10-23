@@ -38,6 +38,7 @@ export type { ActorContext } from "./actor-context.js";
 export { instrumentHttp } from "./otel/instrument.js";
 export type { InstrumentHttpOptions } from "./otel/instrument.js";
 export {
+  _resetAstroTracerProviderForTests,
   buildTracesUrl,
   getOrCreateAstroTracerProvider,
 } from "./otel/provider.js";

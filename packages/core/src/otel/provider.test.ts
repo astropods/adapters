@@ -66,6 +66,38 @@ describe("getOrCreateAstroTracerProvider", () => {
     expect(provider).not.toBeNull();
     expect(globalDelegate()).not.toBe(provider);
   });
+
+  // An app running its own OTel export needs a way to keep the global, since
+  // an adapter importing at startup can register before the app does and OTel
+  // refuses the later registration.
+  test("does NOT register when ASTRO_OTEL_REGISTER is false", () => {
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
+    const origRegister = process.env.ASTRO_OTEL_REGISTER;
+    process.env.ASTRO_OTEL_REGISTER = "false";
+    try {
+      const provider = getOrCreateAstroTracerProvider();
+      // Still built and still exporting; only the global is left alone.
+      expect(provider).not.toBeNull();
+      expect(globalDelegate()).not.toBe(provider);
+    } finally {
+      if (origRegister === undefined) delete process.env.ASTRO_OTEL_REGISTER;
+      else process.env.ASTRO_OTEL_REGISTER = origRegister;
+    }
+  });
+
+  test("registers when ASTRO_OTEL_REGISTER is set to anything else", () => {
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
+    const origRegister = process.env.ASTRO_OTEL_REGISTER;
+    process.env.ASTRO_OTEL_REGISTER = "true";
+    try {
+      const provider = getOrCreateAstroTracerProvider();
+      expect(provider).not.toBeNull();
+      expect(globalDelegate()).toBe(provider);
+    } finally {
+      if (origRegister === undefined) delete process.env.ASTRO_OTEL_REGISTER;
+      else process.env.ASTRO_OTEL_REGISTER = origRegister;
+    }
+  });
 });
 
 describe("buildTracesUrl", () => {
