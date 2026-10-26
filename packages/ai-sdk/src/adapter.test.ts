@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import type { Agent, TextStreamPart, ToolSet } from "ai";
 import type { StatusUpdate } from "@astropods/messaging";
 import type { StreamOptions } from "@astropods/adapter-core";
+import { activeActor } from "@astropods/adapter-core";
 
 import { AISDKAdapter } from "./adapter";
 
@@ -159,6 +160,36 @@ describe("AISDKAdapter", () => {
       await adapter.stream("hi", hooks, defaultOptions);
 
       expect(hooks.chunks).toEqual(["Hello", " world"]);
+    });
+
+    test("runs the turn with the caller's userId as the active actor", async () => {
+      let capturedActorKey: string | undefined;
+      const agent = fakeAgent([], {
+        stream: async () => {
+          capturedActorKey = activeActor()?.actorKey;
+          return { fullStream: asyncFrom([]), response: Promise.resolve({ messages: [] }) } as any;
+        },
+      });
+      const adapter = new AISDKAdapter(agent);
+
+      await adapter.stream("hi", createHooks(), { ...defaultOptions, userId: "user_42" });
+
+      expect(capturedActorKey).toBe("user_42");
+    });
+
+    test("falls back to the anonymous actor key when userId is empty", async () => {
+      let capturedActorKey: string | undefined;
+      const agent = fakeAgent([], {
+        stream: async () => {
+          capturedActorKey = activeActor()?.actorKey;
+          return { fullStream: asyncFrom([]), response: Promise.resolve({ messages: [] }) } as any;
+        },
+      });
+      const adapter = new AISDKAdapter(agent);
+
+      await adapter.stream("hi", createHooks(), { ...defaultOptions, userId: "" });
+
+      expect(capturedActorKey).toBe("anonymous");
     });
 
     test("calls onFinish on the finish event", async () => {
