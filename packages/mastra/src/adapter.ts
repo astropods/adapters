@@ -12,7 +12,15 @@ import type {
   StreamHooks,
   StreamOptions,
 } from "@astropods/adapter-core";
-import { UnsupportedRenderableError, createTraceparent, logger, withActorContext, ANONYMOUS_ACTOR_KEY } from "@astropods/adapter-core";
+import type { TraceIds } from "@astropods/adapter-core";
+import {
+  UnsupportedRenderableError,
+  createTraceparent,
+  logger,
+  newTraceIds,
+  withActorContext,
+  ANONYMOUS_ACTOR_KEY,
+} from "@astropods/adapter-core";
 
 /** The object agent.stream()/approveToolCall()/resumeStream() all resolve to. */
 type MastraStream = Awaited<ReturnType<Agent["stream"]>>;
@@ -158,6 +166,15 @@ export class MastraAdapter implements AgentAdapter {
     // Unattributed); memory.resource keeps the original to scope memory.
     const traceUserId = options.userId || ANONYMOUS_ACTOR_KEY;
 
+    // Minted here rather than read back off the stream: Mastra reports its
+    // trace id only once `agent.stream()` has returned, by which point the
+    // gateway call it describes may already be in flight. Supplying the pair
+    // instead means Mastra's trace and every gateway call this turn makes
+    // share one trace id, which is what lets a trace page join a billed figure
+    // to its estimated one. Mastra's spans are not OTel-global, so
+    // withActorHeaders has nothing else to read.
+    const traceIds = newTraceIds();
+
     // Active for the whole turn, including every tool-approval/suspension
     // resume below: any of those can issue its own fresh gateway call, and
     // each needs the same actor attribution as the initial one. The AI
@@ -165,8 +182,8 @@ export class MastraAdapter implements AgentAdapter {
     // withActorHeaders() }) in the scaffold template) picks it up through
     // withActorHeaders — see billed-vs-estimated-cost-spec.md, "Telling
     // gateway traffic apart, and merging it".
-    return withActorContext({ actorKey: traceUserId }, () =>
-      this.runStream(prompt, hooks, options, traceUserId, previous, runs)
+    return withActorContext({ actorKey: traceUserId, ...traceIds }, () =>
+      this.runStream(prompt, hooks, options, traceUserId, previous, runs, traceIds)
     );
   }
 
@@ -176,7 +193,8 @@ export class MastraAdapter implements AgentAdapter {
     options: StreamOptions,
     traceUserId: string,
     previous: Promise<void> | undefined,
-    runs: Promise<unknown>[]
+    runs: Promise<unknown>[],
+    traceIds: TraceIds
   ): Promise<void> {
     // When the message carried images, hand the model a single user message
     // whose content mixes the prompt text with image parts (bytes ride in each
@@ -230,6 +248,10 @@ export class MastraAdapter implements AgentAdapter {
           "langfuse.user.id": traceUserId,
           "langfuse.session.id": options.conversationId,
         },
+        // Same pair withActorContext carries, so this turn's Mastra trace and
+        // the gateway calls it makes agree on a trace id.
+        traceId: traceIds.traceId,
+        parentSpanId: traceIds.spanId,
       },
       // Forward the stop signal so a "stop generating" actually aborts the model
       // call — Mastra force-closes the stream and the LLM request is cancelled,
@@ -511,8 +533,11 @@ export class MastraAdapter implements AgentAdapter {
   ): Promise<void> {
     // Active for the whole turn, including the STT and TTS legs below: both
     // are their own gateway-routed calls, same reasoning as stream()'s wrap.
+    // The STT and TTS legs do not go through agent.stream(), so there is no
+    // tracingOptions to hand the pair to; they still carry it on the gateway
+    // request, and the text leg in between picks up its own through stream().
     const traceUserId = options.userId || ANONYMOUS_ACTOR_KEY;
-    return withActorContext({ actorKey: traceUserId }, () =>
+    return withActorContext({ actorKey: traceUserId, ...newTraceIds() }, () =>
       this.runStreamAudio(audio, hooks, options)
     );
   }
