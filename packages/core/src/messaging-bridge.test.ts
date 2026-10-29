@@ -1,4 +1,8 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { attachFile } from "./attach-file";
 import type { AgentAdapter, StreamHooks, StreamOptions } from "./types";
 import type {
   AgentConfig,
@@ -525,6 +529,43 @@ describe("MessagingBridge", () => {
       expect(end!.chunk.attachments).toEqual([
         { file: { filename: "processed.txt", mimeType: "text/plain", sizeBytes: 12 } },
       ]);
+    });
+
+    test("delivers a file attached from inside the turn on the END chunk", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "bridge-files-"));
+      const previousDir = process.env.AGENT_FILES_DIR;
+      process.env.AGENT_FILES_DIR = dir;
+      try {
+        const adapter = createMockAdapter({
+          stream: async (_prompt, hooks) => {
+            await new Promise((r) => setTimeout(r, 1));
+            await attachFile({ name: "plan.md", data: "# Plan\n", mimeType: "text/markdown" });
+            hooks.onFinish();
+          },
+        });
+        const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+        await bridge.start();
+
+        mockResponseHandlers[0]({
+          conversationId: "conv-1",
+          incomingMessage: {
+            conversationId: "conv-1",
+            content: "go",
+            platform: "slack",
+            user: { id: "user-1" },
+          },
+        });
+
+        await new Promise((r) => setTimeout(r, 20));
+
+        const end = mockSendContentChunkCalls.find((c) => c.chunk.type === "END");
+        expect(end!.chunk.attachments).toEqual([
+          { file: { filename: "plan.md", mimeType: "text/markdown", sizeBytes: 7 } },
+        ]);
+      } finally {
+        process.env.AGENT_FILES_DIR = previousDir;
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     test("sends DELTA chunks for each onChunk call", async () => {

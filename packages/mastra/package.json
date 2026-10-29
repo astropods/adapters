@@ -37,7 +37,8 @@
     "@opentelemetry/exporter-trace-otlp-proto": "^0.200.0"
   },
   "peerDependencies": {
-    "@mastra/core": ">=1.14.0"
+    "@mastra/core": ">=1.14.0",
+    "zod": "^3.25.0 || ^4.0.0"
   },
   "peerDependenciesMeta": {
     "@mastra/core": {

@@ -1,4 +1,5 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Agent } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
 import { MockMemory } from "@mastra/core/memory";
@@ -1517,5 +1518,54 @@ describe("request context", () => {
 
     expect(seen?.get("threadId")).toBe("conv-9");
     expect(seen?.get("resourceId")).toBe("user-3");
+  });
+});
+
+// attachFile finds the turn through AsyncLocalStorage, which tools must inherit.
+describe("tool async context", () => {
+  test("a tool sees the async context stream() was called in", async () => {
+    const als = new AsyncLocalStorage<string>();
+    let seen: string | undefined = "not called";
+    const probe = createTool({
+      id: "probe",
+      description: "probe",
+      inputSchema: z.object({}),
+      outputSchema: z.object({ ok: z.boolean() }),
+      execute: async () => {
+        await new Promise((r) => setTimeout(r, 1));
+        seen = als.getStore();
+        return { ok: true };
+      },
+    });
+    const usage = { inputTokens: 1, outputTokens: 1, totalTokens: 2 };
+    let calls = 0;
+    const model = new MastraLanguageModelV2Mock({
+      provider: "test",
+      modelId: "test-model",
+      doStream: async () => ({
+        stream: streamFromParts(
+          calls++ === 0
+            ? [
+                { type: "tool-input-start", id: "tc-1", toolName: "probe" },
+                { type: "tool-input-delta", id: "tc-1", delta: "{}" },
+                { type: "tool-input-end", id: "tc-1" },
+                { type: "finish", finishReason: "tool-calls", usage },
+              ]
+            : textParts(["done"])
+        ),
+      }),
+    });
+    const agent = new Agent({
+      id: "probe-agent",
+      name: "Probe",
+      model,
+      instructions: "test",
+      tools: { probe },
+      defaultOptions: { maxSteps: 3 },
+    });
+
+    await als.run("turn-1", () => new MastraAdapter(agent).stream("go", createHooks(), defaultOptions));
+
+    expect(seen).toBe("turn-1");
   });
 });

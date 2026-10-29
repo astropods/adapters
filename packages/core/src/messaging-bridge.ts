@@ -31,9 +31,7 @@ import type {
   TraceContext,
 } from "./types.js";
 import { logger } from "./logger.js";
-
-/** Default agent files mount, matching the K8s/compose deployer's AGENT_FILES_DIR. */
-const DEFAULT_AGENT_FILES_DIR = "/data/files";
+import { agentFilesDir, runInTurn } from "./attach-file.js";
 
 /** On-disk suffix the files store uses for API-managed uploads (see the sidecar's
  *  FSStore). Inbound attachments are always API uploads, so the blob for key K is
@@ -471,7 +469,7 @@ export class MessagingBridge {
    * handled by the dedicated audio path).
    */
   private resolveAttachments(message: Message): AttachmentInput[] {
-    const dir = process.env.AGENT_FILES_DIR || DEFAULT_AGENT_FILES_DIR;
+    const dir = agentFilesDir();
     const atts = (message.attachments ?? []) as WireAttachment[];
     const out: AttachmentInput[] = [];
     for (const a of atts) {
@@ -548,8 +546,7 @@ export class MessagingBridge {
 
     const hooks = this.buildHooks(conversationId, controller.signal);
 
-    this.adapter
-      .stream(message.content, hooks, {
+    runInTurn(hooks.onFile, () => this.adapter.stream(message.content, hooks, {
         conversationId,
         // || catches empty strings too — ?? would let "" through.
         userId: message.user?.id || "anonymous",
@@ -575,7 +572,7 @@ export class MessagingBridge {
           this.sendSaveConversation(message.user?.id ?? "", input),
         getThreadHistory: (maxMessages) =>
           this.fetchThreadHistory(conversationId, maxMessages),
-      })
+      }))
       .catch((error) => {
         // A user stop aborts the model call — that's expected; end quietly
         // rather than surfacing an error to the client.
@@ -756,12 +753,11 @@ export class MessagingBridge {
 
     const hooks = this.buildHooks(conversationId);
 
-    this.adapter
-      .streamAudio(audioInput, hooks, {
+    runInTurn(hooks.onFile, () => this.adapter.streamAudio!(audioInput, hooks, {
         conversationId,
         // || catches empty strings too — ?? would let "" through.
         userId: userId || "anonymous",
-      })
+      }))
       .then(() => {
         debug(`[bridge] streamAudio resolved: conversation=${conversationId}`);
       })

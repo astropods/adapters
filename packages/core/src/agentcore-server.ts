@@ -9,6 +9,7 @@ import type {
   StreamHooks,
 } from "./types.js";
 import { logger } from "./logger.js";
+import { runInTurn } from "./attach-file.js";
 
 const DEFAULT_PORT = 8080;
 
@@ -193,7 +194,7 @@ export class AgentCoreServer {
     send({ type: "START" });
 
     try {
-      await this.adapter.stream(prompt, hooks, {
+      await runInTurn(hooks.onFile, () => this.adapter.stream(prompt, hooks, {
         conversationId,
         userId: "agentcore",
         signal: controller.signal,
@@ -204,7 +205,7 @@ export class AgentCoreServer {
             dataSchema,
             ...opts,
           }),
-      });
+      }));
     } catch (error) {
       hooks.onError(error instanceof Error ? error : new Error(String(error)));
     } finally {

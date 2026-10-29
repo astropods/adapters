@@ -66,6 +66,18 @@ For `CUSTOM` status, include `"custom_message"` in the dict:
 hooks.on_status_update({"status": "CUSTOM", "custom_message": "Fetching data..."})
 ```
 
+### `attach_file(name, data=None, mime_type=None)`
+
+Writes a file to the agent's files dir (`AGENT_FILES_DIR`) and attaches it to the reply. Web chat shows it as a download chip, and Slack uploads it into the thread. Call it from a tool while the agent handles a message, sync or async. It raises outside one.
+
+```python
+from astropods_adapter_core import attach_file
+
+attach_file("account-plan.csv", csv_text, "text/csv")
+```
+
+`name` is one path segment. Omit `data` to attach a file that is already in the files dir.
+
 ### `create_traceparent(*, trace_id, span_id, trace_flags="01")`
 
 Formats a native trace/span ID pair into a W3C `traceparent` string to hand to `on_trace_context`. Returns `""` for invalid or all-zero IDs, so it's safe to pass raw OpenTelemetry span context. `trace_flags` accepts an int or hex string and defaults to `"01"` (sampled).

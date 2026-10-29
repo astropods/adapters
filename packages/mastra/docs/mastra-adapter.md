@@ -66,6 +66,32 @@ serve(agent);
 
 When the agent calls a tool, the playground will show status indicators like "Running weatherTool" and "Finished weatherTool" automatically.
 
+## Reading and returning files
+
+The adapter appends each attached file's name and path to the turn's text. Give the agent `fileTools()` so the model can open them, and set `supportsFiles` to turn on web chat uploads:
+
+```typescript
+import { fileTools, serve } from "@astropods/adapter-mastra";
+
+const agent = new Agent({
+  name: "Deal desk",
+  model: "openai/gpt-4o",
+  instructions: "Map attached deal docs to SFDC fields. Use query_table for every count or total.",
+  tools: { ...fileTools() },
+});
+
+serve(agent, { supportsFiles: true });
+```
+
+| Tool | What it does |
+|------|--------------|
+| `inspect_file` | Reports a file's kind (PDF, DOCX, XLSX, text), its size, and for a table its columns, exact row count, and sample rows. |
+| `read_file` | Returns one 20,000-character page of a PDF, DOCX, or text file, with `nextOffset` for the next page. |
+| `query_table` | Filters, counts, sums, and averages the rows of a CSV or XLSX file across the whole file. |
+| `create_file` | Writes a text file to the files dir and attaches it to the reply with `attachFile`. |
+
+A tool of your own can return a file with `attachFile` from `@astropods/adapter-core`.
+
 ## Memory
 
 Mastra's memory integration is wired up automatically. Each conversation gets its own thread keyed by `conversationId`, and each user is tracked by their `userId` from the messaging platform. If your Mastra Agent has a `memory` configured, it will persist context across messages in the same conversation.

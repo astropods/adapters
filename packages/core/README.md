@@ -63,6 +63,32 @@ Call these inside `stream()` as the agent produces output:
 | `onFinish()` | Response complete — call exactly once per request |
 | `onError(error)` | Error occurred — call instead of `onFinish` |
 | `onTraceContext({ traceparent })` | Optional — once per turn, to supply the W3C trace context of the assistant turn. The bridge stamps it on every response it emits for the turn, so a consumer can correlate any response back to its trace. Ignored if `traceparent` is empty. |
+| `onFile({ name, mimeType?, size? })` | A file the agent wrote to its files dir, delivered with the reply. Tool code calls `attachFile` instead. |
+
+### `attachFile(input)`
+
+Writes a file to the agent's files dir (`AGENT_FILES_DIR`) and attaches it to the reply. Web chat shows it as a download chip, and Slack uploads it into the thread. Call it from a tool while the agent handles a message, in any framework adapter. It throws outside one.
+
+```ts
+import { attachFile } from "@astropods/adapter-core";
+
+await attachFile({ name: "account-plan.csv", data: csv, mimeType: "text/csv" });
+```
+
+`name` is one path segment. Omit `data` to attach a file that is already in the files dir.
+
+### `@astropods/adapter-core/files`
+
+Framework-neutral functions for reading the files a user attaches. They take the `path` from `StreamOptions.attachments` and reject any path outside `AGENT_FILES_DIR`. The Mastra and AI SDK adapters wrap them as tools in `fileTools()`.
+
+| Function | Returns |
+|----------|---------|
+| `inspectFile(path)` | The file's kind (`pdf`, `docx`, `xlsx`, `zip`, `text`, `binary`), its size, its text length, and for a table its columns, exact row count, and sample rows. The kind is sniffed from the bytes, because staged uploads have no extension. |
+| `readFilePage(path, offset?)` | One `PAGE_CHARS` (20,000-character) page of a PDF, DOCX, or text file, with `nextOffset` (null on the last page) and `totalChars`. |
+| `queryTable(path, query?)` | The rows of a CSV or XLSX table that match `where`, an exact `matched` count, and an optional `count`/`sum`/`min`/`max`/`avg` over a column. A CSV is streamed, so the count covers the whole file; only the returned rows are capped by `limit`. |
+| `attachmentNote(attachments, images?)` | The line an adapter appends to the turn's text that names each attached file and its path. |
+
+The PDF, DOCX, XLSX, and CSV parsers load on first use, so an agent that never calls these functions does not load them.
 
 ### `createTraceparent(input)`
 

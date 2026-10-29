@@ -95,6 +95,32 @@ serve(agent, {
 
 An agent without call options needs no `callOptions`.
 
+## Files
+
+The adapter appends each attached file's name and path to the turn's text. `fileTools()` gives the model tools that open those paths. They work on files of any size without loading a file into the prompt:
+
+| Tool | What it does |
+|------|--------------|
+| `inspect_file` | Reports a file's kind (PDF, DOCX, XLSX, text), its size, and for a table its columns, exact row count, and sample rows. |
+| `read_file` | Returns one 20,000-character page of a PDF, DOCX, or text file, with `nextOffset` for the next page. |
+| `query_table` | Filters, counts, sums, and averages the rows of a CSV or XLSX file across the whole file. |
+| `create_file` | Writes a text file to the files dir and attaches it to the reply with `attachFile`. |
+
+```typescript
+import { ToolLoopAgent } from "ai";
+import { fileTools, serve } from "@astropods/adapter-ai-sdk";
+
+const agent = new ToolLoopAgent({
+  model,
+  instructions: "Map attached deal docs to SFDC fields. Use query_table for every count or total.",
+  tools: { ...fileTools() },
+});
+
+serve(agent, { supportsFiles: true });
+```
+
+The adapter does not pass attached images to the model yet. An image arrives as a file the tools can inspect.
+
 ## API
 
 ### `serve(agent, options?)`
@@ -107,6 +133,7 @@ Connects the agent to the messaging service.
 | `instructions` | `string` | Optional. System prompt shown in the playground when provided. |
 | `callOptions` | `(options: StreamOptions) => CALL_OPTIONS` | Optional. Builds the agent's call options for each turn. See [The sender's name](#the-senders-name). |
 | `memory` | `boolean` | Send each conversation's earlier turns to the model. Defaults to `true`; `false` sends only `prompt`. |
+| `supportsFiles` | `boolean` | Declare that the agent reads attached files, which turns on web chat uploads. Defaults to `false`. Slack sends files either way. |
 | `maxTurns` | `number` | Turns of history each conversation keeps. Defaults to `20`; `0` turns history off. |
 | `maxHistoryBytes` | `number` | Serialized size a conversation's history may reach. Defaults to 256 KiB, about 64K tokens. |
 | `maxConversations` | `number` | Conversations kept in memory; the least recently used is forgotten first. Defaults to `200`. |

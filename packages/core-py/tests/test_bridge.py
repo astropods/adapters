@@ -1070,3 +1070,34 @@ class TestHistoryForwarding:
     def test_declared_history_support_reaches_the_wire(self):
         assert _agent_config({"supports_history": True}, []).supports_history is True
         assert _agent_config({}, []).supports_history is False
+
+
+class TestAttachFileFromTurn:
+    async def test_delivers_a_file_attached_inside_the_turn_on_the_end_chunk(self, tmp_path, monkeypatch):
+        from astropods_adapter_core import attach_file
+
+        monkeypatch.setenv("AGENT_FILES_DIR", str(tmp_path))
+
+        async def stream(prompt, hooks, options):
+            await asyncio.sleep(0)
+            attach_file("plan.md", "# Plan\n", "text/markdown")
+            hooks.on_finish()
+
+        adapter = MagicMock()
+        adapter.stream = stream
+        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+
+        await bridge._handle_message(
+            Message(conversation_id="conv-1", content="go", platform="slack", user=User(id="U1"))
+        )
+
+        ends = [
+            it.agent_response.content
+            for it in _drain(bridge._write_queue)
+            if it.HasField("agent_response")
+            and it.agent_response.HasField("content")
+            and it.agent_response.content.type == ContentChunk.ChunkType.Value("END")
+        ]
+        assert len(ends) == 1
+        files = [(a.file.filename, a.file.mime_type, a.file.size_bytes) for a in ends[0].attachments]
+        assert files == [("plan.md", "text/markdown", 7)]
