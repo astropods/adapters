@@ -3,8 +3,8 @@ import {
   FILE_TOOL_DESCRIPTIONS,
   attachFile,
   inspectFile,
-  queryTable,
   readFilePage,
+  readTable,
 } from "@astropods/adapter-core/files";
 import { z } from "zod";
 
@@ -23,11 +23,11 @@ export function fileTools() {
       inputSchema: z.object({ path: z.string(), offset: z.number().int().min(0).optional() }),
       execute: async ({ path, offset }) => readFilePage(path, offset),
     }),
-    query_table: createTool({
-      id: "query_table",
-      description: FILE_TOOL_DESCRIPTIONS.query_table,
-      inputSchema: tableQuerySchema,
-      execute: async ({ path, ...query }) => queryTable(path, query),
+    read_table: createTool({
+      id: "read_table",
+      description: FILE_TOOL_DESCRIPTIONS.read_table,
+      inputSchema: tablePageSchema,
+      execute: async ({ path, ...page }) => readTable(path, page),
     }),
     create_file: createTool({
       id: "create_file",
@@ -45,21 +45,9 @@ export function fileTools() {
   };
 }
 
-const tableQuerySchema = z.object({
+const tablePageSchema = z.object({
   path: z.string(),
   sheet: z.string().optional().describe("XLSX sheet name; defaults to the first sheet"),
-  where: z
-    .array(
-      z.object({
-        column: z.string(),
-        op: z.enum(["eq", "ne", "gt", "gte", "lt", "lte", "contains"]),
-        value: z.union([z.string(), z.number()]),
-      })
-    )
-    .optional()
-    .describe("Conditions that must all match"),
-  aggregate: z
-    .object({ op: z.enum(["count", "sum", "min", "max", "avg"]), column: z.string().optional() })
-    .optional(),
-  limit: z.number().int().min(0).max(200).optional().describe("Matching rows to return; defaults to 20"),
+  offset: z.number().int().min(0).optional().describe("Data row to start at; 0 is the first row after the header"),
+  limit: z.number().int().min(1).max(500).optional(),
 });

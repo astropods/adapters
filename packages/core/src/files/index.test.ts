@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PAGE_CHARS, inspectFile, queryTable, readFilePage, resolveAgentFile } from "./index";
+import { PAGE_CHARS, PAGE_ROWS, inspectFile, readFilePage, readTable, resolveAgentFile } from "./index";
 
 const fixtures = join(import.meta.dir, "../../tests/fixtures/files");
 let dir: string;
@@ -23,7 +23,6 @@ beforeAll(async () => {
   await writeFile(at("deals.blob"), rows.join("\n") + "\n");
   await writeFile(at("long.blob"), "x".repeat(PAGE_CHARS + 10));
   await writeFile(at("excel-utf8.blob"), "\uFEFFRegion,Amount\nWest,10\nEast,5\n");
-  await writeFile(at("amounts.blob"), 'deal,amount\nA,100\nB,\nC,300\nD,"$1,200"\nE,n/a\n');
 });
 
 afterAll(async () => {
@@ -32,11 +31,14 @@ afterAll(async () => {
 });
 
 describe("inspectFile", () => {
-  test("gives a CSV's columns, exact row count, and sample rows", async () => {
+  test("gives a CSV's columns and exact row count", async () => {
     const info = await inspectFile(at("deals.blob"));
     expect(info.kind).toBe("text");
-    expect(info.tables?.[0]).toMatchObject({ columns: ["id", "account", "stage", "amount"], rows: 5000 });
-    expect(info.tables?.[0]?.sample).toHaveLength(5);
+    expect(info.tables).toEqual([{ columns: ["id", "account", "stage", "amount"], rows: 5000 }]);
+  });
+
+  test("reads the first column of a CSV that starts with a byte-order mark", async () => {
+    expect((await inspectFile(at("excel-utf8.blob"))).tables?.[0]?.columns).toEqual(["Region", "Amount"]);
   });
 
   test("lists every XLSX sheet", async () => {
@@ -82,55 +84,28 @@ describe("readFilePage", () => {
   });
 });
 
-describe("queryTable", () => {
-  test("counts and sums across the whole CSV while returning a few rows", async () => {
-    const result = await queryTable(at("deals.blob"), {
-      where: [{ column: "stage", op: "eq", value: "Stage 3" }],
-      aggregate: { op: "sum", column: "amount" },
-      limit: 2,
-    });
-    const ids = Array.from({ length: 5000 }, (_, i) => i + 1).filter((i) => i % 7 === 3);
-    expect(result.matched).toBe(ids.length);
-    expect(result.aggregate?.result).toBe(ids.reduce((s, i) => s + i * 10, 0));
-    expect(result.rows).toHaveLength(2);
-    expect(result.truncated).toBe(true);
+describe("readTable", () => {
+  test("pages through every row of a CSV", async () => {
+    const first = await readTable(at("deals.blob"));
+    expect(first.columns).toEqual(["id", "account", "stage", "amount"]);
+    expect(first.rows).toHaveLength(PAGE_ROWS);
+    expect(first.rows[0]).toEqual(["1", "Account 1", "Stage 1", "10"]);
+    expect(first.nextOffset).toBe(PAGE_ROWS);
+
+    const last = await readTable(at("deals.blob"), { offset: 4998, limit: 10 });
+    expect(last).toMatchObject({ offset: 4998, nextOffset: null });
+    expect(last.rows.map((r) => r[0])).toEqual(["4999", "5000"]);
   });
 
-  test("compares numbers numerically", async () => {
-    // A string compare would also match "5000" and more; numeric gives exactly 5.
-    const result = await queryTable(at("deals.blob"), { where: [{ column: "amount", op: "gt", value: 49_950 }], limit: 0 });
-    expect(result.matched).toBe(5);
+  test("a page that ends on the last row has no next page", async () => {
+    expect((await readTable(at("deals.blob"), { offset: 4990, limit: 10 })).nextOffset).toBeNull();
   });
 
-  test("queries a named XLSX sheet", async () => {
-    const result = await queryTable(at("pipeline.blob"), { sheet: "Contacts", where: [{ column: "Name", op: "contains", value: "dana" }] });
-    expect(result.rows).toEqual([{ Account: "Acme Corp", Name: "Dana Lee", Role: "VP Engineering" }]);
-  });
-
-  test("averages and counts", async () => {
-    const avg = await queryTable(at("pipeline.blob"), { aggregate: { op: "avg", column: "Amount" } });
-    expect(avg.aggregate?.result).toBe((120000 + 45000 + 78000) / 3);
-    const count = await queryTable(at("pipeline.blob"), { aggregate: { op: "count" } });
-    expect(count.aggregate?.result).toBe(3);
-  });
-
-  test("reads the first column of a CSV that starts with a byte-order mark", async () => {
-    expect((await inspectFile(at("excel-utf8.blob"))).tables?.[0]?.columns).toEqual(["Region", "Amount"]);
-    const result = await queryTable(at("excel-utf8.blob"), { where: [{ column: "Region", op: "eq", value: "West" }] });
-    expect(result.matched).toBe(1);
-  });
-
-  test("leaves empty and non-numeric cells out of an aggregate and reports them", async () => {
-    const query = (op: "sum" | "min" | "avg") => queryTable(at("amounts.blob"), { aggregate: { op, column: "amount" } });
-    expect((await query("sum")).aggregate).toMatchObject({ result: 1600, skipped: 2 });
-    expect((await query("min")).aggregate?.result).toBe(100);
-    expect((await query("avg")).aggregate?.result).toBe(1600 / 3);
-  });
-
-  test("names the columns when a query asks for one that is missing", async () => {
-    await expect(queryTable(at("deals.blob"), { where: [{ column: "Amount", op: "gt", value: 1 }] })).rejects.toThrow(
-      /No column Amount\. Columns: id, account, stage, amount/
-    );
+  test("reads a named XLSX sheet", async () => {
+    const page = await readTable(at("pipeline.blob"), { sheet: "Contacts" });
+    expect(page.columns).toEqual(["Account", "Name", "Role"]);
+    expect(page.rows).toContainEqual(["Acme Corp", "Dana Lee", "VP Engineering"]);
+    await expect(readTable(at("pipeline.blob"), { sheet: "Missing" })).rejects.toThrow(/Sheets: Pipeline, Contacts/);
   });
 });
 

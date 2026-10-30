@@ -78,7 +78,7 @@ attach_file("account-plan.csv", csv_text, "text/csv")
 
 `name` is one path segment. Omit `data` to attach a file that is already in the files dir. With `data`, a name already in the files dir raises `FileExistsError`, because every user's files share that dir. A file over the deployment's file size limit (`FILES_MAX_MB`, 100 MiB when unset, `0` for no limit) raises `ValueError`, so the agent knows before it replies.
 
-Python has no file-reading tools yet. `fileTools()` is in the JavaScript Mastra and AI SDK adapters. A Python agent reads an attachment from its `path` with its own code.
+Python has no `fileTools()`. A Python agent reads an attachment from its `path` with its own code, such as pandas for a CSV or XLSX file.
 
 ### `create_traceparent(*, trace_id, span_id, trace_flags="01")`
 

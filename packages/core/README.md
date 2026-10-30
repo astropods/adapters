@@ -83,12 +83,16 @@ Framework-neutral functions for reading the files a user attaches. They take the
 
 | Function | Returns |
 |----------|---------|
-| `inspectFile(path)` | The file's kind (`pdf`, `docx`, `xlsx`, `zip`, `text`, `binary`), its size, its text length, and for a table its columns, exact row count, and sample rows. The kind is sniffed from the bytes, because staged uploads have no extension. A PDF with no text layer, such as a scan, has `scanned: true`. |
+| `inspectFile(path)` | The file's kind (`pdf`, `docx`, `xlsx`, `zip`, `text`, `binary`), its size, its text length, and for a table each sheet's columns and exact row count. The kind is sniffed from the bytes, because staged uploads have no extension. A PDF with no text layer, such as a scan, has `scanned: true`. |
 | `readFilePage(path, offset?)` | One `PAGE_CHARS` (20,000-character) page of a PDF, DOCX, or text file, with `nextOffset` (null on the last page) and `totalChars`. It throws for a PDF with no text layer, which needs OCR. |
-| `queryTable(path, query?)` | The rows of a CSV or XLSX table that match `where`, an exact `matched` count, and an optional `count`/`sum`/`min`/`max`/`avg` over a column. A column aggregate reads `$1,200` as 1200, leaves out empty and non-numeric cells, and returns how many it left out as `skipped`. A CSV is streamed, so the count covers the whole file; only the returned rows are capped by `limit`. |
+| `readTable(path, { sheet?, offset?, limit? })` | One page of a CSV or XLSX table: the header as `columns`, then `limit` data rows (`PAGE_ROWS`, 100, by default) starting at `offset`, with `nextOffset` (null on the last page). CSV cells are strings and XLSX cells keep their types. A CSV is streamed, so a page late in a large file does not load the whole file. |
 | `attachmentNote(attachments, images?)` | The line an adapter appends to the turn's text that names each attached file and its path. |
 
 The PDF, DOCX, XLSX, and CSV parsers load on first use, so an agent that never calls these functions does not load them.
+
+#### Analyzing tables
+
+These functions deliver a file's contents and do no analysis. To count, total, group, or join rows across a large table, give the agent a tool that runs a query engine on the attachment's `path`, such as DuckDB (`read_csv_auto(path)`) or pandas in a code interpreter. Pass the path through `resolveAgentFile`, which rejects a path outside `AGENT_FILES_DIR`. If the model writes the query, limit what the engine can read, because DuckDB and pandas can open any path on the machine.
 
 ### `createTraceparent(input)`
 

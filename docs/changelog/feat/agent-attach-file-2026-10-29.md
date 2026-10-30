@@ -7,7 +7,7 @@ Part of astropods/astro#3546
 A framework agent could neither read the files a user attached nor return one.
 
 - Returning: `StreamHooks.onFile` (`on_file` in Python) delivers a file on the END chunk, and the messaging sidecar renders it as a web chat download chip or a Slack upload. Only `stream()` holds the hooks, and the Mastra, AI SDK, and LangChain adapters own `stream()` without calling the hook. A tool that produced an account plan had no way to hand it to the user.
-- Reading: the Mastra adapter tells the model each attached file's path and asks it to use a file-reading tool, but it provides none. The AI SDK adapter does not mention attachments at all. Each agent author wrote their own reader, and one that pulled a file's text into the prompt made the model guess. A test agent asked for the row count of a 27 MB export read 20,000 characters and answered 500. The file has 344,975 rows.
+- Reading: the Mastra adapter tells the model each attached file's path and asks it to use a file-reading tool, but it provides none. The AI SDK adapter does not mention attachments at all. Each agent author wrote their own reader for PDF, DOCX, XLSX, and CSV.
 
 ## Design
 
@@ -37,14 +37,16 @@ core-py exports the same function as `attach_file(name, data=None, mime_type=Non
 
 | Function | Returns |
 |---|---|
-| `inspectFile` | Kind, size, text length, and for a table its columns, exact row count, and sample rows |
+| `inspectFile` | Kind, size, text length, and for a table each sheet's columns and exact row count |
 | `readFilePage` | One 20,000-character page of text, with `nextOffset` |
-| `queryTable` | Matching rows, an exact match count, and an optional count, sum, min, max, or avg over a column |
+| `readTable` | One page of a CSV or XLSX table's rows, 100 by default, with `nextOffset` |
 | `attachmentNote` | The line that names each attached file and its path for the model |
 
-The kind is sniffed from the bytes (`%PDF`, and the parts inside a zip for DOCX and XLSX), because a staged upload is `<key>.blob` with no extension. `queryTable` streams a CSV through `csv-parse`, so counts and totals cover the whole file while only the returned rows are capped. The parser strips the byte-order mark that Excel's "CSV UTF-8" export writes, which would otherwise join the first column's name. A column aggregate reads `$1,200` as 1200, leaves out empty and non-numeric cells, averages over the cells it counted, and returns the number it left out as `skipped`. A blank cell read as 0 would make `min` 0 and pull `avg` down. A PDF with no text layer, such as a scan, has `scanned: true` from `inspectFile`, and `readFilePage` throws to say it needs OCR, so the model does not answer from an empty read. `unpdf`, `mammoth`, `read-excel-file`, and `csv-parse` are dependencies of adapter-core, imported dynamically, so an agent that never reads a file does not load them. The functions live on a subpath so the main entry stays as it was.
+The kind is sniffed from the bytes (`%PDF`, and the parts inside a zip for DOCX and XLSX), because a staged upload is `<key>.blob` with no extension. `readTable` streams a CSV through `csv-parse` and stops after the page, so a page late in a large file does not load the whole file. The parser strips the byte-order mark that Excel's "CSV UTF-8" export writes, which would otherwise join the first column's name. A PDF with no text layer, such as a scan, has `scanned: true` from `inspectFile`, and `readFilePage` throws to say it needs OCR, so an empty read does not look like an empty document. `unpdf`, `mammoth`, `read-excel-file`, and `csv-parse` are dependencies of adapter-core, imported dynamically, so an agent that never reads a file does not load them. The functions live on a subpath so the main entry stays as it was.
 
-`fileTools()` in the Mastra and AI SDK adapters wraps those functions as four tools: `inspect_file`, `read_file`, `query_table`, and `create_file` (which calls `attachFile`). The tool descriptions come from adapter-core's `FILE_TOOL_DESCRIPTIONS`, so both frameworks give the model the same instructions, including "never estimate from sample rows". An agent opts in with `tools: { ...fileTools() }`. Both adapters declare `zod` as a peer dependency, with the range their framework accepts.
+There is no query function. Filters and totals need rules for what counts as a number, a date, or a match, and a model states a total built on the wrong rule as fact. The platform delivers the file and its text, and analysis stays with the agent, which can run DuckDB or pandas on the attachment's `path`. The core README has a short recipe.
+
+`fileTools()` in the Mastra and AI SDK adapters wraps those functions as four tools: `inspect_file`, `read_file`, `read_table`, and `create_file` (which calls `attachFile`). The tool descriptions come from adapter-core's `FILE_TOOL_DESCRIPTIONS`, so both frameworks describe the tools to the model the same way. An agent opts in with `tools: { ...fileTools() }`. Both adapters declare `zod` as a peer dependency, with the range their framework accepts.
 
 The AI SDK adapter now appends the same attachment note as the Mastra adapter, and takes a `supportsFiles` option that it reports in its config, as Mastra does. The note text moves from the Mastra adapter into adapter-core, so the two cannot drift. The AI SDK adapter still does not pass images to the model. It keeps turns in an in-process history, and inlined image bytes there need their own design.
 
