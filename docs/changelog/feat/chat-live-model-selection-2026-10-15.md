@@ -8,7 +8,7 @@ An agent can let a chat user pick a model for each message. The agent declares t
 
 **Declaring the list.** Every adapter takes `models`, a list of model ids, the first being the default, and reports it from `getConfig()` (`get_config()` in Python). The bridge sends it as `AgentConfig.models`. With two or more, the chat shows a picker.
 
-**Receiving the pick.** The bridge copies `Message.model` onto `StreamOptions.model`, the picked id. It is undefined (`""` in Python) when no model was picked, as on a Slack turn, so the agent keeps its default. The TypeScript bridge reads the field through its local wire type, and the Python bridge checks the stubs' descriptor first, so both run against an SDK older than 0.4.0, where the field never arrives.
+**Receiving the pick.** The bridge copies `Message.model` onto `StreamOptions.model`, the picked id, only when it is one of the models the adapter declared. The sidecar already rejects any other model, but agent code passes the id straight to a model router or the gateway, so the bridge drops an undeclared one and logs a warning rather than trust the transport. It is undefined (`""` in Python) when no model was picked, as on a Slack turn, so the agent keeps its default. The TypeScript bridge reads the field through its local wire type, and the Python bridge checks the stubs' descriptor first, so both run against an SDK older than 0.4.0, where the field never arrives.
 
 | Adapter | Where the agent reads the pick |
 |---|---|

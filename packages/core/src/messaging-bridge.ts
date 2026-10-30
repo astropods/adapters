@@ -126,6 +126,7 @@ export class MessagingBridge {
   private shutdownHandler: (() => void) | null = null;
   // In-flight model call per conversation, so a StreamControl STOP can abort it.
   private abortControllers = new Map<string, AbortController>();
+  private offeredModels: string[] = [];
   // Live awaiters for blocking Renderables, keyed by Renderable.id. In-process
   // only: correctness across restarts rests on the durable store, not this map.
   private pendingRenderables = new Map<
@@ -172,6 +173,7 @@ export class MessagingBridge {
 
   async start(): Promise<void> {
     const config = this.adapter.getConfig();
+    this.offeredModels = config.models ?? [];
     const agentName = this.adapter.name;
     const agentId = agentName.toLowerCase().replace(/\s+/g, "-");
 
@@ -533,6 +535,15 @@ export class MessagingBridge {
     };
   }
 
+  // The sidecar checks the pick too; an agent should not trust a model it did not offer.
+  private offeredModel(message: Message): string | undefined {
+    const model = (message as WireMessage).model;
+    if (!model) return undefined;
+    if (this.offeredModels.includes(model)) return model;
+    logger.warn(`[bridge] Ignoring a model the agent does not offer: ${model}`);
+    return undefined;
+  }
+
   private handleMessage(message: Message): void {
     if (!this.stream) return;
 
@@ -559,7 +570,7 @@ export class MessagingBridge {
         attachments: this.resolveAttachments(message),
         images: this.resolveImages(message),
         history: this.resolveHistory(message),
-        model: (message as WireMessage).model || undefined,
+        model: this.offeredModel(message),
         signal: controller.signal,
         render: (input) =>
           this.sendRenderable(conversationId, this.buildRenderable(input)),

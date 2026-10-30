@@ -1087,10 +1087,60 @@ class TestModelForwarding:
     async def test_no_model_when_the_user_picked_none(self):
         assert (await self._options_for()).model == ""
 
+    async def _pick(self, offered: list[str], model: str) -> str:
+        captured: list[StreamOptions] = []
+
+        async def stream(prompt, hooks, options):
+            captured.append(options)
+
+        adapter = MagicMock()
+        adapter.stream = stream
+        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+        bridge._offered_models = offered
+        await bridge._handle_message(
+            Message(conversation_id="conv-1", content="hi", platform="web", user=User(id="user-1"), model=model)
+        )
+        return captured[0].model
+
     @_needs_model_sdk
     @pytest.mark.asyncio
-    async def test_the_picked_model_reaches_the_adapter(self):
-        assert (await self._options_for(model="claude-opus-4-7")).model == "claude-opus-4-7"
+    async def test_an_offered_pick_reaches_the_adapter(self):
+        assert await self._pick(["claude-sonnet-4-6", "claude-opus-4-7"], "claude-opus-4-7") == "claude-opus-4-7"
+
+    @_needs_model_sdk
+    @pytest.mark.asyncio
+    async def test_a_pick_the_agent_did_not_offer_never_reaches_it(self):
+        assert await self._pick(["claude-sonnet-4-6"], "gpt-5") == ""
+        assert await self._pick([], "gpt-5") == ""
+
+    @pytest.mark.asyncio
+    async def test_start_reads_the_offered_models_from_the_config(self):
+        adapter = MagicMock()
+        adapter.name = "Agent"
+        adapter.stream = AsyncMock()
+        adapter.get_config.return_value = {"system_prompt": "", "tools": [], "models": ["a", "b"]}
+        mock_stream = MagicMock()
+        mock_stream.write = AsyncMock()
+
+        async def fake_aiter(self):
+            return
+            yield
+
+        mock_stream.__aiter__ = fake_aiter
+        mock_stub = MagicMock()
+        mock_stub.ProcessConversation = MagicMock(return_value=mock_stream)
+        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+        with patch.object(bridge, "_connect_with_retry", new=AsyncMock()):
+            bridge._stub = mock_stub
+            task = asyncio.create_task(bridge.start())
+            await asyncio.sleep(0.05)
+            bridge.stop()
+            try:
+                await asyncio.wait_for(task, timeout=1.0)
+            except (asyncio.TimeoutError, SystemExit):
+                pass
+
+        assert bridge._offered_models == ["a", "b"]
 
     def test_declared_models_build_a_config_on_any_sdk(self):
         assert _agent_config({"system_prompt": "sp", "models": ["a", "b"]}, []).system_prompt == "sp"

@@ -248,6 +248,7 @@ class MessagingBridge:
         # In-flight turn task per conversation, so a StreamControl STOP (chat
         # "stop generating") can cancel the awaited model call.
         self._inflight: dict[str, asyncio.Task] = {}
+        self._offered_models: list[str] = []
         # Audio accumulation state: keyed by conversation_id
         self._audio_configs: dict = {}
         self._audio_chunks: dict = {}
@@ -305,6 +306,7 @@ class MessagingBridge:
 
         # Send agent config for playground display
         config_dict = self._adapter.get_config()
+        self._offered_models = list(config_dict.get("models") or [])
         tool_configs = [
             AgentToolConfig(
                 name=t.get("name", ""),
@@ -619,6 +621,14 @@ class MessagingBridge:
 
         task.add_done_callback(_clear)
 
+    def _offered_model(self, message: Message) -> str:
+        """The sidecar checks the pick too; an agent should not trust a model it did not offer."""
+        model = message.model if _has_field(Message, "model") else ""
+        if model and model not in self._offered_models:
+            logger.warning("Ignoring a model the agent does not offer: %s", model)
+            return ""
+        return model
+
     async def _handle_message(self, message: Message) -> None:
         conversation_id = message.conversation_id
 
@@ -648,7 +658,7 @@ class MessagingBridge:
             attachments=self._resolve_attachments(message),
             images=self._resolve_images(message),
             history=_resolve_history(message),
-            model=message.model if _has_field(Message, "model") else "",
+            model=self._offered_model(message),
             save_conversation=lambda inp: self._save_conversation(
                 (message.user.id if message.user else ""), inp
             ),  # noqa: E731
