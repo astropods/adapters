@@ -9,15 +9,15 @@ export type { AttachFileInput } from "../attach-file.js";
 
 /** Characters `readFilePage` returns per page. */
 export const PAGE_CHARS = 20_000;
-const SAMPLE_ROWS = 5;
+/** Rows `readTable` returns per page unless `limit` says otherwise. */
+export const PAGE_ROWS = 100;
 
 /** Model-facing descriptions shared by every framework's `fileTools()`. */
 export const FILE_TOOL_DESCRIPTIONS = {
   inspect_file:
-    "Describe an attached file: its kind, size, and, for a table, the columns, the exact row count, and sample rows. Call this first for any attached file.",
+    "Describe an attached file: its kind, size, and text length, or for a table each sheet's columns and row count.",
   read_file: `Read one page (${PAGE_CHARS} characters) of an attached document's text: PDF, DOCX, or a text file. When nextOffset is not null, the document has more text.`,
-  query_table:
-    "Count, filter, and aggregate the rows of an attached CSV or XLSX file across the whole file. Use it for every count, total, or lookup; never estimate from sample rows.",
+  read_table: `Read one page of rows (${PAGE_ROWS} by default) from an attached CSV or XLSX file. When nextOffset is not null, the table has more rows.`,
   create_file: "Create a text file, such as .md or .csv, and attach it to your reply.",
 } as const;
 
@@ -31,7 +31,6 @@ export interface TableInfo {
   columns: Cell[];
   /** Data rows, not counting the header. */
   rows: number;
-  sample: Cell[][];
 }
 
 export interface FileInfo {
@@ -55,33 +54,13 @@ export interface FilePage {
   totalChars: number;
 }
 
-export type WhereOp = "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "contains";
-export type AggregateOp = "count" | "sum" | "min" | "max" | "avg";
-
-export interface TableQuery {
-  /** XLSX sheet name; defaults to the first sheet. */
-  sheet?: string;
-  /** Conditions that must all match. */
-  where?: { column: string; op: WhereOp; value: string | number }[];
-  aggregate?: { op: AggregateOp; column?: string };
-  /** Matching rows to return; defaults to 20. */
-  limit?: number;
-}
-
-export interface TableResult {
-  columns: string[];
-  /** Rows that matched, across the whole table. */
-  matched: number;
-  rows: Record<string, Cell>[];
-  /** True when more rows matched than `rows` holds. */
-  truncated: boolean;
-  aggregate?: {
-    op: AggregateOp;
-    column?: string;
-    result: number | undefined;
-    /** Matched rows left out of a column aggregate because the cell was empty or not a number. */
-    skipped?: number;
-  };
+export interface TablePage {
+  columns: Cell[];
+  /** Cells as parsed: strings for a CSV, typed values for an XLSX sheet. */
+  rows: Cell[][];
+  offset: number;
+  /** Offset of the next page, or null on the last page. */
+  nextOffset: number | null;
 }
 
 /** Names each attached file and its path for the model, leaving out files shown as `images`. */
@@ -172,7 +151,6 @@ export async function inspectFile(path: string): Promise<FileInfo> {
       name: s.sheet,
       columns: s.data[0] ?? [],
       rows: Math.max(s.data.length - 1, 0),
-      sample: s.data.slice(1, 1 + SAMPLE_ROWS),
     }));
   } else if (kind === "pdf" || kind === "docx" || kind === "text") {
     const text = await documentText(full, kind);
@@ -190,16 +168,15 @@ export async function inspectFile(path: string): Promise<FileInfo> {
 async function delimitedTable(path: string): Promise<TableInfo | undefined> {
   let columns: Cell[] = [];
   let rows = 0;
-  const sample: Cell[][] = [];
   try {
     for await (const row of tableRows(path, "text")) {
       if (columns.length === 0) columns = row;
-      else if (++rows <= SAMPLE_ROWS) sample.push(row);
+      else rows++;
     }
   } catch {
     return undefined;
   }
-  return columns.length > 1 ? { columns, rows, sample } : undefined;
+  return columns.length > 1 ? { columns, rows } : undefined;
 }
 
 /** Returns one page of a document's text, starting at `offset`. */
@@ -212,73 +189,26 @@ export async function readFilePage(path: string, offset = 0): Promise<FilePage> 
   return { text: text.slice(offset, end), offset, nextOffset: end < text.length ? end : null, totalChars: text.length };
 }
 
-/** Reads "$1,200" as 1200; undefined for an empty or non-numeric cell, so it never counts as 0. */
-function numericCell(v: Cell): number | undefined {
-  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
-  if (typeof v !== "string") return undefined;
-  const s = v.replace(/[$,\s]/g, "");
-  if (s === "") return undefined;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function comparable(v: Cell | string | number): string | number {
-  if (typeof v === "number") return v;
-  if (v === null || v === "") return "";
-  const n = Number(v);
-  return Number.isFinite(n) ? n : String(v);
-}
-
-function matches(record: Record<string, Cell>, where: NonNullable<TableQuery["where"]>): boolean {
-  return where.every(({ column, op, value }) => {
-    const a = comparable(record[column] ?? null);
-    const b = comparable(value);
-    switch (op) {
-      case "eq": return a === b;
-      case "ne": return a !== b;
-      case "gt": return a > b;
-      case "gte": return a >= b;
-      case "lt": return a < b;
-      case "lte": return a <= b;
-      case "contains": return String(record[column] ?? "").toLowerCase().includes(String(value).toLowerCase());
-    }
-  });
-}
-
-/** Counts and totals cover the whole table; only the returned rows are limited. */
-export async function queryTable(path: string, query: TableQuery = {}): Promise<TableResult> {
-  const { sheet, where = [], aggregate, limit = 20 } = query;
+/** Returns `limit` data rows of a CSV or XLSX table, starting at data row `offset`. */
+export async function readTable(
+  path: string,
+  { sheet, offset = 0, limit = PAGE_ROWS }: { sheet?: string; offset?: number; limit?: number } = {}
+): Promise<TablePage> {
   const full = resolveAgentFile(path);
-  let header: string[] | undefined;
-  let matched = 0;
-  let numeric = 0;
-  let acc: number | undefined;
-  const rows: Record<string, Cell>[] = [];
+  let columns: Cell[] | undefined;
+  let index = 0;
+  const rows: Cell[][] = [];
   for await (const row of tableRows(full, await sniff(full), sheet)) {
-    if (!header) {
-      header = row.map((c) => String(c ?? ""));
-      for (const name of [...where.map((w) => w.column), aggregate?.column]) {
-        if (name && !header.includes(name)) throw new Error(`No column ${name}. Columns: ${header.join(", ")}`);
-      }
+    if (!columns) {
+      columns = row;
       continue;
     }
-    const record = Object.fromEntries(header.map((h, i) => [h, row[i] ?? null]));
-    if (!matches(record, where)) continue;
-    matched++;
-    if (rows.length < limit) rows.push(record);
-    if (!aggregate?.column) continue;
-    const n = numericCell(record[aggregate.column] ?? null);
-    if (n !== undefined) {
-      numeric++;
-      if (aggregate.op === "min") acc = acc === undefined ? n : Math.min(acc, n);
-      else if (aggregate.op === "max") acc = acc === undefined ? n : Math.max(acc, n);
-      else acc = (acc ?? 0) + n;
+    if (index >= offset + limit) {
+      return { columns, rows, offset, nextOffset: index };
     }
+    if (index >= offset) rows.push(row);
+    index++;
   }
-  if (!header) throw new Error("The table is empty");
-  const table = { columns: header, matched, rows, truncated: matched > rows.length };
-  if (!aggregate) return table;
-  if (aggregate.op === "count") return { ...table, aggregate: { ...aggregate, result: matched } };
-  const result = aggregate.op === "avg" && acc !== undefined ? acc / numeric : acc;
-  return { ...table, aggregate: { ...aggregate, result, skipped: matched - numeric } };
+  if (!columns) throw new Error("The table is empty");
+  return { columns, rows, offset, nextOffset: null };
 }

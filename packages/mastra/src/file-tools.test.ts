@@ -20,13 +20,13 @@ describe("fileTools", () => {
   });
 
   test("exposes the four file tools", () => {
-    expect(Object.keys(fileTools())).toEqual(["inspect_file", "read_file", "query_table", "create_file"]);
+    expect(Object.keys(fileTools())).toEqual(["inspect_file", "read_file", "read_table", "create_file"]);
   });
 
-  test("query_table aggregates a staged file through the tool", async () => {
+  test("read_table pages a staged file through the tool", async () => {
     const tools = fileTools();
     const path = join(dir, "deals.blob");
-    const result = await (tools.query_table as any).execute({ path, aggregate: { op: "sum", column: "amount" } }, {});
-    expect(result).toMatchObject({ matched: 2, aggregate: { op: "sum", result: 165000 } });
+    const result = await (tools.read_table as any).execute({ path, limit: 1 }, {});
+    expect(result).toEqual({ columns: ["account", "amount"], rows: [["Acme", "120000"]], offset: 0, nextOffset: 1 });
   });
 });
