@@ -881,6 +881,68 @@ describe("attachments", () => {
     expect(received.prompt).toContain("plan.pdf (/data/files/k1.blob)");
   });
 
+  test("shows the model an inline image on its turn and keeps only the image's name in history", async () => {
+    const { ToolLoopAgent, simulateReadableStream } = await import("ai");
+    const { MockLanguageModelV4 } = await import("ai/test");
+    const prompts: unknown[] = [];
+    const model = new MockLanguageModelV4({
+      doStream: async ({ prompt }: any) => {
+        prompts.push(prompt);
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "text-start", id: "t-0" },
+              { type: "text-delta", id: "t-0", delta: "a bar chart" },
+              { type: "text-end", id: "t-0" },
+              { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } } },
+            ] as any,
+          }),
+        };
+      },
+    });
+    const adapter = new AISDKAdapter(new ToolLoopAgent({ model }) as any);
+    const bytes = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+    const hooks = createHooks();
+    await adapter.stream("what is this?", hooks, {
+      ...defaultOptions,
+      images: [{ key: "k1", name: "chart.png", url: `data:image/png;base64,${bytes}` }],
+      attachments: [{ key: "k1", name: "chart.png", path: "/data/files/k1.blob" }],
+    });
+    await adapter.stream("and the axis?", createHooks(), defaultOptions);
+
+    expect(hooks.errors).toEqual([]);
+    const first = JSON.stringify(prompts[0]);
+    expect(first).toContain("image/png");
+    expect(first).toContain(bytes.slice(0, 40));
+    expect(first, "an image shown inline is not also named as a file to open").not.toContain("/data/files/k1.blob");
+    const second = JSON.stringify(prompts[1]);
+    expect(second).not.toContain(bytes.slice(0, 40));
+    expect(second).toContain("(Attached images: chart.png)");
+    expect(second).toContain("a bar chart");
+  });
+
+  test("sends an image as a message when memory is off", async () => {
+    let received: any;
+    const agent = fakeAgent([], {
+      stream: async (params: unknown) => {
+        received = params;
+        return { fullStream: asyncFrom([]), response: Promise.resolve({ messages: [] }) } as any;
+      },
+    });
+    const adapter = new AISDKAdapter(agent, { memory: false });
+
+    await adapter.stream("", createHooks(), {
+      ...defaultOptions,
+      images: [{ name: "photo.webp", url: "data:image/webp;base64,UklGRg==" }],
+    });
+
+    expect(received.prompt).toBeUndefined();
+    expect(received.messages).toEqual([
+      { role: "user", content: [{ type: "image", image: "data:image/webp;base64,UklGRg==", mediaType: "image/webp" }] },
+    ]);
+  });
+
   test("reports supportsFiles in its config", () => {
     expect(new AISDKAdapter(fakeAgent([]), { supportsFiles: true }).getConfig().supportsFiles).toBe(true);
     expect(new AISDKAdapter(fakeAgent([])).getConfig().supportsFiles).toBe(false);

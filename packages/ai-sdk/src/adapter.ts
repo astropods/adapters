@@ -70,16 +70,43 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
         options.history.messages.map(({ role, content }) => ({ role, content }) as ModelMessage)
       );
     }
-    const note = attachmentNote(options.attachments ?? []);
+    const images = options.images ?? [];
+    const note = attachmentNote(options.attachments ?? [], images);
     const text = note ? (prompt ? `${prompt}\n\n${note}` : note) : prompt;
-    const ask: ModelMessage = { role: "user", content: text };
+    const turn: ModelMessage =
+      images.length === 0
+        ? { role: "user", content: text }
+        : {
+            role: "user",
+            content: [
+              ...(text ? [{ type: "text" as const, text }] : []),
+              ...images.map((img) => ({
+                type: "image" as const,
+                image: img.url,
+                // Without a mediaType the model reads the bytes as image/jpeg.
+                mediaType: img.mimeType ?? /^data:([^;,]+)[;,]/.exec(img.url)?.[1],
+              })),
+            ],
+          };
+    // One image's data URI can fill maxHistoryBytes, so history keeps only the names.
+    const remembered: ModelMessage =
+      images.length === 0
+        ? turn
+        : {
+            role: "user",
+            content: [text, `(Attached images: ${images.map((img) => img.name).join(", ")})`]
+              .filter(Boolean)
+              .join("\n\n"),
+          };
     let failed = false;
     let aborted = false;
 
     try {
       const input = history
-        ? { messages: [...history.messages(conversationId), ask], abortSignal: options.signal }
-        : { prompt: text, abortSignal: options.signal };
+        ? { messages: [...history.messages(conversationId), turn], abortSignal: options.signal }
+        : images.length > 0
+          ? { messages: [turn], abortSignal: options.signal }
+          : { prompt: text, abortSignal: options.signal };
       // `options` is required or forbidden depending on CALL_OPTIONS, which a
       // generic class cannot narrow.
       const result = await this.agent.stream(
@@ -159,7 +186,7 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
         history.shrink(conversationId);
         return;
       }
-      history.append(conversationId, [ask, ...(await turnMessages)]);
+      history.append(conversationId, [remembered, ...(await turnMessages)]);
     } catch (err) {
       if (history && !options.signal?.aborted) history.shrink(conversationId);
       throw err;
