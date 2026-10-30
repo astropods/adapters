@@ -43,6 +43,8 @@ export interface FileInfo {
   pages?: number;
   /** One entry per sheet for XLSX, or one for a delimited text file. */
   tables?: TableInfo[];
+  /** A PDF with no text layer, such as a scan; reading its text needs OCR. */
+  scanned?: boolean;
 }
 
 export interface FilePage {
@@ -73,7 +75,13 @@ export interface TableResult {
   rows: Record<string, Cell>[];
   /** True when more rows matched than `rows` holds. */
   truncated: boolean;
-  aggregate?: { op: AggregateOp; column?: string; result: number | undefined };
+  aggregate?: {
+    op: AggregateOp;
+    column?: string;
+    result: number | undefined;
+    /** Matched rows left out of a column aggregate because the cell was empty or not a number. */
+    skipped?: number;
+  };
 }
 
 /** Names each attached file and its path for the model, leaving out files shown as `images`. */
@@ -113,6 +121,8 @@ async function sniff(path: string): Promise<FileKind> {
   }
 }
 
+const NO_TEXT_LAYER = "This PDF has no text layer, so it is likely a scan. Reading it needs OCR, which this tool does not do.";
+
 async function documentText(path: string, kind: FileKind): Promise<string> {
   switch (kind) {
     case "pdf": {
@@ -147,7 +157,8 @@ async function* tableRows(path: string, kind: FileKind, sheet?: string): AsyncGe
   }
   if (kind !== "text") throw new Error(`A ${kind} file is not a table`);
   const { parse } = await import("csv-parse");
-  yield* createReadStream(path).pipe(parse({ relax_column_count: true, skip_empty_lines: true }));
+  // Excel's "CSV UTF-8" export starts with a BOM, which would otherwise join the first column's name.
+  yield* createReadStream(path).pipe(parse({ bom: true, relax_column_count: true, skip_empty_lines: true }));
 }
 
 /** For a table, the row count is exact: every row is read. */
@@ -167,6 +178,7 @@ export async function inspectFile(path: string): Promise<FileInfo> {
     const text = await documentText(full, kind);
     info.totalChars = text.length;
     info.pages = Math.ceil(text.length / PAGE_CHARS);
+    if (kind === "pdf" && text.trim() === "") info.scanned = true;
     if (kind === "text") {
       const table = await delimitedTable(full);
       if (table) info.tables = [table];
@@ -193,9 +205,21 @@ async function delimitedTable(path: string): Promise<TableInfo | undefined> {
 /** Returns one page of a document's text, starting at `offset`. */
 export async function readFilePage(path: string, offset = 0): Promise<FilePage> {
   const full = resolveAgentFile(path);
-  const text = await documentText(full, await sniff(full));
+  const kind = await sniff(full);
+  const text = await documentText(full, kind);
+  if (kind === "pdf" && text.trim() === "") throw new Error(NO_TEXT_LAYER);
   const end = Math.min(offset + PAGE_CHARS, text.length);
   return { text: text.slice(offset, end), offset, nextOffset: end < text.length ? end : null, totalChars: text.length };
+}
+
+/** Reads "$1,200" as 1200; undefined for an empty or non-numeric cell, so it never counts as 0. */
+function numericCell(v: Cell): number | undefined {
+  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+  if (typeof v !== "string") return undefined;
+  const s = v.replace(/[$,\s]/g, "");
+  if (s === "") return undefined;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : undefined;
 }
 
 function comparable(v: Cell | string | number): string | number {
@@ -227,6 +251,7 @@ export async function queryTable(path: string, query: TableQuery = {}): Promise<
   const full = resolveAgentFile(path);
   let header: string[] | undefined;
   let matched = 0;
+  let numeric = 0;
   let acc: number | undefined;
   const rows: Record<string, Cell>[] = [];
   for await (const row of tableRows(full, await sniff(full), sheet)) {
@@ -241,16 +266,19 @@ export async function queryTable(path: string, query: TableQuery = {}): Promise<
     if (!matches(record, where)) continue;
     matched++;
     if (rows.length < limit) rows.push(record);
-    const n = aggregate?.column ? Number(record[aggregate.column]) : NaN;
-    if (Number.isFinite(n)) {
-      if (aggregate?.op === "min") acc = acc === undefined ? n : Math.min(acc, n);
-      else if (aggregate?.op === "max") acc = acc === undefined ? n : Math.max(acc, n);
+    if (!aggregate?.column) continue;
+    const n = numericCell(record[aggregate.column] ?? null);
+    if (n !== undefined) {
+      numeric++;
+      if (aggregate.op === "min") acc = acc === undefined ? n : Math.min(acc, n);
+      else if (aggregate.op === "max") acc = acc === undefined ? n : Math.max(acc, n);
       else acc = (acc ?? 0) + n;
     }
   }
   if (!header) throw new Error("The table is empty");
-  let result = acc;
-  if (aggregate?.op === "count") result = matched;
-  else if (aggregate?.op === "avg") result = acc === undefined || matched === 0 ? undefined : acc / matched;
-  return { columns: header, matched, rows, truncated: matched > rows.length, aggregate: aggregate && { ...aggregate, result } };
+  const table = { columns: header, matched, rows, truncated: matched > rows.length };
+  if (!aggregate) return table;
+  if (aggregate.op === "count") return { ...table, aggregate: { ...aggregate, result: matched } };
+  const result = aggregate.op === "avg" && acc !== undefined ? acc / numeric : acc;
+  return { ...table, aggregate: { ...aggregate, result, skipped: matched - numeric } };
 }

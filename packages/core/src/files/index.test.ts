@@ -16,10 +16,14 @@ beforeAll(async () => {
   await copyFile(join(fixtures, "account-plan.pdf"), at("plan-pdf.blob"));
   await copyFile(join(fixtures, "account-plan.docx"), at("plan-docx.blob"));
   await copyFile(join(fixtures, "pipeline.xlsx"), at("pipeline.blob"));
+  // One page and no text, as a scan without OCR reads.
+  await copyFile(join(fixtures, "scanned.pdf"), at("scan.blob"));
   const rows = ["id,account,stage,amount"];
   for (let i = 1; i <= 5000; i++) rows.push(`${i},Account ${i % 97},Stage ${i % 7},${i * 10}`);
   await writeFile(at("deals.blob"), rows.join("\n") + "\n");
   await writeFile(at("long.blob"), "x".repeat(PAGE_CHARS + 10));
+  await writeFile(at("excel-utf8.blob"), "\uFEFFRegion,Amount\nWest,10\nEast,5\n");
+  await writeFile(at("amounts.blob"), 'deal,amount\nA,100\nB,\nC,300\nD,"$1,200"\nE,n/a\n');
 });
 
 afterAll(async () => {
@@ -44,6 +48,17 @@ describe("inspectFile", () => {
   test("sniffs a PDF and a DOCX without an extension", async () => {
     expect((await inspectFile(at("plan-pdf.blob"))).kind).toBe("pdf");
     expect((await inspectFile(at("plan-docx.blob"))).kind).toBe("docx");
+  });
+});
+
+describe("scanned PDF", () => {
+  test("inspectFile flags it and readFilePage says it needs OCR", async () => {
+    expect(await inspectFile(at("scan.blob"))).toMatchObject({ kind: "pdf", totalChars: 0, scanned: true });
+    await expect(readFilePage(at("scan.blob"))).rejects.toThrow(/no text layer/);
+  });
+
+  test("a PDF with text is not flagged", async () => {
+    expect((await inspectFile(at("plan-pdf.blob"))).scanned).toBeUndefined();
   });
 });
 
@@ -97,6 +112,19 @@ describe("queryTable", () => {
     expect(avg.aggregate?.result).toBe((120000 + 45000 + 78000) / 3);
     const count = await queryTable(at("pipeline.blob"), { aggregate: { op: "count" } });
     expect(count.aggregate?.result).toBe(3);
+  });
+
+  test("reads the first column of a CSV that starts with a byte-order mark", async () => {
+    expect((await inspectFile(at("excel-utf8.blob"))).tables?.[0]?.columns).toEqual(["Region", "Amount"]);
+    const result = await queryTable(at("excel-utf8.blob"), { where: [{ column: "Region", op: "eq", value: "West" }] });
+    expect(result.matched).toBe(1);
+  });
+
+  test("leaves empty and non-numeric cells out of an aggregate and reports them", async () => {
+    const query = (op: "sum" | "min" | "avg") => queryTable(at("amounts.blob"), { aggregate: { op, column: "amount" } });
+    expect((await query("sum")).aggregate).toMatchObject({ result: 1600, skipped: 2 });
+    expect((await query("min")).aggregate?.result).toBe(100);
+    expect((await query("avg")).aggregate?.result).toBe(1600 / 3);
   });
 
   test("names the columns when a query asks for one that is missing", async () => {
