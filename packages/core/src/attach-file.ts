@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { OutgoingFile } from "./types.js";
 
 /** Default agent files mount, matching the K8s/compose deployer's AGENT_FILES_DIR. */
@@ -20,10 +20,20 @@ function maxFileBytes(): number | undefined {
   return mb === 0 ? undefined : mb * 2 ** 20;
 }
 
-const turn = new AsyncLocalStorage<(file: OutgoingFile) => void>();
+interface Turn {
+  onFile: (file: OutgoingFile) => void;
+  /** The only paths the read functions open: the turn's attachments and the files it created. */
+  files: Set<string>;
+}
 
-export function runInTurn<T>(onFile: (file: OutgoingFile) => void, fn: () => T): T {
-  return turn.run(onFile, fn);
+const turn = new AsyncLocalStorage<Turn>();
+
+export function runInTurn<T>(onFile: (file: OutgoingFile) => void, fn: () => T, attachments: string[] = []): T {
+  return turn.run({ onFile, files: new Set(attachments.map((p) => resolve(p))) }, fn);
+}
+
+export function turnFiles(): ReadonlySet<string> | undefined {
+  return turn.getStore()?.files;
 }
 
 export interface AttachFileInput {
@@ -39,8 +49,8 @@ export interface AttachFileInput {
  * when the file is over FILES_MAX_MB, or when `data` is given for a name already in the files dir.
  */
 export async function attachFile(input: AttachFileInput): Promise<void> {
-  const onFile = turn.getStore();
-  if (!onFile) {
+  const current = turn.getStore();
+  if (!current) {
     throw new Error("attachFile must be called while the agent handles a message");
   }
   const { name, data, mimeType } = input;
@@ -71,5 +81,6 @@ export async function attachFile(input: AttachFileInput): Promise<void> {
       throw new Error(`attachFile: ${name} already exists in the files dir; use a new name`);
     }
   }
-  onFile({ name, mimeType, size });
+  current.onFile({ name, mimeType, size });
+  current.files.add(resolve(path));
 }

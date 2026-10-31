@@ -545,6 +545,8 @@ export class MessagingBridge {
     stream.sendContentChunk(conversationId, { type: "START", content: "" });
 
     const hooks = this.buildHooks(conversationId, controller.signal);
+    const attachments = this.resolveAttachments(message);
+    const readable = attachments.flatMap((a) => (a.path ? [a.path] : []));
 
     runInTurn(hooks.onFile, () => this.adapter.stream(message.content, hooks, {
         conversationId,
@@ -552,7 +554,7 @@ export class MessagingBridge {
         userId: message.user?.id || "anonymous",
         userName: message.user?.username || undefined,
         platformContext: message.platformContext,
-        attachments: this.resolveAttachments(message),
+        attachments,
         images: this.resolveImages(message),
         history: this.resolveHistory(message),
         signal: controller.signal,
@@ -572,7 +574,7 @@ export class MessagingBridge {
           this.sendSaveConversation(message.user?.id ?? "", input),
         getThreadHistory: (maxMessages) =>
           this.fetchThreadHistory(conversationId, maxMessages),
-      }))
+      }), readable)
       .catch((error) => {
         // A user stop aborts the model call — that's expected; end quietly
         // rather than surfacing an error to the client.

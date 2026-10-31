@@ -79,7 +79,7 @@ await attachFile({ name: "account-plan.csv", data: csv, mimeType: "text/csv" });
 
 ### `@astropods/adapter-core/files`
 
-Framework-neutral functions for reading the files a user attaches. They take the `path` from `StreamOptions.attachments` and reject any path outside `AGENT_FILES_DIR`. The Mastra and AI SDK adapters wrap them as tools in `fileTools()`.
+Framework-neutral functions for reading the files a user attaches. They take the `path` from `StreamOptions.attachments`. Every thread's and user's files share `AGENT_FILES_DIR`, so the functions open only the current turn's attachments and the files the turn created with `attachFile`, and they throw outside a turn. A mention in a Slack thread attaches the files on the thread's earlier messages again. In web chat, a user attaches a file from an earlier message again. The Mastra and AI SDK adapters wrap them as tools in `fileTools()`.
 
 | Function | Returns |
 |----------|---------|
@@ -92,7 +92,7 @@ The PDF, DOCX, XLSX, and CSV parsers load on first use, so an agent that never c
 
 #### Analyzing tables
 
-These functions deliver a file's contents and do no analysis. To count, total, group, or join rows across a large table, give the agent a tool that runs a query engine on the attachment's `path`, such as DuckDB (`read_csv_auto(path)`) or pandas in a code interpreter. Pass the path through `resolveAgentFile`, which rejects a path outside `AGENT_FILES_DIR`. If the model writes the query, limit what the engine can read, because DuckDB and pandas can open any path on the machine.
+These functions deliver a file's contents and do no analysis. To count, total, group, or join rows across a large table, give the agent a tool that runs a query engine on the attachment's `path`, such as DuckDB (`read_csv_auto(path)`) or pandas in a code interpreter. Pass the path through `resolveAgentFile`, which rejects any file the turn did not receive or create. If the model writes the query, limit what the engine can read, because DuckDB and pandas can open any path on the machine.
 
 ### `createTraceparent(input)`
 
