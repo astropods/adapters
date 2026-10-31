@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
-import { resolve, sep } from "node:path";
-import { agentFilesDir } from "../attach-file.js";
+import { resolve } from "node:path";
+import { turnFiles } from "../attach-file.js";
 import type { AttachmentInput, ImageInput } from "../types.js";
 
 export { attachFile } from "../attach-file.js";
@@ -72,12 +72,16 @@ export function attachmentNote(attachments: AttachmentInput[], images: ImageInpu
   return `The user attached these files. Open them with a file-reading tool at the paths below. Do not guess their contents. ${list}`;
 }
 
-/** Rejects a path outside the agent's files dir. */
+/** Rejects any file the current turn did not receive or create. */
 export function resolveAgentFile(path: string): string {
-  const dir = resolve(agentFilesDir());
+  const files = turnFiles();
+  if (!files) throw new Error("Files can be read only while the agent handles a message");
   const full = resolve(path);
-  if (!full.startsWith(dir + sep)) {
-    throw new Error(`Only files under ${dir} can be read`);
+  // Every thread's and user's files share one dir, so a path inside it can still be another owner's file.
+  if (!files.has(full)) {
+    throw new Error(
+      "Only the files attached to this message, and files created while answering it, can be read. Ask the user to attach the file again."
+    );
   }
   return full;
 }

@@ -33,7 +33,7 @@ core-py exports the same function as `attach_file(name, data=None, mime_type=Non
 
 ### Reading files
 
-`@astropods/adapter-core/files` is a new subpath with framework-neutral functions. Each takes an attachment's `path` and rejects one outside `AGENT_FILES_DIR`.
+`@astropods/adapter-core/files` is a new subpath with framework-neutral functions. Each takes an attachment's `path`.
 
 | Function | Returns |
 |---|---|
@@ -43,6 +43,8 @@ core-py exports the same function as `attach_file(name, data=None, mime_type=Non
 | `attachmentNote` | The line that names each attached file and its path for the model |
 
 The kind is sniffed from the bytes (`%PDF`, and the parts inside a zip for DOCX and XLSX), because a staged upload is `<key>.blob` with no extension. `readTable` streams a CSV through `csv-parse` and stops after the page, so a page late in a large file does not load the whole file. The parser strips the byte-order mark that Excel's "CSV UTF-8" export writes, which would otherwise join the first column's name. A PDF with no text layer, such as a scan, has `scanned: true` from `inspectFile`, and `readFilePage` throws to say it needs OCR, so an empty read does not look like an empty document. `unpdf`, `mammoth`, `read-excel-file`, and `csv-parse` are dependencies of adapter-core, imported dynamically, so an agent that never reads a file does not load them. The functions live on a subpath so the main entry stays as it was.
+
+The functions open only the current turn's files. Every thread's and user's files share one directory, and the attachment note shows the model that directory, so a path alone would open another owner's file, such as a `summary.md` the agent wrote in another thread. The messaging sidecar checks the owner only when a file is posted or downloaded, and a file's text in a reply is neither. So the turn context that holds `onFile` also holds the full paths of the turn's attachments, and `attachFile` adds each file it writes. A path outside that set throws, and so does any read outside a turn. A mention in a Slack thread attaches the files on the thread's earlier messages again, so the agent still reads them. In web chat, a user attaches a file from an earlier message again.
 
 There is no query function. Filters and totals need rules for what counts as a number, a date, or a match, and a model states a total built on the wrong rule as fact. The platform delivers the file and its text, and analysis stays with the agent, which can run DuckDB or pandas on the attachment's `path`. The core README has a short recipe.
 

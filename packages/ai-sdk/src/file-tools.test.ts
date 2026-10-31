@@ -23,10 +23,9 @@ describe("fileTools", () => {
     expect(Object.keys(fileTools())).toEqual(["inspect_file", "read_file", "read_table", "create_file"]);
   });
 
-  test("read_table pages a staged file through the tool", async () => {
+  test("read_table opens no file outside a turn", async () => {
     const tools = fileTools();
     const path = join(dir, "deals.blob");
-    const result = await (tools.read_table as any).execute({ path, limit: 1 }, {});
-    expect(result).toEqual({ columns: ["account", "amount"], rows: [["Acme", "120000"]], offset: 0, nextOffset: 1 });
+    await expect((tools.read_table as any).execute({ path, limit: 1 }, {})).rejects.toThrow(/while the agent handles a message/);
   });
 });

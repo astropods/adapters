@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { attachFile } from "./attach-file";
+import { resolveAgentFile } from "./files/index";
 import type { AgentAdapter, StreamHooks, StreamOptions } from "./types";
 import type {
   AgentConfig,
@@ -391,6 +392,40 @@ describe("MessagingBridge", () => {
       // Without a storage key, path is omitted (not a filename-based guess).
       expect(atts[1].path).toBeUndefined();
       expect(atts[1].key).toBe("legacy.txt");
+    });
+
+    test("lets the turn open its attachments and no other file in the dir", async () => {
+      const opened: Array<string | Error> = [];
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks, options) => {
+          for (const path of [options.attachments![0].path!, "/data/files/summary.md"]) {
+            try {
+              opened.push(resolveAgentFile(path));
+            } catch (err) {
+              opened.push(err as Error);
+            }
+          }
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      mockResponseHandlers[0]({
+        conversationId: "conv-1",
+        incomingMessage: {
+          conversationId: "conv-1",
+          content: "read this",
+          platform: "slack",
+          user: { id: "user-1" },
+          attachments: [{ type: "FILE", filename: "data.csv", storageKey: "uuid-1" }],
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(opened[0]).toBe("/data/files/uuid-1.blob");
+      expect(opened[1]).toBeInstanceOf(Error);
     });
 
     test("passes Message.history to the adapter as StreamOptions.history", async () => {

@@ -45,7 +45,7 @@ const agent = new Agent({
 serve(agent, { supportsFiles: true });
 ```
 
-`supportsFiles` turns on web chat uploads. Slack sends files either way. The tools read only files under `AGENT_FILES_DIR`. The tools return a file's contents and do no analysis. For counts or totals over a large table, give the agent a query engine such as DuckDB on the attachment's `path`, as the adapter-core README describes. A scanned PDF has no text layer, so reading one takes your own OCR tool.
+`supportsFiles` turns on web chat uploads. Slack sends files either way. The tools open only the files attached to the current message and the files the agent created while answering it. In web chat, a user attaches a file from an earlier message again to ask about it. The tools return a file's contents and do no analysis. For counts or totals over a large table, give the agent a query engine such as DuckDB on the attachment's `path`, as the adapter-core README describes. A scanned PDF has no text layer, so reading one takes your own OCR tool.
 
 ## Sandboxes
 
