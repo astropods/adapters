@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Agent, TextStreamPart, ToolSet } from "ai";
 import type { StatusUpdate } from "@astropods/messaging";
 import type { StreamOptions } from "@astropods/adapter-core";
@@ -804,4 +805,84 @@ describe("AISDKAdapter response messages on an early return", () => {
       expect(seen, "the SDK's rejected response promise must have a handler").toEqual([]);
     });
   }
+});
+
+// attachFile finds the turn through AsyncLocalStorage, which tools must inherit.
+describe("tool async context", () => {
+  test("a tool sees the async context stream() was called in", async () => {
+    const { ToolLoopAgent, jsonSchema, simulateReadableStream, tool } = await import("ai");
+    const { MockLanguageModelV4 } = await import("ai/test");
+    const als = new AsyncLocalStorage<string>();
+    let seen: string | undefined = "not called";
+    const usage = {
+      inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { total: 1, text: 1, reasoning: 0 },
+    };
+    let calls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () =>
+        ({
+          stream: simulateReadableStream({
+            chunks:
+              calls++ === 0
+                ? [
+                    { type: "tool-call", toolCallId: "tc-1", toolName: "probe", input: "{}" },
+                    { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage },
+                  ]
+                : [
+                    { type: "text-start", id: "t" },
+                    { type: "text-delta", id: "t", delta: "done" },
+                    { type: "text-end", id: "t" },
+                    { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage },
+                  ],
+          }),
+        }) as any,
+    });
+    const agent = new ToolLoopAgent({
+      model,
+      tools: {
+        probe: tool({
+          description: "probe",
+          inputSchema: jsonSchema<Record<string, never>>({ type: "object", properties: {} }),
+          execute: async () => {
+            await new Promise((r) => setTimeout(r, 1));
+            seen = als.getStore();
+            return { ok: true };
+          },
+        }),
+      },
+    });
+    const hooks = createHooks();
+
+    await als.run("turn-1", () => new AISDKAdapter(agent).stream("go", hooks, defaultOptions));
+
+    expect(hooks.errors).toEqual([]);
+    expect(seen).toBe("turn-1");
+  });
+});
+
+describe("attachments", () => {
+  test("tells the model each attached file's name and path", async () => {
+    let received: any;
+    const agent = fakeAgent([], {
+      stream: async (params: unknown) => {
+        received = params;
+        return { fullStream: asyncFrom([]), response: Promise.resolve({ messages: [] }) } as any;
+      },
+    });
+    const adapter = new AISDKAdapter(agent, { memory: false });
+
+    await adapter.stream("update SFDC from this", createHooks(), {
+      ...defaultOptions,
+      attachments: [{ key: "k1", name: "plan.pdf", path: "/data/files/k1.blob" }],
+    });
+
+    expect(received.prompt).toContain("update SFDC from this");
+    expect(received.prompt).toContain("plan.pdf (/data/files/k1.blob)");
+  });
+
+  test("reports supportsFiles in its config", () => {
+    expect(new AISDKAdapter(fakeAgent([]), { supportsFiles: true }).getConfig().supportsFiles).toBe(true);
+    expect(new AISDKAdapter(fakeAgent([])).getConfig().supportsFiles).toBe(false);
+  });
 });

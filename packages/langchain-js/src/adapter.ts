@@ -8,8 +8,6 @@ import type {
 } from "@astropods/adapter-core";
 import { createTraceparent } from "@astropods/adapter-core";
 
-const tracer = trace.getTracer("@astropods/adapter-langchain");
-
 // "model" (createAgent) and "agent" (createReactAgent).
 const MODEL_NODE_KEYS = ["model", "agent"] as const;
 
@@ -77,6 +75,8 @@ export class LangChainAdapter implements AgentAdapter {
   ): Promise<void> {
     // Root span carrying user/session + trace IO. OpenInference's spans nest
     // under it via the active context; a no-op span when uninstrumented.
+    // Resolved per turn: a module-level tracer keeps the provider trace.disable() replaced.
+    const tracer = trace.getTracer("@astropods/adapter-langchain");
     await tracer.startActiveSpan(this.name, async (span) => {
       hooks.onTraceContext?.({ traceparent: traceparentFromSpan(span) });
       span.setAttribute("langfuse.user.id", options.userId || "anonymous");

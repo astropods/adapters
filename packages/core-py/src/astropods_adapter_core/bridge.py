@@ -34,6 +34,7 @@ from astropods_messaging import (
     derive_saved_conversation_id,
 )
 
+from .files import agent_files_dir, run_in_turn
 from .types import (
     AgentAdapter,
     AttachmentInput,
@@ -48,15 +49,13 @@ from .types import (
     StreamOptions,
 )
 
-# Agent files mount (matches the K8s/compose deployer's AGENT_FILES_DIR) and the
-# files store's on-disk blob suffix for API-managed uploads.
 _ON_CONFLICT = {
     "SKIP": SaveConversationRequest.SKIP,
     "REPLACE": SaveConversationRequest.REPLACE,
     "APPEND": SaveConversationRequest.APPEND,
 }
 
-DEFAULT_AGENT_FILES_DIR = "/data/files"
+# The files store's on-disk blob suffix for API-managed uploads.
 FILES_BLOB_SUFFIX = ".blob"
 
 logger = logging.getLogger(__name__)
@@ -544,7 +543,7 @@ class MessagingBridge:
         the messaging proto to expose ``storage_key`` (regenerate the Python SDK
         proto); a user upload's filename is the display name, not the key, so we
         fall back to it only when storage_key is unavailable."""
-        files_dir = os.environ.get("AGENT_FILES_DIR", DEFAULT_AGENT_FILES_DIR)
+        files_dir = agent_files_dir()
         out: list[AttachmentInput] = []
         for a in message.attachments:
             if a.type != a.Type.Value("FILE"):
@@ -655,7 +654,8 @@ class MessagingBridge:
         )
 
         try:
-            await self._adapter.stream(message.content, hooks, options)
+            with run_in_turn(hooks.on_file):
+                await self._adapter.stream(message.content, hooks, options)
         except asyncio.CancelledError:
             # A user stop cancelled this turn. Finalization is owned by the
             # sidecar (it broadcasts the finish and closes the SSE), so end
@@ -693,7 +693,8 @@ class MessagingBridge:
         )
 
         try:
-            await self._adapter.stream_audio(audio_input, hooks, options)
+            with run_in_turn(hooks.on_file):
+                await self._adapter.stream_audio(audio_input, hooks, options)
         except asyncio.CancelledError:
             # A user stop cancelled this audio turn — end quietly (see
             # _handle_message; the sidecar owns finalization).

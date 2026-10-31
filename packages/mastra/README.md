@@ -20,6 +20,33 @@ const agent = new Agent({
 
 The request context also carries `threadId` and `resourceId`.
 
+## Files
+
+The adapter appends each attached file's name and path to the turn's text. `fileTools()` gives the model tools that open those paths. They work on files of any size without loading a file into the prompt:
+
+| Tool | What it does |
+|------|--------------|
+| `inspect_file` | Reports a file's kind (PDF, DOCX, XLSX, text), its size, its text length, and for a table each sheet's columns and row count. |
+| `read_file` | Returns one 20,000-character page of a PDF, DOCX, or text file, with `nextOffset` for the next page. |
+| `read_table` | Returns one page of rows from a CSV or XLSX file, 100 by default, with `nextOffset` for the next page. |
+| `create_file` | Writes a text file to the files dir and attaches it to the reply with `attachFile`. |
+
+```ts
+import { fileTools, serve } from "@astropods/adapter-mastra";
+
+const agent = new Agent({
+  id: "assistant",
+  name: "Assistant",
+  model,
+  instructions: "Answer questions about the files the user attaches.",
+  tools: { ...fileTools() },
+});
+
+serve(agent, { supportsFiles: true });
+```
+
+`supportsFiles` turns on web chat uploads. Slack sends files either way. The tools open only the files attached to the current message and the files the agent created while answering it. In web chat, a user attaches a file from an earlier message again to ask about it. The tools return a file's contents and do no analysis. For counts or totals over a large table, give the agent a query engine such as DuckDB on the attachment's `path`, as the adapter-core README describes. A scanned PDF has no text layer, so reading one takes your own OCR tool.
+
 ## Sandboxes
 
 `AstroSandbox` is a Mastra sandbox provider, so Mastra's own workspace drives

@@ -28,6 +28,8 @@ export type {
 } from "@astropods/messaging";
 
 export { serve } from "./serve.js";
+export { attachFile } from "./attach-file.js";
+export type { AttachFileInput } from "./attach-file.js";
 export { MessagingBridge, UnsupportedRenderableError } from "./messaging-bridge.js";
 export { AgentCoreServer } from "./agentcore-server.js";
 export { logger } from "./logger.js";

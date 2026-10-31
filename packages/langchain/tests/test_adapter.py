@@ -521,3 +521,50 @@ class TestLangChainAdapterFileAttachments:
         await LangChainAdapter(executor).stream("describe it", hooks, stream_options)
 
         assert "huge.png" in executor.inputs[0]["messages"][0].content
+
+
+class TestToolContext:
+    """attach_file finds the turn through a ContextVar, which tool threads must copy."""
+
+    @pytest.mark.asyncio
+    async def test_sync_and_async_tools_see_the_callers_context(self, hooks, stream_options):
+        from contextvars import ContextVar
+
+        from langchain.agents import create_agent
+        from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+        from langchain_core.messages import AIMessage
+        from langchain_core.tools import tool
+
+        turn: ContextVar[str] = ContextVar("turn", default="none")
+        seen: dict[str, str] = {}
+
+        @tool
+        def sync_probe() -> str:
+            """Sync probe."""
+            seen["sync"] = turn.get()
+            return "ok"
+
+        @tool
+        async def async_probe() -> str:
+            """Async probe."""
+            seen["async"] = turn.get()
+            return "ok"
+
+        class ToolCallingFake(GenericFakeChatModel):
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+        model = ToolCallingFake(messages=iter([
+            AIMessage(content="", tool_calls=[
+                {"name": "sync_probe", "args": {}, "id": "c1"},
+                {"name": "async_probe", "args": {}, "id": "c2"},
+            ]),
+            AIMessage(content="done"),
+        ]))
+        adapter = LangChainAdapter(create_agent(model, tools=[sync_probe, async_probe]))
+
+        turn.set("turn-1")
+        await adapter.stream("go", hooks, stream_options)
+
+        hooks.on_error.assert_not_called()
+        assert seen == {"sync": "turn-1", "async": "turn-1"}

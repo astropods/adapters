@@ -6,6 +6,7 @@ import type { MastraAdapterOptions } from "./adapter";
 import { setupObservability } from "./observability";
 
 export { MastraAdapter } from "./adapter";
+export { fileTools } from "./file-tools";
 export type { MastraAdapterOptions } from "./adapter";
 
 /**

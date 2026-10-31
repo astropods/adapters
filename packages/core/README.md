@@ -63,6 +63,36 @@ Call these inside `stream()` as the agent produces output:
 | `onFinish()` | Response complete — call exactly once per request |
 | `onError(error)` | Error occurred — call instead of `onFinish` |
 | `onTraceContext({ traceparent })` | Optional — once per turn, to supply the W3C trace context of the assistant turn. The bridge stamps it on every response it emits for the turn, so a consumer can correlate any response back to its trace. Ignored if `traceparent` is empty. |
+| `onFile({ name, mimeType?, size? })` | A file the agent wrote to its files dir, delivered with the reply. Tool code calls `attachFile` instead. |
+
+### `attachFile(input)`
+
+Writes a file to the agent's files dir (`AGENT_FILES_DIR`) and attaches it to the reply. Web chat shows it as a download chip, and Slack uploads it into the thread. Call it from a tool while the agent handles a message, in any framework adapter. It throws outside one.
+
+```ts
+import { attachFile } from "@astropods/adapter-core";
+
+await attachFile({ name: "account-plan.csv", data: csv, mimeType: "text/csv" });
+```
+
+`name` is one path segment. Omit `data` to attach a file that is already in the files dir. With `data`, a name already in the files dir throws, because every user's files share that dir. A file over the deployment's file size limit (`FILES_MAX_MB`, 100 MiB when unset, `0` for no limit) throws, so the agent knows before it replies.
+
+### `@astropods/adapter-core/files`
+
+Framework-neutral functions for reading the files a user attaches. They take the `path` from `StreamOptions.attachments`. Every thread's and user's files share `AGENT_FILES_DIR`, so the functions open only the current turn's attachments and the files the turn created with `attachFile`, and they throw outside a turn. A mention in a Slack thread attaches the files on the thread's earlier messages again. In web chat, a user attaches a file from an earlier message again. The Mastra and AI SDK adapters wrap them as tools in `fileTools()`.
+
+| Function | Returns |
+|----------|---------|
+| `inspectFile(path)` | The file's kind (`pdf`, `docx`, `xlsx`, `zip`, `text`, `binary`), its size, its text length, and for a table each sheet's columns and exact row count. The kind is sniffed from the bytes, because staged uploads have no extension. A PDF with no text layer, such as a scan, has `scanned: true`. |
+| `readFilePage(path, offset?)` | One `PAGE_CHARS` (20,000-character) page of a PDF, DOCX, or text file, with `nextOffset` (null on the last page) and `totalChars`. It throws for a PDF with no text layer, which needs OCR. |
+| `readTable(path, { sheet?, offset?, limit? })` | One page of a CSV or XLSX table: the header as `columns`, then `limit` data rows (`PAGE_ROWS`, 100, by default) starting at `offset`, with `nextOffset` (null on the last page). CSV cells are strings and XLSX cells keep their types. A CSV is streamed, so a page late in a large file does not load the whole file. |
+| `attachmentNote(attachments, images?)` | The line an adapter appends to the turn's text that names each attached file and its path. |
+
+The PDF, DOCX, XLSX, and CSV parsers load on first use, so an agent that never calls these functions does not load them.
+
+#### Analyzing tables
+
+These functions deliver a file's contents and do no analysis. To count, total, group, or join rows across a large table, give the agent a tool that runs a query engine on the attachment's `path`, such as DuckDB (`read_csv_auto(path)`) or pandas in a code interpreter. Pass the path through `resolveAgentFile`, which rejects any file the turn did not receive or create. If the model writes the query, limit what the engine can read, because DuckDB and pandas can open any path on the machine.
 
 ### `createTraceparent(input)`
 
