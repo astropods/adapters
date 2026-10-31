@@ -18,7 +18,8 @@ export const FILE_TOOL_DESCRIPTIONS = {
     "Describe an attached file: its kind, size, and text length, or for a table each sheet's columns and row count.",
   read_file: `Read one page (${PAGE_CHARS} characters) of an attached document's text: PDF, DOCX, or a text file. When nextOffset is not null, the document has more text.`,
   read_table: `Read one page of rows (${PAGE_ROWS} by default) from an attached CSV or XLSX file. When nextOffset is not null, the table has more rows.`,
-  create_file: "Create a text file, such as .md or .csv, and attach it to your reply.",
+  create_file:
+    "Create a text file, such as .md or .csv, and attach it to your reply. A taken name gets a number, so name the file as the result does.",
 } as const;
 
 /** What a file holds, sniffed from its bytes; staged uploads have no extension. */

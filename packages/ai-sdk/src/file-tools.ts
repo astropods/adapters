@@ -34,8 +34,7 @@ export function fileTools(): Record<"inspect_file" | "read_file" | "read_table" 
         mimeType: z.string().optional(),
       }),
       execute: async ({ name, content, mimeType }) => {
-        await attachFile({ name, data: content, mimeType });
-        return { attached: name };
+        return { attached: await attachFile({ name, data: content, mimeType }) };
       },
     }),
   };

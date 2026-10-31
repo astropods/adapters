@@ -76,14 +76,22 @@ class TestAttachFile:
             attach_file(name, b"x")
         assert os.listdir(files_dir) == []
 
-    def test_keeps_the_bytes_of_a_file_already_in_the_files_dir(self, files_dir):
+    def test_numbers_the_name_when_the_files_dir_already_has_it(self, files_dir):
         (files_dir / "summary.md").write_text("first user's report")
+        (files_dir / "summary-2.md").write_text("second user's report")
         files = []
-        with run_in_turn(lambda *f: files.append(f)), pytest.raises(FileExistsError, match="already exists"):
-            attach_file("summary.md", "second user's report")
+        with run_in_turn(lambda *f: files.append(f)):
+            name = attach_file("summary.md", "third user's report")
 
-        assert files == []
+        assert name == "summary-3.md"
+        assert files == [("summary-3.md", None, 19)]
         assert (files_dir / "summary.md").read_text() == "first user's report"
+        assert (files_dir / "summary-3.md").read_text() == "third user's report"
+
+    def test_numbers_a_name_with_no_extension_at_its_end(self, files_dir):
+        (files_dir / "notes").write_text("x")
+        with run_in_turn(lambda *f: None):
+            assert attach_file("notes", b"y") == "notes-2"
 
     def test_rejects_a_file_over_files_max_mb_before_writing_it(self, files_dir, monkeypatch):
         monkeypatch.setenv("FILES_MAX_MB", "1")

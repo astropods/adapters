@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, readdir, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attachFile, runInTurn } from "./attach-file";
+import { attachFile, runInTurn, turnFiles } from "./attach-file";
 import type { OutgoingFile } from "./types";
 
 describe("attachFile", () => {
@@ -80,15 +80,28 @@ describe("attachFile", () => {
     expect(await readdir(dir)).toEqual([]);
   });
 
-  test("keeps the bytes of a file already in the files dir", async () => {
+  test("numbers the name when the files dir already has it, keeping the first file's bytes", async () => {
     await writeFile(join(dir, "summary.md"), "first user's report");
+    await writeFile(join(dir, "summary-2.md"), "second user's report");
     const files: OutgoingFile[] = [];
-    await expect(
-      runInTurn((f) => files.push(f), () => attachFile({ name: "summary.md", data: "second user's report" })),
-    ).rejects.toThrow(/already exists/);
+    const { name, readable } = await runInTurn(
+      (f) => files.push(f),
+      async () => ({
+        name: await attachFile({ name: "summary.md", data: "third user's report" }),
+        readable: [...(turnFiles() ?? [])],
+      }),
+    );
 
-    expect(files).toEqual([]);
+    expect(name).toBe("summary-3.md");
+    expect(files).toEqual([{ name: "summary-3.md", mimeType: undefined, size: 19 }]);
+    expect(readable).toEqual([join(dir, "summary-3.md")]);
     expect(await readFile(join(dir, "summary.md"), "utf8")).toBe("first user's report");
+    expect(await readFile(join(dir, "summary-3.md"), "utf8")).toBe("third user's report");
+  });
+
+  test("numbers a name with no extension at its end", async () => {
+    await writeFile(join(dir, "notes"), "x");
+    expect(await runInTurn(() => {}, () => attachFile({ name: "notes", data: "y" }))).toBe("notes-2");
   });
 
   test("rejects a file over FILES_MAX_MB before writing it", async () => {
