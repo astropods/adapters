@@ -13,7 +13,7 @@ A framework agent could neither read the files a user attached nor return one.
 
 ### Returning a file
 
-adapter-core exports `attachFile({ name, data?, mimeType? })`. It writes `data` to `AGENT_FILES_DIR/<name>` and calls the current turn's `onFile`. Without `data`, it attaches a file already in the files dir and reads its size from disk.
+adapter-core exports `attachFile({ name, data?, mimeType? })`. It writes `data` to `AGENT_FILES_DIR/<name>`, calls the current turn's `onFile`, and returns the file's name. Without `data`, it attaches a file already in the files dir and reads its size from disk.
 
 The bridge runs each turn's `stream()` and `streamAudio()` inside an `AsyncLocalStorage` that holds the turn's `onFile`. A tool reaches it however deep the framework runs it, with no change to any adapter and no new adapter option. Concurrent turns stay apart because each has its own async context. `AgentCoreServer` sets the same context. Its `onFile` is a no-op, so there the file is written but not delivered.
 
@@ -21,11 +21,11 @@ The bridge runs each turn's `stream()` and `streamAudio()` inside an `AsyncLocal
 
 Every user's files share one directory, and the model usually picks the name, so `attachFile` guards the files that are already there:
 
-- With `data`, it creates the file exclusively and throws when the name exists. Otherwise one user's `summary.md` would replace the bytes behind another user's download chip.
+- With `data`, it creates the file exclusively. Otherwise one user's `summary.md` would replace the bytes behind another user's download chip. When the name exists, it tries `summary-2.md`, `summary-3.md`, and so on, up to 999 copies. `create_file` returns that name, so the model refers to the file the user gets.
 - It rejects a name that ends in `.blob`, `.meta.json`, or `.tmp`. The messaging sidecar stores uploads, owner metadata, and temp files under those suffixes.
 - It throws when the file is over `FILES_MAX_MB`, read as the sidecar reads it: 100 MiB when unset, no limit at `0`. The sidecar checks the limit only after the turn ends, so without this the model would say a file is attached when it never arrives.
 
-A thrown error fails the tool call, so the model sees the reason and can pick a new name or tell the user.
+A thrown error fails the tool call, so the model sees the reason and can tell the user.
 
 The Mastra and AI SDK suites each gain a test in which a model calls a tool. The tool checks that it runs in the async context `stream()` was called in. Those tests fail if a framework release moves tool execution out of that context. The Claude Agent SDK package only instruments the SDK. Its agents write their own `stream()` and already hold the hooks.
 

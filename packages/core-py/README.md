@@ -76,7 +76,7 @@ from astropods_adapter_core import attach_file
 attach_file("account-plan.csv", csv_text, "text/csv")
 ```
 
-`name` is one path segment. Omit `data` to attach a file that is already in the files dir. With `data`, a name already in the files dir raises `FileExistsError`, because every user's files share that dir. A file over the deployment's file size limit (`FILES_MAX_MB`, 100 MiB when unset, `0` for no limit) raises `ValueError`, so the agent knows before it replies.
+`name` is one path segment. Omit `data` to attach a file that is already in the files dir. It returns the file's name. Every user's files share that dir, so with `data` a name already there gets a number: `summary.md` becomes `summary-2.md`. A file over the deployment's file size limit (`FILES_MAX_MB`, 100 MiB when unset, `0` for no limit) raises `ValueError`, so the agent knows before it replies.
 
 Python has no `fileTools()`. A Python agent reads an attachment from its `path` with its own code, such as pandas for a CSV or XLSX file.
 
