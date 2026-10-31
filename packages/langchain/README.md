@@ -41,6 +41,10 @@ def who_am_i(config: RunnableConfig) -> str:
     return config["configurable"].get("user_name", "unknown")
 ```
 
+### The chosen model
+
+Pass the models a chat user can pick from as `models=[...]`; the first is the default. With two or more, the web chat shows a model picker, and `configurable["model"]` is the pick. It is absent when no model was picked. `init_chat_model` reads `configurable["model"]` when `model` is one of its `configurable_fields`.
+
 ## API
 
 ### `LangChainAdapter(executor, name, system_prompt?, tools?)`

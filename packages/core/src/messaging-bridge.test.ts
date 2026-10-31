@@ -436,6 +436,72 @@ describe("MessagingBridge", () => {
       expect(captured[2]).toBeUndefined();
     });
 
+    test("passes an offered Message.model to the adapter as StreamOptions.model", async () => {
+      const captured: Array<StreamOptions["model"]> = [];
+      const adapter = createMockAdapter({
+        getConfig: () => ({ systemPrompt: "", tools: [], models: ["claude-sonnet-4-6", "claude-opus-4-7"] }),
+        stream: async (_prompt, hooks, options) => {
+          captured.push(options.model);
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      const send = (model: unknown) =>
+        mockResponseHandlers[0]({
+          conversationId: "conv-1",
+          incomingMessage: {
+            conversationId: "conv-1",
+            content: "hi",
+            platform: "web",
+            user: { id: "user-1" },
+            model,
+          } as Message,
+        });
+      send("claude-opus-4-7");
+      await new Promise((r) => setTimeout(r, 10));
+      send("");
+      await new Promise((r) => setTimeout(r, 10));
+      send("gpt-5");
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(captured[0]).toBe("claude-opus-4-7");
+      expect(captured[1], "proto-loader decodes an unset string as empty").toBeUndefined();
+      expect(captured[2], "a model the agent did not offer never reaches it").toBeUndefined();
+    });
+
+    test("drops every model when the agent offers none", async () => {
+      const captured: Array<StreamOptions["model"]> = [];
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks, options) => {
+          captured.push(options.model);
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      mockResponseHandlers[0]({
+        conversationId: "conv-1",
+        incomingMessage: { conversationId: "conv-1", content: "hi", platform: "web", user: { id: "user-1" }, model: "claude-opus-4-7" } as Message,
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(captured[0]).toBeUndefined();
+    });
+
+    test("sends the adapter's models with the agent config", async () => {
+      const adapter = createMockAdapter({
+        getConfig: () => ({ systemPrompt: "", tools: [], models: ["claude-sonnet-4-6", "claude-opus-4-7"] }),
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+
+      expect(mockSendAgentConfigArgs).toMatchObject({ models: ["claude-sonnet-4-6", "claude-opus-4-7"] });
+    });
+
     test("sends the adapter's supportsHistory flag with the agent config", async () => {
       const adapter = createMockAdapter({
         getConfig: () => ({ systemPrompt: "", tools: [], supportsHistory: true }),

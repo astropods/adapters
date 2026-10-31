@@ -213,6 +213,8 @@ class StreamOptions:
     # Slack. Empty when the platform supplied none. user_id may be the
     # linked Astro user ID instead of a platform ID.
     user_name: str = ""
+    # The model the user picked in chat, one of get_config()["models"]. Empty when none was picked.
+    model: str = ""
 
 
 @dataclass
