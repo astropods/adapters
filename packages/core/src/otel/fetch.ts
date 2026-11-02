@@ -1,6 +1,5 @@
 import {
   context,
-  propagation,
   SpanKind,
   SpanStatusCode,
   trace,
@@ -14,6 +13,8 @@ import {
   ATTR_SERVER_PORT,
   ATTR_URL_FULL,
 } from "@opentelemetry/semantic-conventions";
+
+import { applyActiveTraceContext, mergeRequestHeaders } from "./propagate.js";
 
 const PATCHED_MARKER = Symbol.for("@astropods/adapter-core/patched-fetch");
 const TRACER_NAME = "@astropods/adapter-core/fetch";
@@ -122,20 +123,8 @@ function injectTraceContext(
   input: FetchInput,
   init: RequestInit | undefined,
 ): RequestInit {
-  const merged = new Headers();
-  if (typeof input === "object" && !(input instanceof URL)) {
-    input.headers.forEach((value, key) => merged.set(key, value));
-  }
-  if (init?.headers) {
-    new Headers(init.headers).forEach((value, key) => merged.set(key, value));
-  }
-
-  const carrier: Record<string, string> = {};
-  propagation.inject(context.active(), carrier);
-  for (const [key, value] of Object.entries(carrier)) {
-    if (!merged.has(key)) merged.set(key, value);
-  }
-
+  const merged = mergeRequestHeaders(input, init);
+  applyActiveTraceContext(merged);
   return { ...init, headers: merged };
 }
 

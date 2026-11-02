@@ -13,6 +13,7 @@ import {
   type RenderableResponse,
 } from "@astropods/messaging";
 import { randomUUID } from "node:crypto";
+import { ANONYMOUS_ACTOR_KEY } from "./actor-context.js";
 
 import type {
   AgentAdapter,
@@ -564,7 +565,7 @@ export class MessagingBridge {
       .stream(message.content, hooks, {
         conversationId,
         // || catches empty strings too — ?? would let "" through.
-        userId: message.user?.id || "anonymous",
+        userId: message.user?.id || ANONYMOUS_ACTOR_KEY,
         userName: message.user?.username || undefined,
         platformContext: message.platformContext,
         attachments: this.resolveAttachments(message),
@@ -773,7 +774,7 @@ export class MessagingBridge {
       .streamAudio(audioInput, hooks, {
         conversationId,
         // || catches empty strings too — ?? would let "" through.
-        userId: userId || "anonymous",
+        userId: userId || ANONYMOUS_ACTOR_KEY,
       })
       .then(() => {
         debug(`[bridge] streamAudio resolved: conversation=${conversationId}`);
