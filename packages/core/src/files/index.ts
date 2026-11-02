@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { agentFilesDir, attachFile, turnFiles } from "../attach-file.js";
+import { agentFilesDir, attachFile, canReadInTurn } from "../attach-file.js";
 import type { AttachmentInput, ImageInput } from "../types.js";
 
 export { attachFile } from "../attach-file.js";
@@ -81,16 +81,15 @@ export async function createFile(name: string, content: string, mimeType?: strin
 
 /** Rejects any file the current conversation did not receive or create. */
 export function resolveAgentFile(path: string): string {
-  const files = turnFiles();
-  if (!files) throw new Error("Files can be read only while the agent handles a message");
-  const full = resolve(path);
+  const allowed = canReadInTurn(path);
+  if (allowed === undefined) throw new Error("Files can be read only while the agent handles a message");
   // Every thread's and user's files share one dir, so a path inside it can still be another owner's file.
-  if (!files.has(full)) {
+  if (!allowed) {
     throw new Error(
       "Only files attached to or created in this conversation can be read. Ask the user to attach the file again."
     );
   }
-  return full;
+  return resolve(path);
 }
 
 async function sniff(path: string): Promise<FileKind> {

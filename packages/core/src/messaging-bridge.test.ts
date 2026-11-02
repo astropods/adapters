@@ -1,5 +1,5 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { attachFile } from "./attach-file";
@@ -395,68 +395,88 @@ describe("MessagingBridge", () => {
     });
 
     test("lets the turn open its attachments and no other file in the dir", async () => {
-      const opened: Array<string | Error> = [];
-      const adapter = createMockAdapter({
-        stream: async (_prompt, hooks, options) => {
-          for (const path of [options.attachments![0].path!, "/data/files/summary.md"]) {
-            try {
-              opened.push(resolveAgentFile(path));
-            } catch (err) {
-              opened.push(err as Error);
+      const dir = mkdtempSync(join(tmpdir(), "bridge-files-"));
+      const previousDir = process.env.AGENT_FILES_DIR;
+      process.env.AGENT_FILES_DIR = dir;
+      try {
+        writeFileSync(join(dir, "uuid-1.blob"), "region,amount\n");
+        writeFileSync(join(dir, "summary.md"), "another thread's summary");
+        const opened: Array<string | Error> = [];
+        const adapter = createMockAdapter({
+          stream: async (_prompt, hooks, options) => {
+            for (const path of [options.attachments![0].path!, join(dir, "summary.md")]) {
+              try {
+                opened.push(resolveAgentFile(path));
+              } catch (err) {
+                opened.push(err as Error);
+              }
             }
-          }
-          hooks.onFinish();
-        },
-      });
-      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
-      await bridge.start();
+            hooks.onFinish();
+          },
+        });
+        const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+        await bridge.start();
 
-      mockResponseHandlers[0]({
-        conversationId: "conv-1",
-        incomingMessage: {
+        mockResponseHandlers[0]({
           conversationId: "conv-1",
-          content: "read this",
-          platform: "slack",
-          user: { id: "user-1" },
-          attachments: [{ type: "FILE", filename: "data.csv", storageKey: "uuid-1" }],
-        },
-      });
+          incomingMessage: {
+            conversationId: "conv-1",
+            content: "read this",
+            platform: "slack",
+            user: { id: "user-1" },
+            attachments: [{ type: "FILE", filename: "data.csv", storageKey: "uuid-1" }],
+          },
+        });
 
-      await new Promise((r) => setTimeout(r, 10));
+        await new Promise((r) => setTimeout(r, 10));
 
-      expect(opened[0]).toBe("/data/files/uuid-1.blob");
-      expect(opened[1]).toBeInstanceOf(Error);
+        expect(opened[0]).toBe(join(dir, "uuid-1.blob"));
+        expect(opened[1]).toBeInstanceOf(Error);
+      } finally {
+        process.env.AGENT_FILES_DIR = previousDir;
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     test("lets a follow-up in the same conversation open an earlier message's attachment", async () => {
-      const opened: Array<string | Error> = [];
-      const adapter = createMockAdapter({
-        stream: async (_prompt, hooks) => {
-          try {
-            opened.push(resolveAgentFile("/data/files/uuid-2.blob"));
-          } catch (err) {
-            opened.push(err as Error);
-          }
-          hooks.onFinish();
-        },
-      });
-      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
-      await bridge.start();
-
-      const send = (conversationId: string, attachments: unknown[] = []) =>
-        mockResponseHandlers[0]({
-          conversationId,
-          incomingMessage: { conversationId, content: "go", platform: "web", user: { id: "user-1" }, attachments },
+      const dir = mkdtempSync(join(tmpdir(), "bridge-files-"));
+      const previousDir = process.env.AGENT_FILES_DIR;
+      process.env.AGENT_FILES_DIR = dir;
+      const upload = join(dir, "uuid-2.blob");
+      try {
+        writeFileSync(upload, "region,amount\n");
+        const opened: Array<string | Error> = [];
+        const adapter = createMockAdapter({
+          stream: async (_prompt, hooks) => {
+            try {
+              opened.push(resolveAgentFile(upload));
+            } catch (err) {
+              opened.push(err as Error);
+            }
+            hooks.onFinish();
+          },
         });
-      send("conv-follow-up", [{ type: "FILE", filename: "data.csv", storageKey: "uuid-2" }]);
-      await new Promise((r) => setTimeout(r, 10));
-      send("conv-follow-up");
-      await new Promise((r) => setTimeout(r, 10));
-      send("conv-other");
-      await new Promise((r) => setTimeout(r, 10));
+        const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+        await bridge.start();
 
-      expect(opened.slice(0, 2)).toEqual(["/data/files/uuid-2.blob", "/data/files/uuid-2.blob"]);
-      expect(opened[2]).toBeInstanceOf(Error);
+        const send = (conversationId: string, attachments: unknown[] = []) =>
+          mockResponseHandlers[0]({
+            conversationId,
+            incomingMessage: { conversationId, content: "go", platform: "web", user: { id: "user-1" }, attachments },
+          });
+        send("conv-follow-up", [{ type: "FILE", filename: "data.csv", storageKey: "uuid-2" }]);
+        await new Promise((r) => setTimeout(r, 10));
+        send("conv-follow-up");
+        await new Promise((r) => setTimeout(r, 10));
+        send("conv-other");
+        await new Promise((r) => setTimeout(r, 10));
+
+        expect(opened.slice(0, 2)).toEqual([upload, upload]);
+        expect(opened[2]).toBeInstanceOf(Error);
+      } finally {
+        process.env.AGENT_FILES_DIR = previousDir;
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     test("passes Message.history to the adapter as StreamOptions.history", async () => {
