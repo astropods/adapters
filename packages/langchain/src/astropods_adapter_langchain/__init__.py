@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .adapter import LangChainAdapter
+from .file_tools import file_tools
 from .voice import OpenAIVoice
 from .observability import setup_observability
 from astropods_adapter_core import serve as _core_serve, ServeOptions
@@ -19,4 +20,4 @@ def serve(adapter: AgentAdapter, options: Optional[ServeOptions] = None) -> None
     _core_serve(adapter, options)
 
 
-__all__ = ["LangChainAdapter", "OpenAIVoice", "serve", "ServeOptions"]
+__all__ = ["LangChainAdapter", "OpenAIVoice", "file_tools", "serve", "ServeOptions"]

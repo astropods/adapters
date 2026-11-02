@@ -15,7 +15,18 @@ from .types import (
     ServeOptions,
 )
 from .bridge import MessagingBridge
-from .files import attach_file
+from .files import (
+    FILE_TOOL_DESCRIPTIONS,
+    PAGE_CHARS,
+    PAGE_ROWS,
+    attach_file,
+    attachment_note,
+    create_file,
+    inspect_file,
+    read_file_page,
+    read_table,
+    resolve_agent_file,
+)
 from .serve import serve
 from .trace import create_traceparent
 
@@ -36,6 +47,15 @@ __all__ = [
     "ServeOptions",
     "MessagingBridge",
     "attach_file",
+    "attachment_note",
+    "create_file",
+    "FILE_TOOL_DESCRIPTIONS",
+    "inspect_file",
+    "PAGE_CHARS",
+    "PAGE_ROWS",
+    "read_file_page",
+    "read_table",
+    "resolve_agent_file",
     "create_traceparent",
     "serve",
 ]

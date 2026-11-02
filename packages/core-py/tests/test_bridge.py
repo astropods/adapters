@@ -1179,3 +1179,29 @@ class TestAttachFileFromTurn:
         assert len(ends) == 1
         files = [(a.file.filename, a.file.mime_type, a.file.size_bytes) for a in ends[0].attachments]
         assert files == [("plan.md", "text/markdown", 7)]
+
+    async def test_a_follow_up_in_the_same_conversation_opens_an_earlier_attachment(self, tmp_path, monkeypatch):
+        from astropods_adapter_core import resolve_agent_file
+
+        monkeypatch.setenv("AGENT_FILES_DIR", str(tmp_path))
+        path = str(tmp_path / "upload-1.blob")
+        opened: list = []
+
+        async def stream(prompt, hooks, options):
+            try:
+                opened.append(resolve_agent_file(path))
+            except PermissionError as err:
+                opened.append(err)
+            hooks.on_finish()
+
+        adapter = MagicMock()
+        adapter.stream = stream
+        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+        upload = Attachment(type=Attachment.Type.FILE, filename="deals.csv", storage_key="upload-1")
+
+        await bridge._handle_message(Message(conversation_id="conv-follow-up", content="read this", attachments=[upload]))
+        await bridge._handle_message(Message(conversation_id="conv-follow-up", content="total it"))
+        await bridge._handle_message(Message(conversation_id="conv-other", content="total it"))
+
+        assert opened[:2] == [path, path]
+        assert isinstance(opened[2], PermissionError)

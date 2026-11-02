@@ -27,6 +27,27 @@ serve(adapter)
 
 `serve()` blocks until `SIGINT` or `SIGTERM`. Under `ast dev`, `GRPC_SERVER_ADDR` is injected automatically.
 
+### Files
+
+`file_tools()` gives the model tools that read the files a user attaches and return a file. Pass `supports_files=True` to turn on web chat uploads. Slack sends files either way.
+
+```python
+from astropods_adapter_langchain import LangChainAdapter, file_tools, serve
+
+tools = file_tools()
+agent = create_agent(llm, tools=tools, system_prompt="Answer questions about the files the user attaches.")
+serve(LangChainAdapter(agent, name="My Agent", tools=tools, supports_files=True))
+```
+
+| Tool | What it does |
+|------|--------------|
+| `inspect_file` | Reports a file's kind (PDF, DOCX, XLSX, text), its size, its text length, and for a table each sheet's columns and row count. |
+| `read_file` | Returns one 20,000-character page of a PDF, DOCX, or text file, with `next_offset` for the next page. |
+| `read_table` | Returns one page of rows from a CSV or XLSX file, 100 by default, with `next_offset` for the next page. |
+| `create_file` | Writes a text file to the files dir, attaches it to the reply with `attach_file`, and returns its name and the path to read it back. |
+
+The tools open only the files attached to or created in the current conversation, so a follow-up question can go back to an earlier file. The list lives in memory, so after the agent restarts, the user attaches an earlier file again. A tool error, such as a refused path or a scanned PDF, goes back to the model as the tool's result, so it can tell the user. `file_tools()` needs `astropods-adapter-core` 0.11.0 or later.
+
 ### The sender's name
 
 `configurable["user_name"]` carries the sender's name on the source platform (their full name in Slack, or their Astro name in web chat). It is absent when the platform sent none. A tool reads it from its run config:
@@ -55,6 +76,7 @@ Pass the models a chat user can pick from as `models=[...]`; the first is the de
 | `name` | `str` | Display name shown in logs and the playground |
 | `system_prompt` | `str` | Shown in the playground's config panel |
 | `tools` | `list` | LangChain tool objects — populates the playground tool list |
+| `supports_files` | `bool` | Declare that the agent reads attached files, which turns on web chat uploads. Defaults to `False`. Slack sends files either way. |
 | `supports_history` | `Optional[bool]` | When the conversation's earlier turns change (the user edited a message or switched versions in the web chat, or the agent never answered the previous turn), delete the checkpointer thread and start it over from the turns the message carries, as text only. Defaults to `None`, which means true when the checkpointer implements `adelete_thread` or `delete_thread`, or when there is none. |
 
 ### `serve(adapter, options?)`

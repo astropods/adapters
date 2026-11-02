@@ -52,7 +52,7 @@ There is no query function. Filters and totals need rules for what counts as a n
 
 The AI SDK adapter now appends the same attachment note as the Mastra adapter, and takes a `supportsFiles` option that it reports in its config, as Mastra does. The note text moves from the Mastra adapter into adapter-core, so the two cannot drift. The AI SDK adapter still does not pass images to the model. It keeps turns in an in-process history, and inlined image bytes there need their own design.
 
-Python agents get `attach_file` but no `fileTools()` yet.
+Python agents get the same read functions and a LangChain `file_tools()`, as `python-file-tools-2026-11-02.md` describes.
 
 ## Migration
 
