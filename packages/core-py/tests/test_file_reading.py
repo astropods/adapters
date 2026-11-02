@@ -174,17 +174,35 @@ class TestConversationCaps:
                 read_file_page(str(files_dir / "a.md"))
             assert read_file_page(str(files_dir / "c.md"))["text"] == "c.md"
 
-    def test_the_least_recently_used_conversation_is_forgotten_past_the_cap(self, files_dir, monkeypatch):
+    def test_a_conversation_out_of_memory_reads_its_files_back_from_disk(self, files_dir, monkeypatch):
         monkeypatch.setattr(files, "_MAX_CONVERSATIONS", 2)
         monkeypatch.setattr(files, "_conversations", OrderedDict())
         for conversation in ("first", "second", "third"):
             with run_in_turn(lambda *f: None, conversation_id=conversation, attachments=[str(files_dir / "deals.blob")]):
                 pass
+        assert "first" not in files._conversations
         with run_in_turn(lambda *f: None, conversation_id="first"):
-            with pytest.raises(PermissionError):
-                read_table(str(files_dir / "deals.blob"))
-        with run_in_turn(lambda *f: None, conversation_id="third"):
             assert read_table(str(files_dir / "deals.blob"), limit=1)["next_offset"] == 1
+
+
+class TestRestart:
+    def test_a_restarted_agent_still_opens_a_conversations_earlier_files(self, files_dir, monkeypatch):
+        with run_in_turn(lambda *f: None, conversation_id="dm-1", attachments=[str(files_dir / "deals.blob")]):
+            created = create_file("breakdown.md", "by region")
+        monkeypatch.setattr(files, "_conversations", OrderedDict())
+        with run_in_turn(lambda *f: None, conversation_id="dm-1"):
+            assert read_file_page(created["path"])["text"] == "by region"
+            assert read_table(str(files_dir / "deals.blob"), limit=1)["rows"] == [["1", "Account 1", "Stage 1", "10"]]
+
+    def test_rejects_another_conversations_file_at_the_path_of_a_deleted_file(self, files_dir):
+        with run_in_turn(lambda *f: None, conversation_id="chat-x"):
+            created = create_file("recap.md", "chat X's recap")
+        os.unlink(created["path"])
+        with run_in_turn(lambda *f: None, conversation_id="thread-t"):
+            assert create_file("recap.md", "thread T's recap")["path"] == created["path"]
+        with run_in_turn(lambda *f: None, conversation_id="chat-x"):
+            with pytest.raises(PermissionError):
+                read_file_page(created["path"])
 
 
 class TestAttachmentNote:

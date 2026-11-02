@@ -46,7 +46,7 @@ serve(LangChainAdapter(agent, name="My Agent", tools=tools, supports_files=True)
 | `read_table` | Returns one page of rows from a CSV or XLSX file, 100 by default, with `next_offset` for the next page. |
 | `create_file` | Writes a text file to the files dir, attaches it to the reply with `attach_file`, and returns its name and the path to read it back. |
 
-The tools open only the files attached to or created in the current conversation, so a follow-up question can go back to an earlier file. The list lives in memory, so after the agent restarts, the user attaches an earlier file again. A tool error, such as a refused path or a scanned PDF, goes back to the model as the tool's result, so it can tell the user. `file_tools()` needs `astropods-adapter-core` 0.11.0 or later.
+The tools open only the files attached to or created in the current conversation, so a follow-up question can go back to an earlier file. The list is saved with the files, so it lasts through a restart. A tool error, such as a refused path or a scanned PDF, goes back to the model as the tool's result, so it can tell the user. `file_tools()` needs `astropods-adapter-core` 0.11.0 or later.
 
 ### The sender's name
 

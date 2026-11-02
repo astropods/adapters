@@ -90,7 +90,7 @@ These functions read the files a user attaches. Each takes the `path` from `Stre
 | `create_file(name, content, mime_type=None)` | Writes a text file with `attach_file` and returns `{"attached": ..., "path": ...}`: the name the user sees and the path the read functions open in a later turn. |
 | `attachment_note(attachments, images=())` | The line an adapter appends to the turn's text that names each attached file and its path. |
 
-Every thread's and user's files share `AGENT_FILES_DIR`, so the functions open only the files the current conversation received as attachments or wrote with `attach_file`, and they raise outside a turn. The bridge keeps that list in memory for the 1,000 most recent conversations, up to 100 files each. After the agent restarts, the user attaches an earlier file again. In Slack, a mention in a thread also attaches the thread's earlier files again.
+Every thread's and user's files share `AGENT_FILES_DIR`, so the functions open only the files the current conversation received as attachments or wrote with `attach_file`, and they raise outside a turn. The bridge saves that list, up to 100 files for each conversation, in `AGENT_FILES_DIR/.conversations`, so it lasts through a restart. A file deleted and replaced at the same path is not on the list.
 
 The functions deliver a file's contents and do no analysis. For counts or totals over a large table, give the agent a tool that runs pandas or DuckDB on the attachment's `path`, after passing it through `resolve_agent_file`, which raises for any file the conversation did not receive or create. `pypdf`, `mammoth`, and `openpyxl` load only when an agent reads a file of that kind.
 

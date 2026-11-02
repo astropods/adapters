@@ -1185,6 +1185,7 @@ class TestAttachFileFromTurn:
 
         monkeypatch.setenv("AGENT_FILES_DIR", str(tmp_path))
         path = str(tmp_path / "upload-1.blob")
+        (tmp_path / "upload-1.blob").write_text("region,amount\n")
         opened: list = []
 
         async def stream(prompt, hooks, options):

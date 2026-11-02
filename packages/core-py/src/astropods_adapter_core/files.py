@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import csv
 import datetime
+import hashlib
+import json
+import logging
 import math
 import os
 import threading
@@ -17,6 +20,7 @@ DEFAULT_MAX_FILE_MB = 100
 # The messaging sidecar stores its blobs, metadata, and temp files under these suffixes.
 _RESERVED_SUFFIXES = (".blob", ".meta.json", ".tmp")
 _MAX_NAME_TRIES = 1000
+# Conversations whose file lists stay in memory; the rest are read back from disk.
 _MAX_CONVERSATIONS = 1000
 _MAX_FILES_PER_CONVERSATION = 100
 
@@ -53,16 +57,26 @@ _NO_TEXT_LAYER = (
 OnFile = Callable[[str, Optional[str], Optional[int]], None]
 
 
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _Conversation:
+    # The only files the read functions open, each path mapped to the identity of the file it held when added.
+    files: "OrderedDict[str, str]"
+    # Keeps the list across restarts. None for a turn with no conversation.
+    record: Optional[str] = None
+
+
 @dataclass
 class _Turn:
     on_file: OnFile
-    # The only paths the read functions open: the conversation's attachments and the files it created.
-    files: "OrderedDict[str, None]"
+    conversation: _Conversation
 
 
 _turn: ContextVar[Optional[_Turn]] = ContextVar("astropods_turn", default=None)
-# In memory, so a restarted agent forgets earlier turns' files. Least recently used first.
-_conversations: "OrderedDict[str, OrderedDict[str, None]]" = OrderedDict()
+# Least recently used first.
+_conversations: "OrderedDict[str, _Conversation]" = OrderedDict()
 # Sync tools run in worker threads.
 _lock = threading.Lock()
 
@@ -78,24 +92,67 @@ def _max_file_bytes() -> Optional[int]:
     return None if mb == 0 else mb << 20
 
 
-def _conversation_files(conversation_id: Optional[str]) -> "OrderedDict[str, None]":
-    if not conversation_id:
+def _identity(path: str) -> Optional[str]:
+    # The device number can change when the volume is mounted again, so it is not part of the identity.
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return f"{st.st_ino}:{st.st_mtime_ns}"
+
+
+def _record_path(conversation_id: str) -> str:
+    # The files API lists only regular files, so the records' folder stays out of the files panel.
+    name = hashlib.sha256(conversation_id.encode()).hexdigest()
+    return os.path.join(agent_files_dir(), ".conversations", f"{name}.json")
+
+
+def _load(record: str) -> "OrderedDict[str, str]":
+    try:
+        with open(record, encoding="utf-8") as f:
+            return OrderedDict(json.load(f))
+    except (OSError, TypeError, ValueError):
         return OrderedDict()
+
+
+def _save(conversation: _Conversation) -> None:
+    if conversation.record is None:
+        return
+    tmp = f"{conversation.record}.{os.getpid()}.tmp"
+    try:
+        with _lock:
+            os.makedirs(os.path.dirname(conversation.record), exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(conversation.files, f)
+            os.replace(tmp, conversation.record)
+    except OSError:
+        logger.warning("Could not save the conversation's file list; it lasts until the agent restarts", exc_info=True)
+
+
+def _conversation_for(conversation_id: Optional[str]) -> _Conversation:
+    if not conversation_id:
+        return _Conversation(OrderedDict())
     with _lock:
-        files = _conversations.pop(conversation_id, None) or OrderedDict()
-        _conversations[conversation_id] = files
+        conversation = _conversations.pop(conversation_id, None)
+        if conversation is None:
+            record = _record_path(conversation_id)
+            conversation = _Conversation(_load(record), record)
+        _conversations[conversation_id] = conversation
         if len(_conversations) > _MAX_CONVERSATIONS:
             _conversations.popitem(last=False)
-    return files
+    return conversation
 
 
-def _remember(files: "OrderedDict[str, None]", path: str) -> None:
+def _remember(conversation: _Conversation, path: str) -> None:
     full = os.path.abspath(path)
+    identity = _identity(full)
+    if identity is None:
+        return
     with _lock:
-        files.pop(full, None)
-        files[full] = None
-        if len(files) > _MAX_FILES_PER_CONVERSATION:
-            files.popitem(last=False)
+        conversation.files.pop(full, None)
+        conversation.files[full] = identity
+        if len(conversation.files) > _MAX_FILES_PER_CONVERSATION:
+            conversation.files.popitem(last=False)
 
 
 @contextmanager
@@ -103,10 +160,13 @@ def run_in_turn(
     on_file: OnFile, conversation_id: Optional[str] = None, attachments: Iterable[str] = ()
 ) -> Iterator[None]:
     """Files stay readable in the conversation's later turns. Omit ``conversation_id`` to scope reads to this turn."""
-    files = _conversation_files(conversation_id)
-    for path in attachments:
-        _remember(files, path)
-    token = _turn.set(_Turn(on_file, files))
+    conversation = _conversation_for(conversation_id)
+    paths = list(attachments)
+    for path in paths:
+        _remember(conversation, path)
+    if paths:
+        _save(conversation)
+    token = _turn.set(_Turn(on_file, conversation))
     try:
         yield
     finally:
@@ -164,7 +224,8 @@ def attach_file(
     turn.on_file(written, mime_type, size)
     # A file attached without data can be another thread's, so the read functions must not open it.
     if raw is not None:
-        _remember(turn.files, os.path.join(agent_files_dir(), written))
+        _remember(turn.conversation, os.path.join(agent_files_dir(), written))
+        _save(turn.conversation)
     return written
 
 
@@ -194,7 +255,9 @@ def resolve_agent_file(path: str) -> str:
         raise RuntimeError("Files can be read only while the agent handles a message")
     full = os.path.abspath(path)
     # Every thread's and user's files share one dir, so a path inside it can still be another owner's file.
-    if full not in turn.files:
+    # A file deleted and replaced at the same path has a new identity.
+    identity = turn.conversation.files.get(full)
+    if identity is None or identity != _identity(full):
         raise PermissionError(
             "Only files attached to or created in this conversation can be read. "
             "Ask the user to attach the file again."
