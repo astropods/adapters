@@ -73,7 +73,7 @@ export function attachmentNote(attachments: AttachmentInput[], images: ImageInpu
   return `The user attached these files. Open them with a file-reading tool at the paths below. Do not guess their contents. ${list}`;
 }
 
-/** Rejects any file the current turn did not receive or create. */
+/** Rejects any file the current conversation did not receive or create. */
 export function resolveAgentFile(path: string): string {
   const files = turnFiles();
   if (!files) throw new Error("Files can be read only while the agent handles a message");
@@ -81,7 +81,7 @@ export function resolveAgentFile(path: string): string {
   // Every thread's and user's files share one dir, so a path inside it can still be another owner's file.
   if (!files.has(full)) {
     throw new Error(
-      "Only the files attached to this message, and files created while answering it, can be read. Ask the user to attach the file again."
+      "Only files attached to or created in this conversation can be read. Ask the user to attach the file again."
     );
   }
   return full;

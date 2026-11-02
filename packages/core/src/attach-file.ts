@@ -21,16 +21,45 @@ function maxFileBytes(): number | undefined {
   return mb === 0 ? undefined : mb * 2 ** 20;
 }
 
+const MAX_CONVERSATIONS = 1000;
+const MAX_FILES_PER_CONVERSATION = 100;
+
 interface Turn {
   onFile: (file: OutgoingFile) => void;
-  /** The only paths the read functions open: the turn's attachments and the files it created. */
+  /** The only paths the read functions open: the conversation's attachments and the files it created. */
   files: Set<string>;
 }
 
 const turn = new AsyncLocalStorage<Turn>();
+/** In memory, so a restarted agent forgets earlier turns' files. Least recently used first. */
+const conversations = new Map<string, Set<string>>();
 
-export function runInTurn<T>(onFile: (file: OutgoingFile) => void, fn: () => T, attachments: string[] = []): T {
-  return turn.run({ onFile, files: new Set(attachments.map((p) => resolve(p))) }, fn);
+function conversationFiles(conversationId: string | undefined): Set<string> {
+  if (!conversationId) return new Set();
+  const files = conversations.get(conversationId) ?? new Set<string>();
+  conversations.delete(conversationId);
+  conversations.set(conversationId, files);
+  if (conversations.size > MAX_CONVERSATIONS) conversations.delete(conversations.keys().next().value!);
+  return files;
+}
+
+function remember(files: Set<string>, path: string): void {
+  const full = resolve(path);
+  files.delete(full);
+  files.add(full);
+  if (files.size > MAX_FILES_PER_CONVERSATION) files.delete(files.values().next().value!);
+}
+
+export interface TurnScope {
+  /** Files stay readable in the conversation's later turns. Omit to scope reads to this turn. */
+  conversationId?: string;
+  attachments?: string[];
+}
+
+export function runInTurn<T>(onFile: (file: OutgoingFile) => void, fn: () => T, scope: TurnScope = {}): T {
+  const files = conversationFiles(scope.conversationId);
+  for (const path of scope.attachments ?? []) remember(files, path);
+  return turn.run({ onFile, files }, fn);
 }
 
 export function turnFiles(): ReadonlySet<string> | undefined {
@@ -81,7 +110,7 @@ export async function attachFile(input: AttachFileInput): Promise<string> {
   const written = data === undefined ? name : await writeNew(name, data);
   current.onFile({ name: written, mimeType, size });
   // A file attached without data can be another thread's, so the read functions must not open it.
-  if (data !== undefined) current.files.add(resolve(agentFilesDir(), written));
+  if (data !== undefined) remember(current.files, join(agentFilesDir(), written));
   return written;
 }
 

@@ -10,7 +10,7 @@ let dir: string;
 const previousDir = process.env.AGENT_FILES_DIR;
 const at = (name: string) => join(dir, name);
 const staged = ["plan-pdf", "plan-docx", "pipeline", "scan", "deals", "long", "excel-utf8"].map((n) => `${n}.blob`);
-const inTurn = <T>(fn: () => Promise<T>) => runInTurn(() => {}, fn, staged.map(at));
+const inTurn = <T>(fn: () => Promise<T>) => runInTurn(() => {}, fn, { attachments: staged.map(at) });
 
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "agent-files-"));
@@ -115,8 +115,8 @@ describe("readTable", () => {
 describe("resolveAgentFile", () => {
   test("rejects a file in the dir that the turn neither received nor created", async () => {
     await writeFile(at("summary.md"), "another thread's summary");
-    await expect(inTurn(() => readFilePage(at("summary.md")))).rejects.toThrow(/attached to this message/);
-    await expect(inTurn(async () => resolveAgentFile("/etc/passwd"))).rejects.toThrow(/attached to this message/);
+    await expect(inTurn(() => readFilePage(at("summary.md")))).rejects.toThrow(/attached to or created in this conversation/);
+    await expect(inTurn(async () => resolveAgentFile("/etc/passwd"))).rejects.toThrow(/attached to or created in this conversation/);
   });
 
   test("opens a file the turn created", async () => {
@@ -133,7 +133,21 @@ describe("resolveAgentFile", () => {
       await attachFile({ name: "report.md" });
       return readFilePage(at("report.md"));
     });
-    await expect(read).rejects.toThrow(/attached to this message/);
+    await expect(read).rejects.toThrow(/attached to or created in this conversation/);
+  });
+
+  test("opens a file from an earlier turn of the same conversation, and no other conversation's", async () => {
+    await runInTurn(() => {}, () => attachFile({ name: "draft.md", data: "first draft" }), {
+      conversationId: "thread-a",
+      attachments: [at("deals.blob")],
+    });
+    const later = (fn: () => Promise<unknown>) => runInTurn(() => {}, fn, { conversationId: "thread-a" });
+    expect(((await later(() => readFilePage(at("draft.md")))) as { text: string }).text).toBe("first draft");
+    await expect(later(() => readTable(at("deals.blob"), { limit: 1 }))).resolves.toBeDefined();
+
+    const other = (fn: () => Promise<unknown>) => runInTurn(() => {}, fn, { conversationId: "thread-b" });
+    await expect(other(() => readFilePage(at("draft.md")))).rejects.toThrow(/created in this conversation/);
+    await expect(other(() => readTable(at("deals.blob")))).rejects.toThrow(/created in this conversation/);
   });
 
   test("refuses outside a turn", () => {
