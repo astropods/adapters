@@ -101,6 +101,8 @@ export interface MastraAdapterOptions {
   supportsFiles?: boolean;
   /** Rebuild the Mastra memory thread from `StreamOptions.history`. Defaults to true. */
   supportsHistory?: boolean;
+  /** Models a chat user can pick from, the first being the default. Read the pick from `requestContext.get("model")`. */
+  models?: string[];
 }
 
 /**
@@ -115,6 +117,7 @@ export class MastraAdapter implements AgentAdapter {
   readonly name: string;
   private readonly supportsFiles: boolean;
   private readonly supportsHistory: boolean;
+  private readonly models: string[] | undefined;
   // A stopped run outlives stream(): its tool keeps running, then Mastra saves to memory.
   private readonly inFlight = new Map<string, Promise<void>>();
   // Titles of threads deleted by a reset that failed before it recreated them.
@@ -124,6 +127,7 @@ export class MastraAdapter implements AgentAdapter {
     this.name = agent.name;
     this.supportsFiles = options.supportsFiles ?? false;
     this.supportsHistory = options.supportsHistory ?? true;
+    this.models = options.models;
   }
 
   async stream(
@@ -185,15 +189,7 @@ export class MastraAdapter implements AgentAdapter {
           ]
         : text;
 
-    // A dynamic workspace or tool set resolves from the request context,
-    // which is the only place it can read the conversation from: the
-    // resolver signature carries no thread. An agent keying a sandbox on
-    // the thread needs this to be here.
-    const requestContext: RequestContext = new RequestContext([
-      ["threadId", options.conversationId],
-      ["resourceId", options.userId],
-      ...(options.userName ? [["userName", options.userName] as [string, string]] : []),
-    ]);
+    const requestContext = this.requestContext(options);
     if (options.history && this.supportsHistory) {
       if (previous) await settleWithin(previous, PREVIOUS_TURN_WAIT_MS);
       await this.replaceThread(options.conversationId, options.userId, options.history, requestContext);
@@ -285,6 +281,18 @@ export class MastraAdapter implements AgentAdapter {
    * paused for a Renderable and the user resolved it, or null when the turn
    * ended (finished, aborted, or the user dismissed a suspension).
    */
+  // Resolvers read the turn only from here: their signature carries no thread.
+  // Mastra keeps none across a suspend, so a resumed run gets it again.
+  private requestContext(options: StreamOptions): RequestContext {
+    const entries: Array<[string, unknown]> = [
+      ["threadId", options.conversationId],
+      ["resourceId", options.userId],
+    ];
+    if (options.userName) entries.push(["userName", options.userName]);
+    if (options.model) entries.push(["model", options.model]);
+    return new RequestContext(entries);
+  }
+
   private async consumeSegment(
     stream: MastraStream,
     hooks: StreamHooks,
@@ -399,7 +407,12 @@ export class MastraAdapter implements AgentAdapter {
     options: StreamOptions
   ): Promise<MastraStream | null> {
     const decline = () =>
-      this.agent.declineToolCall({ runId, toolCallId, abortSignal: options.signal });
+      this.agent.declineToolCall({
+        runId,
+        toolCallId,
+        abortSignal: options.signal,
+        requestContext: this.requestContext(options),
+      });
     if (!options.render) return decline();
 
     let response;
@@ -419,7 +432,12 @@ export class MastraAdapter implements AgentAdapter {
     }
 
     return response.action === "RENDERABLE_ACTION_SUBMIT"
-      ? this.agent.approveToolCall({ runId, toolCallId, abortSignal: options.signal })
+      ? this.agent.approveToolCall({
+          runId,
+          toolCallId,
+          abortSignal: options.signal,
+          requestContext: this.requestContext(options),
+        })
       : decline();
   }
 
@@ -474,7 +492,12 @@ export class MastraAdapter implements AgentAdapter {
     switch (response.action) {
       case "RENDERABLE_ACTION_SUBMIT": {
         const resumeData = response.contentJson ? JSON.parse(response.contentJson) : {};
-        return this.agent.resumeStream(resumeData, { runId, toolCallId, abortSignal: options.signal });
+        return this.agent.resumeStream(resumeData, {
+          runId,
+          toolCallId,
+          abortSignal: options.signal,
+          requestContext: this.requestContext(options),
+        });
       }
       default:
         // RESPOND / CANCEL / DECLINE all end this turn. For RESPOND the surface
@@ -607,6 +630,7 @@ export class MastraAdapter implements AgentAdapter {
       tools: toolConfigs,
       supportsFiles: this.supportsFiles,
       supportsHistory: this.supportsHistory,
+      ...(this.models ? { models: this.models } : {}),
     };
   }
 }

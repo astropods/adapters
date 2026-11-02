@@ -19,6 +19,8 @@ export interface AISDKAdapterOptions<CALL_OPTIONS = never> {
    * agent reads per-turn context such as `userName`.
    */
   callOptions?: (options: StreamOptions) => CALL_OPTIONS;
+  /** Models a chat user can pick from, the first being the default. The pick arrives as `StreamOptions.model`. */
+  models?: string[];
   /** Send each conversation's earlier turns to the model as `messages`. Defaults to `true`; `false` sends only `prompt`. */
   memory?: boolean;
   /** Turns of history each conversation keeps. Defaults to 20. */
@@ -36,6 +38,7 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
   private readonly instructions: string;
   private readonly callOptions?: (options: StreamOptions) => CALL_OPTIONS;
   private readonly history: ConversationHistory | undefined;
+  private readonly models: string[] | undefined;
 
   constructor(
     private agent: Agent<CALL_OPTIONS, TOOLS, any>,
@@ -44,6 +47,7 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
     this.name = options.name ?? agent.id ?? "AI SDK Agent";
     this.instructions = options.instructions ?? "";
     this.callOptions = options.callOptions;
+    this.models = options.models;
     const history = new ConversationHistory({
       maxTurns: options.maxTurns ?? 20,
       maxHistoryBytes: options.maxHistoryBytes ?? 256 * 1024,
@@ -181,6 +185,7 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
       tools: toolConfigs,
       // With memory off the agent keeps its own, which the adapter cannot reset.
       supportsHistory: this.history !== undefined,
+      ...(this.models ? { models: this.models } : {}),
     };
   }
 }
