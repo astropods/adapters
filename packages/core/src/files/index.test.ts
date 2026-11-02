@@ -3,7 +3,7 @@ import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { attachFile, runInTurn } from "../attach-file";
-import { PAGE_CHARS, PAGE_ROWS, inspectFile, readFilePage, readTable, resolveAgentFile } from "./index";
+import { PAGE_CHARS, PAGE_ROWS, createFile, inspectFile, readFilePage, readTable, resolveAgentFile } from "./index";
 
 const fixtures = join(import.meta.dir, "../../tests/fixtures/files");
 let dir: string;
@@ -148,6 +148,14 @@ describe("resolveAgentFile", () => {
     const other = (fn: () => Promise<unknown>) => runInTurn(() => {}, fn, { conversationId: "thread-b" });
     await expect(other(() => readFilePage(at("draft.md")))).rejects.toThrow(/created in this conversation/);
     await expect(other(() => readTable(at("deals.blob")))).rejects.toThrow(/created in this conversation/);
+  });
+
+  test("createFile returns a path the conversation's next turn can read", async () => {
+    await writeFile(at("brief.md"), "another thread's brief");
+    const scope = { conversationId: "thread-c" };
+    const created = await runInTurn(() => {}, () => createFile("brief.md", "# Brief"), scope);
+    expect(created).toEqual({ attached: "brief-2.md", path: at("brief-2.md") });
+    expect((await runInTurn(() => {}, () => readFilePage(created.path), scope)).text).toBe("# Brief");
   });
 
   test("refuses outside a turn", () => {

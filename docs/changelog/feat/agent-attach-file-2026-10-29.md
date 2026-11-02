@@ -21,7 +21,7 @@ The bridge runs each turn's `stream()` and `streamAudio()` inside an `AsyncLocal
 
 Every user's files share one directory, and the model usually picks the name, so `attachFile` guards the files that are already there:
 
-- With `data`, it creates the file exclusively. Otherwise one user's `summary.md` would replace the bytes behind another user's download chip. When the name exists, it tries `summary-2.md`, `summary-3.md`, and so on, up to 999 copies. `create_file` returns that name, so the model refers to the file the user gets.
+- With `data`, it creates the file exclusively. Otherwise one user's `summary.md` would replace the bytes behind another user's download chip. When the name exists, it tries `summary-2.md`, `summary-3.md`, and so on, up to 999 copies. `create_file` returns that name and the file's full path, so the model refers to the file the user gets and reads it back at a path inside the files dir.
 - It rejects a name that ends in `.blob`, `.meta.json`, or `.tmp`. The messaging sidecar stores uploads, owner metadata, and temp files under those suffixes.
 - It throws when the file is over `FILES_MAX_MB`, read as the sidecar reads it: 100 MiB when unset, no limit at `0`. The sidecar checks the limit only after the turn ends, so without this the model would say a file is attached when it never arrives.
 
@@ -48,7 +48,7 @@ The functions open only the current conversation's files. Every thread's and use
 
 There is no query function. Filters and totals need rules for what counts as a number, a date, or a match, and a model states a total built on the wrong rule as fact. The platform delivers the file and its text, and analysis stays with the agent, which can run DuckDB or pandas on the attachment's `path`. The core README has a short recipe.
 
-`fileTools()` in the Mastra and AI SDK adapters wraps those functions as four tools: `inspect_file`, `read_file`, `read_table`, and `create_file` (which calls `attachFile`). The tool descriptions come from adapter-core's `FILE_TOOL_DESCRIPTIONS`, so both frameworks describe the tools to the model the same way. An agent opts in with `tools: { ...fileTools() }`. Both adapters declare `zod` as a peer dependency, with the range their framework accepts.
+`fileTools()` in the Mastra and AI SDK adapters wraps those functions as four tools: `inspect_file`, `read_file`, `read_table`, and `create_file` (which calls adapter-core's `createFile`). The tool descriptions come from adapter-core's `FILE_TOOL_DESCRIPTIONS`, so both frameworks describe the tools to the model the same way. An agent opts in with `tools: { ...fileTools() }`. Both adapters declare `zod` as a peer dependency, with the range their framework accepts.
 
 The AI SDK adapter now appends the same attachment note as the Mastra adapter, and takes a `supportsFiles` option that it reports in its config, as Mastra does. The note text moves from the Mastra adapter into adapter-core, so the two cannot drift. The AI SDK adapter still does not pass images to the model. It keeps turns in an in-process history, and inlined image bytes there need their own design.
 

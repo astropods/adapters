@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
-import { resolve } from "node:path";
-import { turnFiles } from "../attach-file.js";
+import { join, resolve } from "node:path";
+import { agentFilesDir, attachFile, turnFiles } from "../attach-file.js";
 import type { AttachmentInput, ImageInput } from "../types.js";
 
 export { attachFile } from "../attach-file.js";
@@ -19,7 +19,7 @@ export const FILE_TOOL_DESCRIPTIONS = {
   read_file: `Read one page (${PAGE_CHARS} characters) of an attached document's text: PDF, DOCX, or a text file. When nextOffset is not null, the document has more text.`,
   read_table: `Read one page of rows (${PAGE_ROWS} by default) from an attached CSV or XLSX file. When nextOffset is not null, the table has more rows.`,
   create_file:
-    "Create a text file, such as .md or .csv, and attach it to your reply. A taken name gets a number, so name the file as the result does.",
+    "Create a text file, such as .md or .csv, and attach it to your reply. A taken name gets a number, so name the file as the result does, and read it later at the result's path.",
 } as const;
 
 /** What a file holds, sniffed from its bytes; staged uploads have no extension. */
@@ -71,6 +71,12 @@ export function attachmentNote(attachments: AttachmentInput[], images: ImageInpu
   if (files.length === 0) return "";
   const list = files.map((f) => `${f.name} (${f.path})`).join(", ");
   return `The user attached these files. Open them with a file-reading tool at the paths below. Do not guess their contents. ${list}`;
+}
+
+/** `attached` is the name the user sees, which differs from `name` when it is taken; `path` is what the read functions open. */
+export async function createFile(name: string, content: string, mimeType?: string): Promise<{ attached: string; path: string }> {
+  const attached = await attachFile({ name, data: content, mimeType });
+  return { attached, path: join(agentFilesDir(), attached) };
 }
 
 /** Rejects any file the current conversation did not receive or create. */
