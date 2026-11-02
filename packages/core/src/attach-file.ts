@@ -80,7 +80,8 @@ export async function attachFile(input: AttachFileInput): Promise<string> {
   }
   const written = data === undefined ? name : await writeNew(name, data);
   current.onFile({ name: written, mimeType, size });
-  current.files.add(resolve(agentFilesDir(), written));
+  // A file attached without data can be another thread's, so the read functions must not open it.
+  if (data !== undefined) current.files.add(resolve(agentFilesDir(), written));
   return written;
 }
 
