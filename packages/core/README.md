@@ -75,7 +75,7 @@ import { attachFile } from "@astropods/adapter-core";
 await attachFile({ name: "account-plan.csv", data: csv, mimeType: "text/csv" });
 ```
 
-`name` is one path segment. Omit `data` to attach a file that is already in the files dir. It returns the file's name. Every user's files share that dir, so with `data` a name already there gets a number: `summary.md` becomes `summary-2.md`. A file over the deployment's file size limit (`FILES_MAX_MB`, 100 MiB when unset, `0` for no limit) throws, so the agent knows before it replies.
+`name` is one path segment. Omit `data` to attach a file that is already in the files dir. It returns the file's name. Every user's files share that dir, so with `data` a name already there gets a number: `summary.md` becomes `summary-2.md`. Return files through `attachFile` rather than writing into `AGENT_FILES_DIR` directly, because a direct write can replace another thread's file. A file over the deployment's file size limit (`FILES_MAX_MB`, 100 MiB when unset, `0` for no limit) throws, so the agent knows before it replies.
 
 ### `@astropods/adapter-core/files`
 
