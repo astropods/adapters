@@ -8,6 +8,9 @@ import type {
 } from "@astropods/adapter-core";
 import { createTraceparent } from "@astropods/adapter-core";
 
+// A tracer cached at import keeps a provider that trace.disable() replaced.
+const TRACER_NAME = "@astropods/adapter-langchain";
+
 // "model" (createAgent) and "agent" (createReactAgent).
 const MODEL_NODE_KEYS = ["model", "agent"] as const;
 
@@ -44,6 +47,8 @@ export interface LangChainAdapterOptions {
    * true unless the checkpointer cannot delete a thread.
    */
   supportsHistory?: boolean;
+  /** Models a chat user can pick from, the first being the default. The pick arrives as `configurable.model`. */
+  models?: string[];
 }
 
 export class LangChainAdapter implements AgentAdapter {
@@ -51,6 +56,7 @@ export class LangChainAdapter implements AgentAdapter {
   private readonly instructions: string;
   private readonly tools: LangChainTool[];
   private readonly declaredHistory: boolean | undefined;
+  private readonly models: string[] | undefined;
 
   constructor(
     private agent: LangChainAgent,
@@ -61,6 +67,7 @@ export class LangChainAdapter implements AgentAdapter {
     this.instructions = options.instructions ?? derived.instructions;
     this.tools = options.tools ?? derived.tools;
     this.declaredHistory = options.supportsHistory;
+    this.models = options.models;
   }
 
   // serve() installs a MemorySaver after construction.
@@ -75,9 +82,7 @@ export class LangChainAdapter implements AgentAdapter {
   ): Promise<void> {
     // Root span carrying user/session + trace IO. OpenInference's spans nest
     // under it via the active context; a no-op span when uninstrumented.
-    // Resolved per turn: a module-level tracer keeps the provider trace.disable() replaced.
-    const tracer = trace.getTracer("@astropods/adapter-langchain");
-    await tracer.startActiveSpan(this.name, async (span) => {
+    await trace.getTracer(TRACER_NAME).startActiveSpan(this.name, async (span) => {
       hooks.onTraceContext?.({ traceparent: traceparentFromSpan(span) });
       span.setAttribute("langfuse.user.id", options.userId || "anonymous");
       span.setAttribute("langfuse.session.id", options.conversationId);
@@ -119,6 +124,8 @@ export class LangChainAdapter implements AgentAdapter {
         configurable: {
           thread_id: options.conversationId,
           ...(options.userName ? { user_name: options.userName } : {}),
+          // `model` is the key initChatModel reads when "model" is a configurable field.
+          ...(options.model ? { model: options.model } : {}),
         },
         // A stopped turn must end its run, or it writes the old branch back after an edit.
         signal: options.signal,
@@ -182,6 +189,7 @@ export class LangChainAdapter implements AgentAdapter {
       systemPrompt: this.instructions,
       tools,
       supportsHistory: this.supportsHistory,
+      ...(this.models ? { models: this.models } : {}),
     };
   }
 }

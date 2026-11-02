@@ -52,6 +52,7 @@ The `options` argument contains per-request context from the messaging platform:
 | `conversationId` | Stable ID for the conversation thread |
 | `userId` | ID of the user who sent the message |
 | `history` | The turns before this message, set only when they differ from what the agent last answered |
+| `model` | The model id the user picked in chat, always one of `getConfig().models` (the bridge drops any other); undefined when none was picked. Put it where the framework resolves its model per run |
 
 Use these for memory/context management if your framework supports it.
 
