@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { attachFile, runInTurn } from "../attach-file";
@@ -156,6 +156,28 @@ describe("resolveAgentFile", () => {
     const created = await runInTurn(() => {}, () => createFile("brief.md", "# Brief"), scope);
     expect(created).toEqual({ attached: "brief-2.md", path: at("brief-2.md") });
     expect((await runInTurn(() => {}, () => readFilePage(created.path), scope)).text).toBe("# Brief");
+  });
+
+  test("rejects another conversation's file at the path of a deleted file", async () => {
+    const created = await runInTurn(() => {}, () => createFile("recap.md", "chat X's recap"), { conversationId: "chat-x" });
+    await unlink(created.path);
+    const theirs = await runInTurn(() => {}, () => createFile("recap.md", "thread T's recap"), { conversationId: "thread-t" });
+    expect(theirs.path).toBe(created.path);
+    await expect(
+      runInTurn(() => {}, () => readFilePage(created.path), { conversationId: "chat-x" })
+    ).rejects.toThrow(/created in this conversation/);
+  });
+
+  test("still opens a conversation's files after its list leaves memory, as after a restart", async () => {
+    const scope = { conversationId: "dm-1" };
+    const created = await runInTurn(() => {}, () => createFile("breakdown.md", "by region"), {
+      ...scope,
+      attachments: [at("deals.blob")],
+    });
+    for (let i = 0; i < 1000; i++) runInTurn(() => {}, () => {}, { conversationId: `busy-${i}` });
+    const later = <T>(fn: () => Promise<T>) => runInTurn(() => {}, fn, scope);
+    expect((await later(() => readFilePage(created.path))).text).toBe("by region");
+    expect((await later(() => readTable(at("deals.blob"), { limit: 1 }))).rows).toEqual([["1", "Account 1", "Stage 1", "10"]]);
   });
 
   test("refuses outside a turn", () => {
