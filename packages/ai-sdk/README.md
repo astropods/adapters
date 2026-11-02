@@ -127,7 +127,7 @@ The adapter appends each attached file's name and path to the turn's text. `file
 | `inspect_file` | Reports a file's kind (PDF, DOCX, XLSX, text), its size, its text length, and for a table each sheet's columns and row count. |
 | `read_file` | Returns one 20,000-character page of a PDF, DOCX, or text file, with `nextOffset` for the next page. |
 | `read_table` | Returns one page of rows from a CSV or XLSX file, 100 by default, with `nextOffset` for the next page. |
-| `create_file` | Writes a text file to the files dir and attaches it to the reply with `attachFile`. |
+| `create_file` | Writes a text file to the files dir, attaches it to the reply with `attachFile`, and returns its name and the path to read it back. |
 
 ```typescript
 import { ToolLoopAgent } from "ai";

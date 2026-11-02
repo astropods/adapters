@@ -86,6 +86,7 @@ Framework-neutral functions for reading the files a user attaches. They take the
 | `inspectFile(path)` | The file's kind (`pdf`, `docx`, `xlsx`, `zip`, `text`, `binary`), its size, its text length, and for a table each sheet's columns and exact row count. The kind is sniffed from the bytes, because staged uploads have no extension. A PDF with no text layer, such as a scan, has `scanned: true`. |
 | `readFilePage(path, offset?)` | One `PAGE_CHARS` (20,000-character) page of a PDF, DOCX, or text file, with `nextOffset` (null on the last page) and `totalChars`. It throws for a PDF with no text layer, which needs OCR. |
 | `readTable(path, { sheet?, offset?, limit? })` | One page of a CSV or XLSX table: the header as `columns`, then `limit` data rows (`PAGE_ROWS`, 100, by default) starting at `offset`, with `nextOffset` (null on the last page). CSV cells are strings and XLSX cells keep their types. A CSV is streamed, so a page late in a large file does not load the whole file. |
+| `createFile(name, content, mimeType?)` | Writes a text file with `attachFile` and returns `{ attached, path }`: the name the user sees and the path the read functions open in a later turn. |
 | `attachmentNote(attachments, images?)` | The line an adapter appends to the turn's text that names each attached file and its path. |
 
 The PDF, DOCX, XLSX, and CSV parsers load on first use, so an agent that never calls these functions does not load them.

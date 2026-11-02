@@ -1,7 +1,7 @@
 import { tool, type Tool } from "ai";
 import {
   FILE_TOOL_DESCRIPTIONS,
-  attachFile,
+  createFile,
   inspectFile,
   readFilePage,
   readTable,
@@ -33,9 +33,7 @@ export function fileTools(): Record<"inspect_file" | "read_file" | "read_table" 
         content: z.string(),
         mimeType: z.string().optional(),
       }),
-      execute: async ({ name, content, mimeType }) => {
-        return { attached: await attachFile({ name, data: content, mimeType }) };
-      },
+      execute: ({ name, content, mimeType }) => createFile(name, content, mimeType),
     }),
   };
 }
