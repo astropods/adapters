@@ -428,6 +428,37 @@ describe("MessagingBridge", () => {
       expect(opened[1]).toBeInstanceOf(Error);
     });
 
+    test("lets a follow-up in the same conversation open an earlier message's attachment", async () => {
+      const opened: Array<string | Error> = [];
+      const adapter = createMockAdapter({
+        stream: async (_prompt, hooks) => {
+          try {
+            opened.push(resolveAgentFile("/data/files/uuid-2.blob"));
+          } catch (err) {
+            opened.push(err as Error);
+          }
+          hooks.onFinish();
+        },
+      });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+      await bridge.start();
+
+      const send = (conversationId: string, attachments: unknown[] = []) =>
+        mockResponseHandlers[0]({
+          conversationId,
+          incomingMessage: { conversationId, content: "go", platform: "web", user: { id: "user-1" }, attachments },
+        });
+      send("conv-follow-up", [{ type: "FILE", filename: "data.csv", storageKey: "uuid-2" }]);
+      await new Promise((r) => setTimeout(r, 10));
+      send("conv-follow-up");
+      await new Promise((r) => setTimeout(r, 10));
+      send("conv-other");
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(opened.slice(0, 2)).toEqual(["/data/files/uuid-2.blob", "/data/files/uuid-2.blob"]);
+      expect(opened[2]).toBeInstanceOf(Error);
+    });
+
     test("passes Message.history to the adapter as StreamOptions.history", async () => {
       const captured: Array<StreamOptions["history"]> = [];
       const adapter = createMockAdapter({

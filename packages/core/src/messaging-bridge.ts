@@ -587,7 +587,7 @@ export class MessagingBridge {
           this.sendSaveConversation(message.user?.id ?? "", input),
         getThreadHistory: (maxMessages) =>
           this.fetchThreadHistory(conversationId, maxMessages),
-      }), readable)
+      }), { conversationId, attachments: readable })
       .catch((error) => {
         // A user stop aborts the model call — that's expected; end quietly
         // rather than surfacing an error to the client.
@@ -772,7 +772,7 @@ export class MessagingBridge {
         conversationId,
         // || catches empty strings too — ?? would let "" through.
         userId: userId || "anonymous",
-      }))
+      }), { conversationId })
       .then(() => {
         debug(`[bridge] streamAudio resolved: conversation=${conversationId}`);
       })
