@@ -86,7 +86,7 @@ These functions read the files a user attaches. Each takes the `path` from `Stre
 |----------|---------|
 | `inspect_file(path)` | The file's kind (`pdf`, `docx`, `xlsx`, `zip`, `text`, `binary`), its size, its text length, and for a table each sheet's columns and exact row count. The kind is read from the bytes, because staged uploads have no extension. A PDF with no text layer, such as a scan, has `scanned: True`. |
 | `read_file_page(path, offset=0)` | One `PAGE_CHARS` (20,000-character) page of a PDF, DOCX, or text file, with `next_offset` (`None` on the last page) and `total_chars`. It raises for a PDF with no text layer, which needs OCR. |
-| `read_table(path, sheet=None, offset=0, limit=PAGE_ROWS)` | One page of a CSV or XLSX table: the header as `columns`, then `limit` data rows (`PAGE_ROWS`, 100, by default) starting at `offset`, with `next_offset`. CSV cells are strings. XLSX cells keep their types, and dates become ISO strings. |
+| `read_table(path, sheet=None, offset=0, limit=PAGE_ROWS)` | One page of a CSV or XLSX table: the header as `columns`, then `limit` data rows (`PAGE_ROWS`, 100, by default, at most 500) starting at `offset`, with `next_offset`. A CSV or XLSX sheet is streamed, so a page late in a large file does not load the whole file. CSV cells are strings. XLSX cells keep their types, and dates become ISO strings. |
 | `create_file(name, content, mime_type=None)` | Writes a text file with `attach_file` and returns `{"attached": ..., "path": ...}`: the name the user sees and the path the read functions open in a later turn. |
 | `attachment_note(attachments, images=())` | The line an adapter appends to the turn's text that names each attached file and its path. |
 

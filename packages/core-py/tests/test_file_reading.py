@@ -1,5 +1,6 @@
 import os
 import shutil
+from collections import OrderedDict
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from astropods_adapter_core import (
     read_table,
     resolve_agent_file,
 )
+from astropods_adapter_core import files
 from astropods_adapter_core.files import run_in_turn
 from astropods_adapter_core.types import AttachmentInput, ImageInput
 
@@ -110,6 +112,15 @@ class TestReadTable:
             read_table(str(in_turn / "pipeline.blob"), sheet="Missing")
 
 
+class TestPageBounds:
+    def test_rejects_a_negative_offset_and_a_limit_outside_1_to_500(self, in_turn):
+        with pytest.raises(ValueError, match="offset"):
+            read_file_page(str(in_turn / "long.blob"), -5)
+        for bad in ({"offset": -1}, {"limit": 0}, {"limit": 501}):
+            with pytest.raises(ValueError, match="limit from 1 to 500"):
+                read_table(str(in_turn / "deals.blob"), **bad)
+
+
 class TestReadScope:
     def test_rejects_a_file_in_the_dir_that_the_turn_neither_received_nor_created(self, in_turn):
         (in_turn / "summary.md").write_text("another thread's summary")
@@ -150,6 +161,30 @@ class TestReadScope:
         assert created == {"attached": "brief-2.md", "path": os.path.join(str(files_dir), "brief-2.md")}
         with run_in_turn(lambda *f: None, conversation_id="thread-c"):
             assert read_file_page(created["path"])["text"] == "# Brief"
+
+
+class TestConversationCaps:
+    def test_a_conversation_forgets_its_oldest_file_past_the_cap(self, files_dir, monkeypatch):
+        monkeypatch.setattr(files, "_MAX_FILES_PER_CONVERSATION", 2)
+        with run_in_turn(lambda *f: None, conversation_id="capped-files"):
+            for name in ("a.md", "b.md", "c.md"):
+                attach_file(name, name)
+        with run_in_turn(lambda *f: None, conversation_id="capped-files"):
+            with pytest.raises(PermissionError):
+                read_file_page(str(files_dir / "a.md"))
+            assert read_file_page(str(files_dir / "c.md"))["text"] == "c.md"
+
+    def test_the_least_recently_used_conversation_is_forgotten_past_the_cap(self, files_dir, monkeypatch):
+        monkeypatch.setattr(files, "_MAX_CONVERSATIONS", 2)
+        monkeypatch.setattr(files, "_conversations", OrderedDict())
+        for conversation in ("first", "second", "third"):
+            with run_in_turn(lambda *f: None, conversation_id=conversation, attachments=[str(files_dir / "deals.blob")]):
+                pass
+        with run_in_turn(lambda *f: None, conversation_id="first"):
+            with pytest.raises(PermissionError):
+                read_table(str(files_dir / "deals.blob"))
+        with run_in_turn(lambda *f: None, conversation_id="third"):
+            assert read_table(str(files_dir / "deals.blob"), limit=1)["next_offset"] == 1
 
 
 class TestAttachmentNote:

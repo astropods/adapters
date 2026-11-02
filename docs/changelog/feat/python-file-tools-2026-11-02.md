@@ -11,7 +11,8 @@ A Python agent could return a file with `attach_file`, but it had no way to read
 core-py exports the same read functions as adapter-core, with Python names: `inspect_file`, `read_file_page`, `read_table`, `create_file`, `attachment_note`, and `resolve_agent_file`, with `PAGE_CHARS`, `PAGE_ROWS`, and `FILE_TOOL_DESCRIPTIONS`. They behave as the TypeScript functions do:
 
 - The kind is read from the bytes, because a staged upload is `<key>.blob` with no extension.
-- `read_file_page` returns one 20,000-character page, and `read_table` streams a CSV and stops after the page. The CSV reader drops the byte-order mark that Excel's "CSV UTF-8" export writes.
+- `read_file_page` returns one 20,000-character page, and `read_table` streams a CSV or one XLSX sheet and stops after the page, so a page of a large workbook never holds the whole file. adapter-core still reads a whole workbook. The CSV reader drops the byte-order mark that Excel's "CSV UTF-8" export writes.
+- Both functions reject a negative `offset`, and `read_table` a `limit` outside 1 to 500, so a caller that follows `next_offset` cannot loop forever on `limit=0`.
 - A PDF with no text layer has `scanned: True` from `inspect_file`, and `read_file_page` raises to say it needs OCR.
 - `pypdf`, `mammoth`, and `openpyxl` are dependencies of core-py, imported only when an agent reads a file of that kind. openpyxl gets an open file, because it rejects a path that does not end in `.xlsx`.
 
@@ -21,7 +22,7 @@ The LangChain adapter's `file_tools()` returns the four tools as `StructuredTool
 
 ## Testing
 
-- core-py: the read functions run over the same PDF, DOCX, and XLSX fixtures as adapter-core and generated CSVs. The scope tests cover a later turn of the same conversation, another conversation, a file attached without data, and a read outside a turn. A bridge test sends a follow-up and a message in another conversation.
+- core-py: the read functions run over the same PDF, DOCX, and XLSX fixtures as adapter-core and generated CSVs. The scope tests cover a later turn of the same conversation, another conversation, a file attached without data, and a read outside a turn. A bridge test sends a follow-up and a message in another conversation. Cap tests lower the 100-file and 1,000-conversation limits and check that the oldest is forgotten.
 - LangChain: `create_agent` with `file_tools()` runs through the real bridge with a fake model. A later message in the same thread reads the earlier file, and a message in another thread gets the refusal as the tool result. Each scope test fails with its fix removed.
 
 ## Migration

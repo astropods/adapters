@@ -6,7 +6,7 @@ import math
 import os
 import threading
 from collections import OrderedDict
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Iterator, Optional, Union
@@ -24,6 +24,7 @@ _MAX_FILES_PER_CONVERSATION = 100
 PAGE_CHARS = 20_000
 # Rows ``read_table`` returns per page unless ``limit`` says otherwise.
 PAGE_ROWS = 100
+_MAX_PAGE_ROWS = 500
 
 # Model-facing descriptions for a framework's file tools.
 FILE_TOOL_DESCRIPTIONS = {
@@ -236,39 +237,34 @@ def _cell(value: Any) -> Any:
     return value.isoformat() if isinstance(value, (datetime.date, datetime.time)) else value
 
 
-def _xlsx_sheets(path: str) -> list[tuple[str, list[list[Any]]]]:
+@contextmanager
+def _xlsx_workbook(path: str) -> Iterator[Any]:
     from openpyxl import load_workbook
 
     # A file object, because openpyxl rejects a path that does not end in .xlsx, and staged uploads end in .blob.
     with open(path, "rb") as f:
         workbook = load_workbook(f, read_only=True, data_only=True)
         try:
-            return [
-                (
-                    sheet.title,
-                    [
-                        [_cell(v) for v in row]
-                        for row in sheet.iter_rows(values_only=True)
-                        if any(v is not None for v in row)
-                    ],
-                )
-                for sheet in workbook.worksheets
-            ]
+            yield workbook
         finally:
             workbook.close()
+
+
+def _sheet_rows(sheet: Any) -> Iterator[list[Any]]:
+    """Streams rows, so a page of a large workbook never holds the whole sheet."""
+    for row in sheet.iter_rows(values_only=True):
+        if any(v is not None for v in row):
+            yield [_cell(v) for v in row]
 
 
 def _table_rows(path: str, kind: str, sheet: Optional[str] = None) -> Iterator[list[Any]]:
     """Yields the header row first."""
     if kind == "xlsx":
-        sheets = _xlsx_sheets(path)
-        if sheet:
-            chosen = next((data for name, data in sheets if name == sheet), None)
-        else:
-            chosen = sheets[0][1] if sheets else None
-        if chosen is None:
-            raise ValueError(f"No sheet named {sheet}. Sheets: {', '.join(name for name, _ in sheets)}")
-        yield from chosen
+        with _xlsx_workbook(path) as workbook:
+            names = workbook.sheetnames
+            if sheet and sheet not in names:
+                raise ValueError(f"No sheet named {sheet}. Sheets: {', '.join(names)}")
+            yield from _sheet_rows(workbook[sheet or names[0]])
         return
     if kind != "text":
         raise ValueError(f"A {kind} file is not a table")
@@ -299,10 +295,12 @@ def inspect_file(path: str) -> dict:
     kind = _sniff(full)
     info: dict[str, Any] = {"kind": kind, "bytes": os.stat(full).st_size}
     if kind == "xlsx":
-        info["tables"] = [
-            {"name": name, "columns": data[0] if data else [], "rows": max(len(data) - 1, 0)}
-            for name, data in _xlsx_sheets(full)
-        ]
+        info["tables"] = []
+        with _xlsx_workbook(full) as workbook:
+            for sheet in workbook.worksheets:
+                rows = _sheet_rows(sheet)
+                columns = next(rows, [])
+                info["tables"].append({"name": sheet.title, "columns": columns, "rows": sum(1 for _ in rows)})
     elif kind in ("pdf", "docx", "text"):
         text = _document_text(full, kind)
         info["total_chars"] = len(text)
@@ -318,6 +316,8 @@ def inspect_file(path: str) -> dict:
 
 def read_file_page(path: str, offset: int = 0) -> dict:
     """Returns one page of a document's text, starting at ``offset``."""
+    if offset < 0:
+        raise ValueError("offset must be 0 or more")
     full = resolve_agent_file(path)
     kind = _sniff(full)
     text = _document_text(full, kind)
@@ -334,19 +334,23 @@ def read_file_page(path: str, offset: int = 0) -> dict:
 
 def read_table(path: str, sheet: Optional[str] = None, offset: int = 0, limit: int = PAGE_ROWS) -> dict:
     """Returns ``limit`` data rows of a CSV or XLSX table, starting at data row ``offset``."""
+    if offset < 0 or not 1 <= limit <= _MAX_PAGE_ROWS:
+        raise ValueError(f"offset must be 0 or more, and limit from 1 to {_MAX_PAGE_ROWS}")
     full = resolve_agent_file(path)
     columns: Optional[list[Any]] = None
     index = 0
     rows: list[list[Any]] = []
-    for row in _table_rows(full, _sniff(full), sheet):
-        if columns is None:
-            columns = row
-            continue
-        if index >= offset + limit:
-            return {"columns": columns, "rows": rows, "offset": offset, "next_offset": index}
-        if index >= offset:
-            rows.append(row)
-        index += 1
+    # closing() shuts the workbook when a page ends before the sheet does.
+    with closing(_table_rows(full, _sniff(full), sheet)) as table:
+        for row in table:
+            if columns is None:
+                columns = row
+                continue
+            if index >= offset + limit:
+                return {"columns": columns, "rows": rows, "offset": offset, "next_offset": index}
+            if index >= offset:
+                rows.append(row)
+            index += 1
     if columns is None:
         raise ValueError("The table is empty")
     return {"columns": columns, "rows": rows, "offset": offset, "next_offset": None}
