@@ -127,6 +127,15 @@ describe("resolveAgentFile", () => {
     expect(page.text).toBe("created this turn");
   });
 
+  test("rejects a file the turn attached without writing it", async () => {
+    await writeFile(at("report.md"), "another thread's report");
+    const read = runInTurn(() => {}, async () => {
+      await attachFile({ name: "report.md" });
+      return readFilePage(at("report.md"));
+    });
+    await expect(read).rejects.toThrow(/attached to this message/);
+  });
+
   test("refuses outside a turn", () => {
     expect(() => resolveAgentFile(at("deals.blob"))).toThrow(/while the agent handles a message/);
   });
