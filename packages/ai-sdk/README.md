@@ -144,7 +144,7 @@ serve(agent, { supportsFiles: true });
 
 The tools open only the files attached to or created in the current conversation, so a follow-up question can go back to an earlier file. The list is saved with the files, so it lasts through a restart. The tools return a file's contents and do no analysis. For counts or totals over a large table, give the agent a query engine such as DuckDB on the attachment's `path`, as the adapter-core README describes.
 
-The adapter does not pass attached images to the model yet. An image arrives as a file the tools can inspect.
+An image the message carries inline (`StreamOptions.images`) reaches the model with the turn, as in the Mastra adapter. The conversation history keeps only the image's name, because one image's data URI could fill `maxHistoryBytes`, so the model sees the image on that turn only. A larger image, or one from earlier in a Slack thread, arrives as a file in `attachments`, which the file tools cannot view.
 
 ## API
 
