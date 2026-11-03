@@ -1,5 +1,6 @@
 from typing import Any, Callable, Optional
 
+from astropods_adapter_core import FILE_TOOL_DESCRIPTIONS, create_file, inspect_file, read_file_page, read_table
 from langchain_core.tools import BaseTool, StructuredTool, ToolException
 from pydantic import BaseModel, Field
 
@@ -41,16 +42,6 @@ def _tool(name: str, description: str, schema: type[BaseModel], fn: Callable[...
 
 def file_tools() -> list[BaseTool]:
     """Tools that read the files a user attaches and return a file, for ``create_agent(tools=...)``."""
-    try:
-        from astropods_adapter_core import (
-            FILE_TOOL_DESCRIPTIONS,
-            create_file,
-            inspect_file,
-            read_file_page,
-            read_table,
-        )
-    except ImportError as err:
-        raise ImportError("file_tools() needs astropods-adapter-core 0.11.0 or later") from err
     return [
         _tool("inspect_file", FILE_TOOL_DESCRIPTIONS["inspect_file"], _PathInput, inspect_file),
         _tool("read_file", FILE_TOOL_DESCRIPTIONS["read_file"], _PageInput, read_file_page),
