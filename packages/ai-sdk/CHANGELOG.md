@@ -3,6 +3,27 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.6.0](https://github.com/astropods/adapters/compare/@astropods/adapter-ai-sdk@0.5.0...@astropods/adapter-ai-sdk@0.6.0) (2026-11-03)
+
+
+### Features
+
+* **ai-sdk:** show inline images to the model ([#121](https://github.com/astropods/adapters/issues/121)) ([55ef69c](https://github.com/astropods/adapters/commit/55ef69c5a823436f2b939249abe68cf31236fb94))
+* let framework agents read and return files ([#120](https://github.com/astropods/adapters/issues/120)) ([cd99779](https://github.com/astropods/adapters/commit/cd997797f320cad7ac10b9f3bebeab8e69e49bfd))
+* pass the model a chat user picks to every adapter ([#107](https://github.com/astropods/adapters/issues/107)) ([c493432](https://github.com/astropods/adapters/commit/c493432b6ac1e3ddfeea8a731f97c1822acb8d51))
+
+
+### Bug Fixes
+
+* **ai-sdk:** adapt to upstream changes for ai@7.0.143 ([#106](https://github.com/astropods/adapters/issues/106)) ([6b49a5f](https://github.com/astropods/adapters/commit/6b49a5f8e31e433f1e4b7018155f61552e8358b2))
+* **ai-sdk:** adapt to upstream changes for ai@7.0.144 ([#110](https://github.com/astropods/adapters/issues/110)) ([6ae23a4](https://github.com/astropods/adapters/commit/6ae23a419acb36fe291f70cfb0798832e1aa82a6))
+* **ai-sdk:** adapt to upstream changes for ai@7.0.146 ([#111](https://github.com/astropods/adapters/issues/111)) ([e8bd27a](https://github.com/astropods/adapters/commit/e8bd27a30b26ba0e65fadc0c0fb531210e2d276e))
+* **ai-sdk:** adapt to upstream changes for ai@7.0.148 ([#113](https://github.com/astropods/adapters/issues/113)) ([8541474](https://github.com/astropods/adapters/commit/85414747070e496f8eda2f1003dd3396b19a19cd))
+* **ai-sdk:** adapt to upstream changes for ai@7.0.150 ([#116](https://github.com/astropods/adapters/issues/116)) ([d50fce8](https://github.com/astropods/adapters/commit/d50fce81afdd7774fda939df94e3b7e5b1907704))
+* **ai-sdk:** adapt to upstream changes for ai@7.0.153 ([#118](https://github.com/astropods/adapters/issues/118)) ([d9a756c](https://github.com/astropods/adapters/commit/d9a756c520497f5d5d0525fa7f8d510acc695c52))
+
+
+
 ## [0.5.0](https://github.com/astropods/adapters/compare/@astropods/adapter-ai-sdk@0.4.3...@astropods/adapter-ai-sdk@0.5.0) (2026-10-12)
 
 

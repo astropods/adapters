@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.15.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.14.0...@astropods/adapter-core@0.15.0) (2026-11-03)
+
+
+### Features
+
+* let framework agents read and return files ([#120](https://github.com/astropods/adapters/issues/120)) ([cd99779](https://github.com/astropods/adapters/commit/cd997797f320cad7ac10b9f3bebeab8e69e49bfd))
+* pass the model a chat user picks to every adapter ([#107](https://github.com/astropods/adapters/issues/107)) ([c493432](https://github.com/astropods/adapters/commit/c493432b6ac1e3ddfeea8a731f97c1822acb8d51))
+
+
+
 ## [0.14.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.13.1...@astropods/adapter-core@0.14.0) (2026-10-12)
 
 
