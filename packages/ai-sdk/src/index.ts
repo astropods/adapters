@@ -7,6 +7,7 @@ import type { AISDKAdapterOptions } from "./adapter";
 export { AISDKAdapter } from "./adapter";
 export type { AISDKAdapterOptions } from "./adapter";
 export { astroTelemetry } from "./telemetry";
+export { fileTools } from "./file-tools";
 
 export function serve<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>(
   agent: Agent<CALL_OPTIONS, TOOLS, any>,

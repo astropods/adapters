@@ -142,6 +142,27 @@ describe("LangChainAdapter", () => {
       }
     });
 
+    test("emits trace context from a provider registered after trace.disable()", async () => {
+      installStubTracer("11111111111111111111111111111111", "1111111111111111")();
+      const traceId = "0af7651916cd43dd8448eb211c80319c";
+      const spanId = "b7ad6b7169203331";
+      const restore = installStubTracer(traceId, spanId);
+      try {
+        const agent = fakeAgent([
+          ["messages", [aiMessage([{ type: "text", text: "Hello" }]), {}]],
+        ]);
+        const hooks = createHooks();
+
+        await new LangChainAdapter(agent).stream("hi", hooks, defaultOptions);
+
+        expect(hooks.traceContexts).toEqual([
+          { traceparent: `00-${traceId}-${spanId}-01` },
+        ]);
+      } finally {
+        restore();
+      }
+    });
+
     test("ignores non-assistant messages (tool results) in messages mode", async () => {
       const toolMessage = { _getType: () => "tool", contentBlocks: [{ type: "text", text: "42" }] };
       const agent = fakeAgent([

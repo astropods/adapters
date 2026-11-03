@@ -7,6 +7,7 @@ import type {
   StreamOptions,
 } from "@astropods/adapter-core";
 
+import { attachmentNote } from "@astropods/adapter-core/files";
 import { ConversationHistory } from "./history";
 
 export interface AISDKAdapterOptions<CALL_OPTIONS = never> {
@@ -23,6 +24,8 @@ export interface AISDKAdapterOptions<CALL_OPTIONS = never> {
   models?: string[];
   /** Send each conversation's earlier turns to the model as `messages`. Defaults to `true`; `false` sends only `prompt`. */
   memory?: boolean;
+  /** Declare that the agent reads attached files, which enables web chat uploads. Defaults to `false`. */
+  supportsFiles?: boolean;
   /** Turns of history each conversation keeps. Defaults to 20. */
   maxTurns?: number;
   /** Serialized size a conversation's history may reach, in bytes. Defaults to 256 KiB, about 64K tokens. */
@@ -36,6 +39,7 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
 {
   readonly name: string;
   private readonly instructions: string;
+  private readonly supportsFiles: boolean;
   private readonly callOptions?: (options: StreamOptions) => CALL_OPTIONS;
   private readonly history: ConversationHistory | undefined;
   private readonly models: string[] | undefined;
@@ -46,6 +50,7 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
   ) {
     this.name = options.name ?? agent.id ?? "AI SDK Agent";
     this.instructions = options.instructions ?? "";
+    this.supportsFiles = options.supportsFiles ?? false;
     this.callOptions = options.callOptions;
     this.models = options.models;
     const history = new ConversationHistory({
@@ -69,14 +74,16 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
         options.history.messages.map(({ role, content }) => ({ role, content }) as ModelMessage)
       );
     }
-    const ask: ModelMessage = { role: "user", content: prompt };
+    const note = attachmentNote(options.attachments ?? []);
+    const text = note ? (prompt ? `${prompt}\n\n${note}` : note) : prompt;
+    const ask: ModelMessage = { role: "user", content: text };
     let failed = false;
     let aborted = false;
 
     try {
       const input = history
         ? { messages: [...history.messages(conversationId), ask], abortSignal: options.signal }
-        : { prompt, abortSignal: options.signal };
+        : { prompt: text, abortSignal: options.signal };
       // `options` is required or forbidden depending on CALL_OPTIONS, which a
       // generic class cannot narrow.
       const result = await this.agent.stream(
@@ -185,6 +192,7 @@ export class AISDKAdapter<TOOLS extends ToolSet = ToolSet, CALL_OPTIONS = never>
       tools: toolConfigs,
       // With memory off the agent keeps its own, which the adapter cannot reset.
       supportsHistory: this.history !== undefined,
+      supportsFiles: this.supportsFiles,
       ...(this.models ? { models: this.models } : {}),
     };
   }

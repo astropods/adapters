@@ -15,6 +15,7 @@ from .types import (
     ServeOptions,
 )
 from .bridge import MessagingBridge
+from .files import attach_file
 from .serve import serve
 from .trace import create_traceparent
 
@@ -34,6 +35,7 @@ __all__ = [
     "StreamOptions",
     "ServeOptions",
     "MessagingBridge",
+    "attach_file",
     "create_traceparent",
     "serve",
 ]

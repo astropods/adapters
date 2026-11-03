@@ -13,6 +13,7 @@ import type {
   StreamOptions,
 } from "@astropods/adapter-core";
 import { UnsupportedRenderableError, createTraceparent, logger } from "@astropods/adapter-core";
+import { attachmentNote } from "@astropods/adapter-core/files";
 
 /** The object agent.stream()/approveToolCall()/resumeStream() all resolve to. */
 type MastraStream = Awaited<ReturnType<Agent["stream"]>>;
@@ -74,17 +75,6 @@ function argsSummary(args: unknown): string {
   return Object.entries(args as Record<string, unknown>)
     .map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
     .join("\n");
-}
-
-function attachmentNote(
-  attachments: NonNullable<StreamOptions["attachments"]>,
-  images: NonNullable<StreamOptions["images"]>
-): string {
-  const shown = new Set(images.map((i) => i.key).filter(Boolean));
-  const files = attachments.filter((a) => a.path && !shown.has(a.key));
-  if (files.length === 0) return "";
-  const list = files.map((f) => `${f.name} (${f.path})`).join(", ");
-  return `The user attached these files. Open them with a file-reading tool at the paths below. Do not guess their contents. ${list}`;
 }
 
 const PREVIOUS_TURN_WAIT_MS = 10_000;
