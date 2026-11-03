@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, readdir, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attachFile, runInTurn, turnFiles } from "./attach-file";
+import { attachFile, canReadInTurn, runInTurn } from "./attach-file";
 import type { OutgoingFile } from "./types";
 
 describe("attachFile", () => {
@@ -88,13 +88,13 @@ describe("attachFile", () => {
       (f) => files.push(f),
       async () => ({
         name: await attachFile({ name: "summary.md", data: "third user's report" }),
-        readable: [...(turnFiles() ?? [])],
+        readable: ["summary.md", "summary-2.md", "summary-3.md"].filter((n) => canReadInTurn(join(dir, n))),
       }),
     );
 
     expect(name).toBe("summary-3.md");
     expect(files).toEqual([{ name: "summary-3.md", mimeType: undefined, size: 19 }]);
-    expect(readable).toEqual([join(dir, "summary-3.md")]);
+    expect(readable).toEqual(["summary-3.md"]);
     expect(await readFile(join(dir, "summary.md"), "utf8")).toBe("first user's report");
     expect(await readFile(join(dir, "summary-3.md"), "utf8")).toBe("third user's report");
   });

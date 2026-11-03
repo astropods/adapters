@@ -79,7 +79,7 @@ await attachFile({ name: "account-plan.csv", data: csv, mimeType: "text/csv" });
 
 ### `@astropods/adapter-core/files`
 
-Framework-neutral functions for reading the files a user attaches. They take the `path` from `StreamOptions.attachments`. Every thread's and user's files share `AGENT_FILES_DIR`, so the functions open only the files the current conversation received as attachments or wrote with `attachFile`, and they throw outside a turn. The bridge keeps that list in memory for the 1,000 most recent conversations, up to 100 files each. After the agent restarts, the user attaches an earlier file again. In Slack, a mention in a thread also attaches the thread's earlier files again. The Mastra and AI SDK adapters wrap them as tools in `fileTools()`.
+Framework-neutral functions for reading the files a user attaches. They take the `path` from `StreamOptions.attachments`. Every thread's and user's files share `AGENT_FILES_DIR`, so the functions open only the files the current conversation received as attachments or wrote with `attachFile`, and they throw outside a turn. The bridge saves that list, up to 100 files for each conversation, in `AGENT_FILES_DIR/.conversations`, so it lasts through a restart. A file deleted and replaced at the same path is not on the list. The Mastra and AI SDK adapters wrap them as tools in `fileTools()`.
 
 | Function | Returns |
 |----------|---------|

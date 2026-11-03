@@ -1,6 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
-import { extname, join, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
+import { logger } from "./logger.js";
 import type { OutgoingFile } from "./types.js";
 
 /** Default agent files mount, matching the K8s/compose deployer's AGENT_FILES_DIR. */
@@ -21,33 +24,82 @@ function maxFileBytes(): number | undefined {
   return mb === 0 ? undefined : mb * 2 ** 20;
 }
 
+/** Conversations whose file lists stay in memory; the rest are read back from disk. */
 const MAX_CONVERSATIONS = 1000;
 const MAX_FILES_PER_CONVERSATION = 100;
 
+interface Conversation {
+  /** The only files the read functions open, each path mapped to the identity of the file it held when added. */
+  files: Map<string, string>;
+  /** Keeps the list across restarts. Unset for a turn with no conversation. */
+  record?: string;
+}
+
 interface Turn {
   onFile: (file: OutgoingFile) => void;
-  /** The only paths the read functions open: the conversation's attachments and the files it created. */
-  files: Set<string>;
+  conversation: Conversation;
 }
 
 const turn = new AsyncLocalStorage<Turn>();
-/** In memory, so a restarted agent forgets earlier turns' files. Least recently used first. */
-const conversations = new Map<string, Set<string>>();
+/** Least recently used first. */
+const conversations = new Map<string, Conversation>();
 
-function conversationFiles(conversationId: string | undefined): Set<string> {
-  if (!conversationId) return new Set();
-  const files = conversations.get(conversationId) ?? new Set<string>();
-  conversations.delete(conversationId);
-  conversations.set(conversationId, files);
-  if (conversations.size > MAX_CONVERSATIONS) conversations.delete(conversations.keys().next().value!);
-  return files;
+// The device number can change when the volume is mounted again, so it is not part of the identity.
+function identity(path: string): string | undefined {
+  try {
+    const { ino, mtimeNs } = statSync(path, { bigint: true });
+    return `${ino}:${mtimeNs}`;
+  } catch {
+    return undefined;
+  }
 }
 
-function remember(files: Set<string>, path: string): void {
+function recordPath(conversationId: string): string {
+  // The files API lists only regular files, so the records' folder stays out of the files panel.
+  const name = createHash("sha256").update(conversationId).digest("hex");
+  return join(agentFilesDir(), ".conversations", `${name}.json`);
+}
+
+function load(record: string): Map<string, string> {
+  try {
+    return new Map(Object.entries(JSON.parse(readFileSync(record, "utf8"))));
+  } catch {
+    return new Map();
+  }
+}
+
+function save({ files, record }: Conversation): void {
+  if (!record) return;
+  try {
+    mkdirSync(dirname(record), { recursive: true });
+    const tmp = `${record}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(Object.fromEntries(files)));
+    renameSync(tmp, record);
+  } catch (err) {
+    logger.warn({ err }, "Could not save the conversation's file list; it lasts until the agent restarts");
+  }
+}
+
+function conversationFor(conversationId: string | undefined): Conversation {
+  if (!conversationId) return { files: new Map() };
+  let conversation = conversations.get(conversationId);
+  if (!conversation) {
+    const record = recordPath(conversationId);
+    conversation = { files: load(record), record };
+  }
+  conversations.delete(conversationId);
+  conversations.set(conversationId, conversation);
+  if (conversations.size > MAX_CONVERSATIONS) conversations.delete(conversations.keys().next().value!);
+  return conversation;
+}
+
+function remember({ files }: Conversation, path: string): void {
   const full = resolve(path);
+  const id = identity(full);
+  if (!id) return;
   files.delete(full);
-  files.add(full);
-  if (files.size > MAX_FILES_PER_CONVERSATION) files.delete(files.values().next().value!);
+  files.set(full, id);
+  if (files.size > MAX_FILES_PER_CONVERSATION) files.delete(files.keys().next().value!);
 }
 
 export interface TurnScope {
@@ -57,13 +109,20 @@ export interface TurnScope {
 }
 
 export function runInTurn<T>(onFile: (file: OutgoingFile) => void, fn: () => T, scope: TurnScope = {}): T {
-  const files = conversationFiles(scope.conversationId);
-  for (const path of scope.attachments ?? []) remember(files, path);
-  return turn.run({ onFile, files }, fn);
+  const conversation = conversationFor(scope.conversationId);
+  const attachments = scope.attachments ?? [];
+  for (const path of attachments) remember(conversation, path);
+  if (attachments.length > 0) save(conversation);
+  return turn.run({ onFile, conversation }, fn);
 }
 
-export function turnFiles(): ReadonlySet<string> | undefined {
-  return turn.getStore()?.files;
+/** Undefined outside a turn. A file deleted and replaced at the same path is not the one the conversation received. */
+export function canReadInTurn(path: string): boolean | undefined {
+  const current = turn.getStore();
+  if (!current) return undefined;
+  const full = resolve(path);
+  const id = current.conversation.files.get(full);
+  return id !== undefined && id === identity(full);
 }
 
 export interface AttachFileInput {
@@ -110,7 +169,10 @@ export async function attachFile(input: AttachFileInput): Promise<string> {
   const written = data === undefined ? name : await writeNew(name, data);
   current.onFile({ name: written, mimeType, size });
   // A file attached without data can be another thread's, so the read functions must not open it.
-  if (data !== undefined) remember(current.files, join(agentFilesDir(), written));
+  if (data !== undefined) {
+    remember(current.conversation, join(agentFilesDir(), written));
+    save(current.conversation);
+  }
   return written;
 }
 
