@@ -667,7 +667,8 @@ class MessagingBridge:
         )
 
         try:
-            with run_in_turn(hooks.on_file):
+            readable = [a.path for a in options.attachments if a.path]
+            with run_in_turn(hooks.on_file, conversation_id=conversation_id, attachments=readable):
                 await self._adapter.stream(message.content, hooks, options)
         except asyncio.CancelledError:
             # A user stop cancelled this turn. Finalization is owned by the
@@ -706,7 +707,7 @@ class MessagingBridge:
         )
 
         try:
-            with run_in_turn(hooks.on_file):
+            with run_in_turn(hooks.on_file, conversation_id=conversation_id):
                 await self._adapter.stream_audio(audio_input, hooks, options)
         except asyncio.CancelledError:
             # A user stop cancelled this audio turn — end quietly (see

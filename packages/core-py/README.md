@@ -78,7 +78,21 @@ attach_file("account-plan.csv", csv_text, "text/csv")
 
 `name` is one path segment. Omit `data` to attach a file that is already in the files dir. It returns the file's name. Every user's files share that dir, so with `data` a name already there gets a number: `summary.md` becomes `summary-2.md`. A file over the deployment's file size limit (`FILES_MAX_MB`, 100 MiB when unset, `0` for no limit) raises `ValueError`, so the agent knows before it replies.
 
-Python has no `fileTools()`. A Python agent reads an attachment from its `path` with its own code, such as pandas for a CSV or XLSX file.
+### Reading attached files
+
+These functions read the files a user attaches. Each takes the `path` from `StreamOptions.attachments`. The LangChain adapter wraps them as tools in `file_tools()`.
+
+| Function | Returns |
+|----------|---------|
+| `inspect_file(path)` | The file's kind (`pdf`, `docx`, `xlsx`, `zip`, `text`, `binary`), its size, its text length, and for a table each sheet's columns and exact row count. The kind is read from the bytes, because staged uploads have no extension. A PDF with no text layer, such as a scan, has `scanned: True`. |
+| `read_file_page(path, offset=0)` | One `PAGE_CHARS` (20,000-character) page of a PDF, DOCX, or text file, with `next_offset` (`None` on the last page) and `total_chars`. It raises for a PDF with no text layer, which needs OCR. |
+| `read_table(path, sheet=None, offset=0, limit=PAGE_ROWS)` | One page of a CSV or XLSX table: the header as `columns`, then `limit` data rows (`PAGE_ROWS`, 100, by default, at most 500) starting at `offset`, with `next_offset`. A CSV or XLSX sheet is streamed, so a page late in a large file does not load the whole file. CSV cells are strings. XLSX cells keep their types, and dates become ISO strings. |
+| `create_file(name, content, mime_type=None)` | Writes a text file with `attach_file` and returns `{"attached": ..., "path": ...}`: the name the user sees and the path the read functions open in a later turn. |
+| `attachment_note(attachments, images=())` | The line an adapter appends to the turn's text that names each attached file and its path. |
+
+Every thread's and user's files share `AGENT_FILES_DIR`, so the functions open only the files the current conversation received as attachments or wrote with `attach_file`, and they raise outside a turn. The bridge saves that list, up to 100 files for each conversation, in `AGENT_FILES_DIR/.conversations`, so it lasts through a restart. A file deleted and replaced at the same path is not on the list.
+
+The functions deliver a file's contents and do no analysis. For counts or totals over a large table, give the agent a tool that runs pandas or DuckDB on the attachment's `path`, after passing it through `resolve_agent_file`, which raises for any file the conversation did not receive or create. `pypdf`, `mammoth`, and `openpyxl` load only when an agent reads a file of that kind.
 
 ### `create_traceparent(*, trace_id, span_id, trace_flags="01")`
 

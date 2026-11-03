@@ -12,6 +12,10 @@ requires-python = ">=3.10"
 dependencies = [
   "astropods-messaging>=0.2.0",
   "grpcio>=1.62",
+  # File readers, imported only when an agent reads a file.
+  "mammoth>=1.13",
+  "openpyxl>=3.1.5",
+  "pypdf>=6.21",
 ]
 
 [project.optional-dependencies]
