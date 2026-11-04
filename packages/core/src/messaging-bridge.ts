@@ -62,6 +62,10 @@ const MAX_RETRIES = 10;
 const INITIAL_DELAY_MS = 500;
 const MAX_DELAY_MS = 15000;
 
+// Users see ErrorResponse.message; details is logged and never shown.
+export const AGENT_ERROR_MESSAGE =
+  "The agent couldn't finish its reply. Try again, and tell the agent's owner if it keeps happening.";
+
 // Plain render() default: an escapable submit form.
 const DEFAULT_ALLOWED_ACTIONS: RenderableAction[] = [
   "RENDERABLE_ACTION_SUBMIT",
@@ -315,7 +319,7 @@ export class MessagingBridge {
         stream.sendAgentResponse({
           conversationId,
           ...trace(),
-          error: { code: "AGENT_ERROR", message: error.message },
+          error: { code: "AGENT_ERROR", message: AGENT_ERROR_MESSAGE, details: `${error.name}: ${error.message}` },
         });
       },
       onFile: (file: OutgoingFile) => {

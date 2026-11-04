@@ -159,7 +159,7 @@ mock.module("./logger", () => ({
   },
 }));
 
-const { MessagingBridge, UnsupportedRenderableError } = await import("./messaging-bridge");
+const { MessagingBridge, UnsupportedRenderableError, AGENT_ERROR_MESSAGE } = await import("./messaging-bridge");
 
 // --- Helpers ---
 
@@ -916,14 +916,14 @@ describe("MessagingBridge", () => {
       expect(mockSendAgentResponseCalls).toHaveLength(1);
       expect(mockSendAgentResponseCalls[0]).toEqual({
         conversationId: "conv-1",
-        error: { code: "AGENT_ERROR", message: "something broke" },
+        error: { code: "AGENT_ERROR", message: AGENT_ERROR_MESSAGE, details: "Error: something broke" },
       });
     });
 
     test("catches rejected stream promise and sends error", async () => {
       const adapter = createMockAdapter({
         stream: async () => {
-          throw new Error("stream exploded");
+          throw new TypeError("stream exploded");
         },
       });
       const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
@@ -945,7 +945,7 @@ describe("MessagingBridge", () => {
       expect(mockSendAgentResponseCalls).toHaveLength(1);
       expect(mockSendAgentResponseCalls[0]).toEqual({
         conversationId: "conv-1",
-        error: { code: "AGENT_ERROR", message: "stream exploded" },
+        error: { code: "AGENT_ERROR", message: AGENT_ERROR_MESSAGE, details: "TypeError: stream exploded" },
       });
     });
 
@@ -974,7 +974,7 @@ describe("MessagingBridge", () => {
       expect(mockSendAgentResponseCalls).toHaveLength(1);
       expect(mockSendAgentResponseCalls[0]).toEqual({
         conversationId: "conv-1",
-        error: { code: "AGENT_ERROR", message: "string error" },
+        error: { code: "AGENT_ERROR", message: AGENT_ERROR_MESSAGE, details: "Error: string error" },
       });
     });
 
