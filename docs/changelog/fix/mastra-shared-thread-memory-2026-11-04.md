@@ -22,7 +22,7 @@ The adapter used the conversation as the memory thread and each turn's sender as
 
 Nobody owns a channel conversation. Everyone in the thread can already read it, so the conversation is the resource, and no one person's resource-scoped memory (working memory, cross-thread recall) mixes into it. A 1:1 chat keeps the user as its resource, so resource-scoped memory still follows them between chats.
 
-A channel thread created before this change belongs to its first speaker. Keeping that owner would give everyone in the thread the first speaker's resource-scoped memory. So the first channel turn on such a thread moves it under the conversation: the adapter waits for pending memory writes, recalls the thread's messages, re-saves them with the new `resourceId`, and re-saves the thread. Mastra's stores upsert both by ID (LibSQL uses `INSERT OR REPLACE` for threads and `ON CONFLICT(id) DO UPDATE` for messages), so the history survives the move. No separate migration runs.
+A channel thread created before this change belongs to its first speaker. Keeping that owner would give everyone in the thread the first speaker's resource-scoped memory. So the first channel turn on such a thread moves it under the conversation: the adapter waits for pending memory writes, recalls the thread's messages, re-saves them with the new `resourceId`, and re-saves the thread. The LibSQL store, which Capcom uses, upserts both by ID (`INSERT OR REPLACE` for threads, `ON CONFLICT(id) DO UPDATE` for messages), so the history survives the move. Other stores were not checked. No separate migration runs.
 
 Any other stored thread keeps its resource, because Mastra rejects a thread used with a different one.
 
