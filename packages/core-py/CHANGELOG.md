@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/astropods/adapters/compare/astropods-adapter-core-v0.11.0...astropods-adapter-core-v0.11.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **core:** keep raw agent errors out of the chat ([#127](https://github.com/astropods/adapters/issues/127)) ([687912c](https://github.com/astropods/adapters/commit/687912c4d1befcc34424f4ea4c2a26efcda5a842))
+
 ## [0.11.0](https://github.com/astropods/adapters/compare/astropods-adapter-core-v0.10.0...astropods-adapter-core-v0.11.0) (2026-11-03)
 
 
