@@ -18,7 +18,15 @@ const agent = new Agent({
 });
 ```
 
-The request context also carries `threadId` and `resourceId`.
+The request context also carries `threadId` and `resourceId`. `resourceId` is the user who sent the turn.
+
+## Memory
+
+The memory thread is the conversation. The memory resource depends on who shares it:
+
+- In a 1:1 chat, such as a DM or the web chat, the resource is the user, so resource-scoped memory follows them between chats.
+- In a channel conversation, such as a Slack thread, the resource is the conversation. Anyone in the thread can talk to the agent, and nobody's own memory mixes into it.
+- A thread already in memory keeps the resource it was created with, because Mastra rejects a thread used with a different resource.
 
 ## The chosen model
 
