@@ -18,7 +18,7 @@ The text names internal IDs and tells the user nothing they can act on. The mess
 | --- | --- |
 | `code` | `AGENT_ERROR`, unchanged |
 | `message` | `AGENT_ERROR_MESSAGE`: "The agent couldn't finish its reply. Try again, and tell the agent's owner if it keeps happening." |
-| `details` | The exception text that `message` carried before |
+| `details` | The exception's type and text, such as `TypeError: stream exploded` |
 
 The bridge still logs the full error with the conversation ID, so the agent's logs and traces keep the cause. Slack and the web chat show `message`, so both now show the plain message.
 

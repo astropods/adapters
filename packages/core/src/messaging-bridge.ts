@@ -319,7 +319,7 @@ export class MessagingBridge {
         stream.sendAgentResponse({
           conversationId,
           ...trace(),
-          error: { code: "AGENT_ERROR", message: AGENT_ERROR_MESSAGE, details: error.message },
+          error: { code: "AGENT_ERROR", message: AGENT_ERROR_MESSAGE, details: `${error.name}: ${error.message}` },
         });
       },
       onFile: (file: OutgoingFile) => {

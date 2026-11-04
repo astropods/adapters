@@ -117,7 +117,7 @@ class TestStreamHooksImpl:
         response = items[0].agent_response
         assert response.error.code == ErrorResponse.ErrorCode.Value("AGENT_ERROR")
         assert response.error.message == AGENT_ERROR_MESSAGE, "the raw exception must not reach the user"
-        assert response.error.details == "something went wrong"
+        assert response.error.details == "ValueError: something went wrong"
 
     def test_on_error_logs_the_conversation_and_traceback(self, caplog):
         try:

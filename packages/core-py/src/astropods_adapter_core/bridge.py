@@ -150,7 +150,7 @@ class _StreamHooksImpl:
         err = ErrorResponse(
             code=ErrorResponse.ErrorCode.Value("AGENT_ERROR"),
             message=AGENT_ERROR_MESSAGE,
-            details=str(error),
+            details=f"{type(error).__name__}: {error}",
         )
         response = self._response(error=err)
         self._enqueue(ConversationRequest(agent_response=response))
