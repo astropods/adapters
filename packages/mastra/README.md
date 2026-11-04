@@ -26,7 +26,8 @@ The memory thread is the conversation. The memory resource depends on who shares
 
 - In a 1:1 chat, such as a DM or the web chat, the resource is the user, so resource-scoped memory follows them between chats.
 - In a channel conversation, such as a Slack thread, the resource is the conversation. Anyone in the thread can talk to the agent, and nobody's own memory mixes into it.
-- A thread already in memory keeps the resource it was created with, because Mastra rejects a thread used with a different resource.
+- A channel thread that one person already owns, from before this rule, moves under the conversation the next time someone uses it in the channel. Its messages move with it.
+- Any other thread already in memory keeps its resource, because Mastra rejects a thread used with a different resource.
 
 ## The chosen model
 
