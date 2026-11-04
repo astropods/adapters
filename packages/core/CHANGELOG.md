@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.15.1](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.15.0...@astropods/adapter-core@0.15.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **core:** keep raw agent errors out of the chat ([#127](https://github.com/astropods/adapters/issues/127)) ([687912c](https://github.com/astropods/adapters/commit/687912c4d1befcc34424f4ea4c2a26efcda5a842))
+
+
+
 ## [0.15.0](https://github.com/astropods/adapters/compare/@astropods/adapter-core@0.14.0...@astropods/adapter-core@0.15.0) (2026-11-03)
 
 

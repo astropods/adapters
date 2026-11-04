@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.10.1](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.10.0...@astropods/adapter-mastra@0.10.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **mastra:** let everyone in a Slack thread use an agent with memory ([#126](https://github.com/astropods/adapters/issues/126)) ([803d078](https://github.com/astropods/adapters/commit/803d07829394af58efda6ef4fca1271586719f9e))
+
+
+
 ## [0.10.0](https://github.com/astropods/adapters/compare/@astropods/adapter-mastra@0.9.0...@astropods/adapter-mastra@0.10.0) (2026-11-03)
 
 
