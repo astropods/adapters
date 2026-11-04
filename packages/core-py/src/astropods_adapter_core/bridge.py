@@ -65,6 +65,9 @@ MAX_RETRIES = 10
 INITIAL_DELAY_MS = 500
 MAX_DELAY_MS = 15000
 
+# Users see ErrorResponse.message; details is logged and never shown.
+AGENT_ERROR_MESSAGE = "The agent couldn't finish its reply. Try again, and tell the agent's owner if it keeps happening."
+
 # StreamControl.Action value for a user "stop generating". Resolved once at
 # import so the hot feedback path is a plain int comparison.
 _STREAM_CONTROL_STOP = StreamControl.Action.Value("STOP")
@@ -146,7 +149,8 @@ class _StreamHooksImpl:
         self._finished = True
         err = ErrorResponse(
             code=ErrorResponse.ErrorCode.Value("AGENT_ERROR"),
-            message=str(error),
+            message=AGENT_ERROR_MESSAGE,
+            details=str(error),
         )
         response = self._response(error=err)
         self._enqueue(ConversationRequest(agent_response=response))

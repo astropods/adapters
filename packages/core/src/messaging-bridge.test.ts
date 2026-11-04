@@ -159,7 +159,7 @@ mock.module("./logger", () => ({
   },
 }));
 
-const { MessagingBridge, UnsupportedRenderableError } = await import("./messaging-bridge");
+const { MessagingBridge, UnsupportedRenderableError, AGENT_ERROR_MESSAGE } = await import("./messaging-bridge");
 
 // --- Helpers ---
 
@@ -916,7 +916,7 @@ describe("MessagingBridge", () => {
       expect(mockSendAgentResponseCalls).toHaveLength(1);
       expect(mockSendAgentResponseCalls[0]).toEqual({
         conversationId: "conv-1",
-        error: { code: "AGENT_ERROR", message: "something broke" },
+        error: { code: "AGENT_ERROR", message: AGENT_ERROR_MESSAGE, details: "something broke" },
       });
     });
 
@@ -945,7 +945,7 @@ describe("MessagingBridge", () => {
       expect(mockSendAgentResponseCalls).toHaveLength(1);
       expect(mockSendAgentResponseCalls[0]).toEqual({
         conversationId: "conv-1",
-        error: { code: "AGENT_ERROR", message: "stream exploded" },
+        error: { code: "AGENT_ERROR", message: AGENT_ERROR_MESSAGE, details: "stream exploded" },
       });
     });
 
@@ -974,7 +974,7 @@ describe("MessagingBridge", () => {
       expect(mockSendAgentResponseCalls).toHaveLength(1);
       expect(mockSendAgentResponseCalls[0]).toEqual({
         conversationId: "conv-1",
-        error: { code: "AGENT_ERROR", message: "string error" },
+        error: { code: "AGENT_ERROR", message: AGENT_ERROR_MESSAGE, details: "string error" },
       });
     });
 

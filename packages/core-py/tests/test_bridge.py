@@ -12,6 +12,7 @@ from astropods_messaging import (
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
 from astropods_adapter_core.bridge import (
+    AGENT_ERROR_MESSAGE,
     MessagingBridge,
     _agent_config,
     _StreamHooksImpl,
@@ -115,7 +116,8 @@ class TestStreamHooksImpl:
         assert len(items) == 1
         response = items[0].agent_response
         assert response.error.code == ErrorResponse.ErrorCode.Value("AGENT_ERROR")
-        assert "something went wrong" in response.error.message
+        assert response.error.message == AGENT_ERROR_MESSAGE, "the raw exception must not reach the user"
+        assert response.error.details == "something went wrong"
 
     def test_on_error_logs_the_conversation_and_traceback(self, caplog):
         try:
