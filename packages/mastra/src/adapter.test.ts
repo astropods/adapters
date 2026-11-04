@@ -313,7 +313,7 @@ describe("MastraAdapter", () => {
       expect((await memory.getThreadById({ threadId: "conv-1" }))?.resourceId).toBe("conv-1");
     });
 
-    test("a channel thread its first speaker owns moves under the conversation", async () => {
+    test("a thread one person already owns stays usable by the next person", async () => {
       const memory = new MockMemory();
       const { agent, prompts } = memoryAgent(memory);
       const adapter = new MastraAdapter(agent);
@@ -324,10 +324,10 @@ describe("MastraAdapter", () => {
 
       expect(hooks.errors.map((e) => e.message)).toEqual([]);
       expect(texts(prompts.at(-1)!)).toEqual(["q1", "ok", "q2"]);
-      expect((await memory.getThreadById({ threadId: "conv-1" }))?.resourceId).toBe("conv-1");
+      expect((await memory.getThreadById({ threadId: "conv-1" }))?.resourceId).toBe("user-1");
     });
 
-    test("an edit replay in a channel thread uses the conversation", async () => {
+    test("an edit keeps the thread's stored resource", async () => {
       const memory = new MockMemory();
       const { agent, prompts } = memoryAgent(memory);
       const adapter = new MastraAdapter(agent);
@@ -338,22 +338,6 @@ describe("MastraAdapter", () => {
 
       expect(hooks.errors.map((e) => e.message)).toEqual([]);
       expect(texts(prompts.at(-1)!)).toEqual(["q1", "a1", "q2 edited"]);
-      expect((await memory.getThreadById({ threadId: "conv-1" }))?.resourceId).toBe("conv-1");
-    });
-
-    test("a thread keeps its stored owner outside channel conversations", async () => {
-      const memory = new MockMemory();
-      const { agent } = memoryAgent(memory);
-      const adapter = new MastraAdapter(agent);
-      await adapter.stream("q1", createHooks(), defaultOptions);
-
-      const hooks = createHooks();
-      await adapter.stream("q2", hooks, {
-        ...defaultOptions,
-        platformContext: { messageId: "m", channelId: "D1", eventKind: "EVENT_KIND_REACTION" } as StreamOptions["platformContext"],
-      });
-
-      expect(hooks.errors.map((e) => e.message)).toEqual([]);
       expect((await memory.getThreadById({ threadId: "conv-1" }))?.resourceId).toBe("user-1");
     });
 

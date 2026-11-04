@@ -16,17 +16,17 @@ The adapter used the conversation as the memory thread and each turn's sender as
 
 | Conversation | Memory resource |
 | --- | --- |
-| 1:1 (`eventKind` is `EVENT_KIND_DM` or unset, as for DMs and the web chat) | The user ID |
-| In a channel (an app mention, thread reply, or observed message) | The conversation ID |
-| Another kind, such as a reaction | The conversation ID for a new thread, or the stored thread's resource |
+| Already in memory | The thread's stored `resourceId` |
+| New, 1:1 (`eventKind` is `EVENT_KIND_DM` or unset, as for DMs and the web chat) | The user ID |
+| New, in a channel (an app mention, thread reply, observed message, or reaction) | The conversation ID |
 
 Nobody owns a channel conversation. Everyone in the thread can already read it, so the conversation is the resource, and no one person's resource-scoped memory (working memory, cross-thread recall) mixes into it. A 1:1 chat keeps the user as its resource, so resource-scoped memory still follows them between chats.
 
-A channel thread created before this change belongs to its first speaker. Keeping that owner would give everyone in the thread the first speaker's resource-scoped memory. So the first channel turn on such a thread moves it under the conversation: the adapter waits for pending memory writes, recalls the thread's messages, re-saves them with the new `resourceId`, and re-saves the thread. The LibSQL store, which Capcom uses, upserts both by ID (`INSERT OR REPLACE` for threads, `ON CONFLICT(id) DO UPDATE` for messages), so the history survives the move. Other stores were not checked. No separate migration runs.
+A stored thread keeps its resource. Threads created before this change belong to their first speaker, and they keep working without a migration.
 
-Any other stored thread keeps its resource, because Mastra rejects a thread used with a different one.
+An old channel thread that keeps its first speaker as its resource matters only to an agent with resource-scoped working memory or semantic recall. Those features carry a person's notes across their threads, DMs included. Capcom uses neither: its memory sets only `lastMessages`. An agent that does use them can set both to `scope: "thread"`, and then nothing crosses between threads, whoever the resource is.
 
-The lookup is one `getThreadById` call per turn, and only when the agent has memory. The move happens at most once per old channel thread. The request context's `resourceId` stays the sender's user ID, as the README documents for agents' own tools.
+The lookup is one `getThreadById` call per turn, and only when the agent has memory. The request context's `resourceId` stays the sender's user ID, as the README documents for agents' own tools.
 
 ## Migration
 

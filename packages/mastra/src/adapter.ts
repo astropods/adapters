@@ -80,11 +80,6 @@ function argsSummary(args: unknown): string {
 const PREVIOUS_TURN_WAIT_MS = 10_000;
 
 const PRIVATE_EVENT_KINDS = new Set<string | undefined>([undefined, "", "EVENT_KIND_UNSPECIFIED", "EVENT_KIND_DM"]);
-const CHANNEL_EVENT_KINDS = new Set<string | undefined>([
-  "EVENT_KIND_APP_MENTION",
-  "EVENT_KIND_THREAD_REPLY",
-  "EVENT_KIND_OBSERVED",
-]);
 
 function settleWithin(promise: Promise<void>, ms: number): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -243,24 +238,10 @@ export class MastraAdapter implements AgentAdapter {
 
   // Mastra rejects a thread used with a resource other than the one it was created with.
   private async memoryResource(options: StreamOptions, requestContext: RequestContext): Promise<string> {
-    const kind = options.platformContext?.eventKind;
-    const resource = PRIVATE_EVENT_KINDS.has(kind) ? options.userId : options.conversationId;
     const memory = await this.agent.getMemory({ requestContext });
     const stored = memory ? await memory.getThreadById({ threadId: options.conversationId }) : null;
-    if (!memory || !stored?.resourceId || stored.resourceId === resource) return resource;
-    if (!CHANNEL_EVENT_KINDS.has(kind)) return stored.resourceId;
-    // A channel thread its first speaker owns would show their resource-scoped memory to everyone in it.
-    await memory.settled();
-    const { messages } = await memory.recall({
-      threadId: options.conversationId,
-      resourceId: stored.resourceId,
-      perPage: false,
-    });
-    if (messages.length > 0) {
-      await memory.saveMessages({ messages: messages.map((m) => ({ ...m, resourceId: resource })) });
-    }
-    await memory.saveThread({ thread: { ...stored, resourceId: resource, updatedAt: new Date() } });
-    return resource;
+    if (stored?.resourceId) return stored.resourceId;
+    return PRIVATE_EVENT_KINDS.has(options.platformContext?.eventKind) ? options.userId : options.conversationId;
   }
 
   /** Deleting the thread drops thread-scoped working memory and metadata, not resource-scoped. */
