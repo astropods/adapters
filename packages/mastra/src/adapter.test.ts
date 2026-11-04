@@ -293,6 +293,68 @@ describe("MastraAdapter", () => {
       await adapter.stream("q2", createHooks(), defaultOptions);
     }
 
+    const inChannel = (userId: string, eventKind: "EVENT_KIND_APP_MENTION" | "EVENT_KIND_THREAD_REPLY") => ({
+      ...defaultOptions,
+      userId,
+      platformContext: { messageId: "m", channelId: "C1", threadId: "1.1", eventKind } as StreamOptions["platformContext"],
+    });
+
+    test("a second person in a channel thread shares the thread's memory", async () => {
+      const memory = new MockMemory();
+      const { agent, prompts } = memoryAgent(memory);
+      const adapter = new MastraAdapter(agent);
+      await adapter.stream("q1", createHooks(), inChannel("user-1", "EVENT_KIND_APP_MENTION"));
+
+      const hooks = createHooks();
+      await adapter.stream("q2", hooks, inChannel("user-2", "EVENT_KIND_THREAD_REPLY"));
+
+      expect(hooks.errors.map((e) => e.message)).toEqual([]);
+      expect(texts(prompts.at(-1)!)).toEqual(["q1", "ok", "q2"]);
+      expect((await memory.getThreadById({ threadId: "conv-1" }))?.resourceId).toBe("conv-1");
+    });
+
+    test("a thread one person already owns stays usable by the next person", async () => {
+      const memory = new MockMemory();
+      const { agent, prompts } = memoryAgent(memory);
+      const adapter = new MastraAdapter(agent);
+      await adapter.stream("q1", createHooks(), defaultOptions);
+
+      const hooks = createHooks();
+      await adapter.stream("q2", hooks, inChannel("user-2", "EVENT_KIND_THREAD_REPLY"));
+
+      expect(hooks.errors.map((e) => e.message)).toEqual([]);
+      expect(texts(prompts.at(-1)!)).toEqual(["q1", "ok", "q2"]);
+      expect((await memory.getThreadById({ threadId: "conv-1" }))?.resourceId).toBe("user-1");
+    });
+
+    test("an edit keeps the thread's stored resource", async () => {
+      const memory = new MockMemory();
+      const { agent, prompts } = memoryAgent(memory);
+      const adapter = new MastraAdapter(agent);
+      await seed(adapter);
+
+      const hooks = createHooks();
+      await adapter.stream("q2 edited", hooks, { ...inChannel("user-2", "EVENT_KIND_THREAD_REPLY"), history: edit });
+
+      expect(hooks.errors.map((e) => e.message)).toEqual([]);
+      expect(texts(prompts.at(-1)!)).toEqual(["q1", "a1", "q2 edited"]);
+      expect((await memory.getThreadById({ threadId: "conv-1" }))?.resourceId).toBe("user-1");
+    });
+
+    test("a 1:1 conversation belongs to its person", async () => {
+      const memory = new MockMemory();
+      const { agent } = memoryAgent(memory);
+      const adapter = new MastraAdapter(agent);
+
+      await adapter.stream("q1", createHooks(), {
+        ...defaultOptions,
+        userId: "user-2",
+        platformContext: { messageId: "m", channelId: "D1", eventKind: "EVENT_KIND_DM" } as StreamOptions["platformContext"],
+      });
+
+      expect((await memory.getThreadById({ threadId: "conv-1" }))?.resourceId).toBe("user-2");
+    });
+
     test("an edit replaces the thread with the given history", async () => {
       const memory = new MockMemory();
       const { agent, prompts } = memoryAgent(memory);
@@ -1556,6 +1618,7 @@ describe("request context", () => {
         };
       },
       getTools: () => ({}),
+      getMemory: async () => undefined,
     } as unknown as Parameters<typeof MastraAdapter.prototype.constructor>[0];
 
     const adapter = new MastraAdapter(agent as never);
