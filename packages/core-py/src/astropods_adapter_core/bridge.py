@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import os
 import signal
@@ -59,6 +60,43 @@ _ON_CONFLICT = {
 FILES_BLOB_SUFFIX = ".blob"
 
 logger = logging.getLogger(__name__)
+
+# Bedrock's per-request image limits for Claude, the strictest of the gateway's providers.
+MAX_TURN_IMAGES = 20
+MAX_STAGED_IMAGE_BYTES = 3_750_000
+# Base64 of this many raw bytes stays under Anthropic's 32 MB request limit.
+MAX_TURN_IMAGE_BYTES = 20 * 2**20
+
+
+def _image_media_type(data: bytes) -> str | None:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"GIF8"):
+        return "image/gif"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _read_staged_image(key: str, max_bytes: int) -> tuple[str, str, int] | None:
+    """Returns (data URI, media type, size), or None to leave the image a file."""
+    path = os.path.join(agent_files_dir(), f"{key}{FILES_BLOB_SUFFIX}")
+    try:
+        if os.path.getsize(path) > max_bytes:
+            logger.debug("Staged image over the turn's image limit; leaving it as a file: key=%s", key)
+            return None
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        logger.warning("Staged image could not be read: key=%s: %s", key, e)
+        return None
+    media_type = _image_media_type(data)
+    if media_type is None:
+        return None
+    return f"data:{media_type};base64,{base64.b64encode(data).decode()}", media_type, len(data)
+
 
 DEFAULT_SERVER_ADDR = "localhost:9090"
 MAX_RETRIES = 10
@@ -527,22 +565,25 @@ class MessagingBridge:
             )
         )
 
-    def _resolve_images(self, message: Message) -> list[ImageInput]:
+    async def _resolve_images(self, message: Message) -> list[ImageInput]:
+        """An image with only a storage_key is read from the files volume."""
         out: list[ImageInput] = []
+        budget = MAX_TURN_IMAGE_BYTES
         for a in message.attachments:
-            if a.type != a.Type.Value("IMAGE"):
+            if a.type != a.Type.Value("IMAGE") or len(out) == MAX_TURN_IMAGES:
                 continue
-            if not a.url:
+            key = getattr(a, "storage_key", "") or None
+            if a.url:
+                url, mime_type, size = a.url, a.mime_type or None, a.size_bytes or None
+            elif key:
+                staged = await asyncio.to_thread(_read_staged_image, key, min(budget, MAX_STAGED_IMAGE_BYTES))
+                if staged is None:
+                    continue
+                url, mime_type, size = staged
+            else:
                 continue
-            out.append(
-                ImageInput(
-                    key=getattr(a, "storage_key", "") or None,
-                    name=a.filename or "image",
-                    url=a.url,
-                    mime_type=a.mime_type or None,
-                    size=a.size_bytes or None,
-                )
-            )
+            budget -= size or 0
+            out.append(ImageInput(key=key, name=a.filename or "image", url=url, mime_type=mime_type, size=size))
         return out
 
     def _resolve_attachments(self, message: Message) -> list[AttachmentInput]:
@@ -659,7 +700,7 @@ class MessagingBridge:
                 message.platform_context if message.HasField("platform_context") else None
             ),
             attachments=self._resolve_attachments(message),
-            images=self._resolve_images(message),
+            images=await self._resolve_images(message),
             history=_resolve_history(message),
             model=self._offered_model(message),
             save_conversation=lambda inp: self._save_conversation(
