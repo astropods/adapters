@@ -36,6 +36,9 @@ let mockSendAgentResponseCalls: AgentResponse[] = [];
 let mockResponseHandlers: Array<(response: AgentResponse) => void> = [];
 let mockErrorHandlers: Array<(error: Error) => void> = [];
 let mockEndHandlers: Array<() => void> = [];
+let mockReconnectedHandlers: Array<(info: { attempt: number }) => void> = [];
+let mockSendAgentConfigCount = 0;
+let mockSentMessages: Message[] = [];
 let mockAudioConfigHandlers: Array<(config: AudioStreamConfig) => void> = [];
 let mockConstructorAddr: string | null = null;
 let mockSendTranscriptCalls: Array<{
@@ -81,9 +84,11 @@ mock.module("@astropods/messaging", () => ({
       return {
         sendAgentConfig(config: AgentConfig) {
           mockSendAgentConfigArgs = config;
+          mockSendAgentConfigCount++;
         },
         sendMessage(msg: Message) {
           mockSendMessageArgs = msg;
+          mockSentMessages.push(msg);
         },
         sendContentChunk(
           conversationId: string,
@@ -124,6 +129,7 @@ mock.module("@astropods/messaging", () => ({
           if (event === "response") mockResponseHandlers.push(handler);
           if (event === "error") mockErrorHandlers.push(handler);
           if (event === "end") mockEndHandlers.push(handler);
+          if (event === "reconnected") mockReconnectedHandlers.push(handler);
           if (event === "audioConfig") mockAudioConfigHandlers.push(handler);
         },
         end() {
@@ -190,6 +196,9 @@ function resetMockState() {
   mockResponseHandlers = [];
   mockErrorHandlers = [];
   mockEndHandlers = [];
+  mockReconnectedHandlers = [];
+  mockSendAgentConfigCount = 0;
+  mockSentMessages = [];
   mockAudioConfigHandlers = [];
   mockConstructorAddr = null;
   mockSendTranscriptCalls = [];
@@ -284,6 +293,22 @@ describe("MessagingBridge", () => {
       expect(mockResponseHandlers).toHaveLength(1);
       expect(mockErrorHandlers).toHaveLength(1);
       expect(mockEndHandlers).toHaveLength(1);
+    });
+
+    test("sends config and registration again when the stream reconnects", async () => {
+      const adapter = createMockAdapter({ name: "My Cool Agent" });
+      const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+
+      await bridge.start();
+      expect(mockSendAgentConfigCount).toBe(1);
+      expect(mockReconnectedHandlers).toHaveLength(1);
+
+      mockReconnectedHandlers[0]({ attempt: 1 });
+
+      expect(mockSendAgentConfigCount).toBe(2);
+      const registrations = mockSentMessages.filter((m) => m.conversationId === "agent-registration");
+      expect(registrations).toHaveLength(2);
+      expect(registrations[1].user.id).toBe("my-cool-agent");
     });
   });
 
