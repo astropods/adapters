@@ -64,12 +64,8 @@ export interface AttachmentInput {
   size?: number;
 }
 
-/** An image the user attached to the incoming message, delivered inline so the
- *  adapter can hand it straight to the model as visual context. Unlike
- *  {@link AttachmentInput} (files staged on the shared volume by path), an image
- *  carries its bytes in `url` as a data URI (`data:<mime>;base64,…`) — or a
- *  directly fetchable image URL — so no files volume or platform token is
- *  needed on the agent side. */
+/** An image the user attached, for the adapter to hand straight to the model. The
+ *  bridge reads an image staged on the files volume into a `url` data URI. */
 export interface ImageInput {
   /** Files-API key of the same upload, when the message carried one. */
   key?: string;
