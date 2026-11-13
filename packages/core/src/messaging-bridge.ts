@@ -187,9 +187,16 @@ export class MessagingBridge {
     // Open bidirectional stream
     this.stream = this.client!.createConversationStream();
 
-    // Send agent config for playground display
-    this.stream.sendAgentConfig(config);
-    logger.info("Agent config sent");
+    // The sidecar registers a stream on its first message, so every new stream resends both.
+    const register = () => {
+      this.stream!.sendAgentConfig(config);
+      this.stream!.sendMessage({
+        conversationId: "agent-registration",
+        platform: "grpc",
+        content: "Agent ready",
+        user: { id: agentId, username: agentName },
+      });
+    };
 
     // Listen for incoming messages
     this.stream.on("response", (response: AgentResponse) => {
@@ -259,13 +266,13 @@ export class MessagingBridge {
       logger.info("Stream ended");
     });
 
-    // Register the agent
-    this.stream.sendMessage({
-      conversationId: "agent-registration",
-      platform: "grpc",
-      content: "Agent ready",
-      user: { id: agentId, username: agentName },
+    this.stream.on("reconnected", ({ attempt }: { attempt: number }) => {
+      logger.warn(`Messaging stream reconnected after ${attempt} attempt(s); registering again`);
+      register();
     });
+
+    register();
+    logger.info("Agent config sent");
 
     logger.info(`${agentName} is ready and listening for messages`);
 
