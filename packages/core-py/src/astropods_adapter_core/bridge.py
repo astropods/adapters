@@ -64,6 +64,7 @@ DEFAULT_SERVER_ADDR = "localhost:9090"
 MAX_RETRIES = 10
 INITIAL_DELAY_MS = 500
 MAX_DELAY_MS = 15000
+SHUTDOWN_DRAIN_TIMEOUT_S = 5
 
 # Users see ErrorResponse.message; details is logged and never shown.
 AGENT_ERROR_MESSAGE = "The agent couldn't finish its reply. Try again, and tell the agent's owner if it keeps happening."
@@ -287,6 +288,10 @@ class MessagingBridge:
         while True:
             item = await self._write_queue.get()
             if item is None:
+                try:
+                    await stream.done_writing()
+                except Exception as e:
+                    logger.error("Stream close error: %s", e)
                 break
             try:
                 await stream.write(item)
@@ -333,14 +338,19 @@ class MessagingBridge:
         await self._write_queue.put(ConversationRequest(message=registration))
         logger.info("%s is ready and listening for messages", agent_name)
 
-        # Register signal handlers for graceful shutdown
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, self.stop)
 
-        # Read incoming messages from the server
+        reader = asyncio.create_task(self._read_stream(stream))
+        await self._stop_event.wait()
+        await self._shutdown(stream, reader, writer)
+
+    async def _read_stream(self, stream: grpc.aio.StreamStreamCall) -> None:
         try:
             async for response in stream:
+                if self._stop_event.is_set():
+                    break
                 payload = response.WhichOneof("payload")
 
                 if payload == "audio_config":
@@ -413,12 +423,33 @@ class MessagingBridge:
         except grpc.aio.AioRpcError as e:
             if not self._stop_event.is_set():
                 logger.error("Stream error: %s", e)
-        finally:
-            # Drain the writer
-            await self._write_queue.put(None)
-            await writer
 
-        await self._stop_event.wait()
+    async def _shutdown(
+        self,
+        stream: grpc.aio.StreamStreamCall,
+        reader: asyncio.Task,
+        writer: asyncio.Task,
+    ) -> None:
+        turns = list(self._inflight.values())
+        self._inflight.clear()
+        for task in turns:
+            task.cancel()
+        await asyncio.gather(*turns, return_exceptions=True)
+
+        await self._write_queue.put(None)
+        try:
+            await asyncio.wait_for(writer, SHUTDOWN_DRAIN_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            logger.warning("Shutdown: dropped unsent responses after %ss", SHUTDOWN_DRAIN_TIMEOUT_S)
+
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+        stream.cancel()
+        if self._channel is not None:
+            await self._channel.close()
+            self._channel = None
+            self._stub = None
+        logger.info("Shutdown complete")
 
     def _dispatch_feedback(self, fb_proto) -> None:
         """Convert an incoming PlatformFeedback proto into a FeedbackEvent and

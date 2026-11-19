@@ -29,6 +29,7 @@ from astropods_adapter_core.types import (
     StreamOptions,
 )
 from astropods_messaging import (
+    AgentResponse,
     Attachment,
     AudioChunk,
     ContentChunk,
@@ -773,6 +774,75 @@ class TestStopGeneration:
         # No in-flight turn: must not raise and must not fabricate state.
         bridge._maybe_abort_on_stream_control(_stop_feedback("ghost"))
         assert bridge._inflight == {}
+
+
+class _OpenStream:
+    """A ProcessConversation call that delivers ``incoming`` and then stays open,
+    like a real stream whose messaging sidecar outlives the agent."""
+
+    def __init__(self, incoming: list) -> None:
+        self._incoming = incoming
+        self.written: list = []
+        self.write = AsyncMock(side_effect=self.written.append)
+        self.done_writing = AsyncMock()
+        self.cancel = MagicMock()
+
+    async def __aiter__(self):
+        for item in self._incoming:
+            yield item
+        await asyncio.Event().wait()
+
+
+class TestShutdown:
+    async def _start_with_open_turn(self):
+        adapter = _RecordingAdapter()
+        stream = _OpenStream([
+            AgentResponse(
+                incoming_message=Message(conversation_id="c1", content="hi", user=User(id="u1"))
+            )
+        ])
+        stub = MagicMock()
+        stub.ProcessConversation = MagicMock(return_value=stream)
+        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+        bridge._stub = stub
+        patcher = patch.object(bridge, "_connect_with_retry", new=AsyncMock())
+        patcher.start()
+        task = asyncio.create_task(bridge.start())
+        call = await _await_started(adapter, "c1")
+        return bridge, stream, task, call, patcher
+
+    def _assert_shut_down(self, stream: _OpenStream, call: dict) -> None:
+        assert call["cancelled"] is True, "an in-flight turn must be aborted on shutdown"
+        events = _content_events(stream.written)
+        assert ("delta", "partial ") in events, "responses queued before shutdown must be written"
+        assert not any(kind in ("end", "error") for kind, _ in events), "an aborted turn ends quietly"
+        stream.done_writing.assert_awaited_once()
+        stream.cancel.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stop_returns_from_start_while_the_stream_is_open(self):
+        bridge, stream, task, call, patcher = await self._start_with_open_turn()
+        try:
+            bridge.stop()
+            await asyncio.wait_for(task, timeout=3.0)
+        finally:
+            patcher.stop()
+        self._assert_shut_down(stream, call)
+
+    @pytest.mark.asyncio
+    async def test_sigterm_returns_from_start_while_the_stream_is_open(self):
+        import signal
+
+        bridge, stream, task, call, patcher = await self._start_with_open_turn()
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+            await asyncio.wait_for(task, timeout=3.0)
+        finally:
+            patcher.stop()
+        self._assert_shut_down(stream, call)
+        assert not asyncio.get_running_loop().remove_signal_handler(signal.SIGTERM), (
+            "stop() must remove the SIGTERM handler it installed"
+        )
 
 
 # --- save_conversation ---
