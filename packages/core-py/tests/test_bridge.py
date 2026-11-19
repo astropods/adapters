@@ -1,6 +1,10 @@
 import asyncio
 import base64
 import os
+import signal
+import subprocess
+import sys
+import time
 from datetime import datetime, timezone
 
 import pytest
@@ -12,8 +16,10 @@ from astropods_messaging import (
 )
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
+from astropods_adapter_core import bridge as bridge_module
 from astropods_adapter_core.bridge import (
     AGENT_ERROR_MESSAGE,
+    AGENT_RESTARTING_MESSAGE,
     MessagingBridge,
     _agent_config,
     _StreamHooksImpl,
@@ -367,16 +373,8 @@ class TestAgentIdDerivation:
         adapter.stream = AsyncMock()
         adapter.get_config.return_value = {"system_prompt": "", "tools": []}
 
-        sent = []
-
-        mock_stream = MagicMock()
-        mock_stream.write = AsyncMock(side_effect=lambda msg: sent.append(msg))
-
-        async def fake_aiter(self):
-            return
-            yield  # make it an async generator
-
-        mock_stream.__aiter__ = fake_aiter
+        mock_stream = _OpenStream([])
+        sent = mock_stream.written
 
         mock_stub = MagicMock()
         mock_stub.HealthCheck = AsyncMock(return_value=MagicMock(status=1))
@@ -777,40 +775,73 @@ class TestStopGeneration:
         assert bridge._inflight == {}
 
 
+_END = object()
+
+
 class _OpenStream:
-    """A ProcessConversation call that delivers ``incoming`` and then stays open,
-    like a real stream whose messaging sidecar outlives the agent."""
+    """A ProcessConversation call that stays open until the test ends it, like a
+    real stream whose messaging sidecar outlives the agent. ``push`` delivers a
+    response, an exception to raise, or ``_END`` to close the stream."""
 
     def __init__(self, incoming: list) -> None:
-        self._incoming = incoming
+        self._queue: asyncio.Queue = asyncio.Queue()
+        for item in incoming:
+            self._queue.put_nowait(item)
         self.written: list = []
         self.write = AsyncMock(side_effect=self.written.append)
         self.done_writing = AsyncMock()
-        self.cancel = MagicMock()
+        self.done = MagicMock(return_value=False)
+
+    def push(self, item) -> None:
+        self._queue.put_nowait(item)
 
     async def __aiter__(self):
-        for item in self._incoming:
+        while True:
+            item = await self._queue.get()
+            if item is _END:
+                return
+            if isinstance(item, BaseException):
+                raise item
             yield item
-        await asyncio.Event().wait()
+
+
+class _IgnoresCancelAdapter(_RecordingAdapter):
+    async def stream(self, prompt, hooks, options) -> None:
+        self.release = asyncio.Event()
+        try:
+            await super().stream(prompt, hooks, options)
+        except asyncio.CancelledError:
+            await self.release.wait()
+
+
+def _incoming(conversation_id: str) -> AgentResponse:
+    return AgentResponse(
+        incoming_message=Message(conversation_id=conversation_id, content="hi", user=User(id="u1"))
+    )
 
 
 class TestShutdown:
-    async def _start_with_open_turn(self):
-        adapter = _RecordingAdapter()
-        stream = _OpenStream([
-            AgentResponse(
-                incoming_message=Message(conversation_id="c1", content="hi", user=User(id="u1"))
-            )
-        ])
-        stub = MagicMock()
-        stub.ProcessConversation = MagicMock(return_value=stream)
-        bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
-        bridge._stub = stub
-        patcher = patch.object(bridge, "_connect_with_retry", new=AsyncMock())
-        patcher.start()
-        task = asyncio.create_task(bridge.start())
-        call = await _await_started(adapter, "c1")
-        return bridge, stream, task, call, patcher
+    @pytest.fixture
+    async def running(self):
+        started: list = []
+
+        async def run(adapter: _RecordingAdapter | None = None, incoming: list | None = None):
+            adapter = adapter or _RecordingAdapter()
+            stream = _OpenStream([_incoming("c1")] if incoming is None else incoming)
+            stub = MagicMock()
+            stub.ProcessConversation = MagicMock(return_value=stream)
+            bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))
+            bridge._stub = stub
+            bridge._connect_with_retry = AsyncMock()
+            task = asyncio.create_task(bridge.start())
+            started.append(task)
+            call = await _await_started(adapter, "c1") if incoming is None else None
+            return bridge, stream, task, call
+
+        yield run
+        for task in started:
+            task.cancel()
+        await asyncio.gather(*started, return_exceptions=True)
 
     def _assert_shut_down(self, stream: _OpenStream, call: dict) -> None:
         assert call["cancelled"] is True, "an in-flight turn must be aborted on shutdown"
@@ -818,32 +849,89 @@ class TestShutdown:
         assert ("delta", "partial ") in events, "responses queued before shutdown must be written"
         assert not any(kind in ("end", "error") for kind, _ in events), "an aborted turn ends quietly"
         stream.done_writing.assert_awaited_once()
-        stream.cancel.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stop_returns_from_start_while_the_stream_is_open(self):
-        bridge, stream, task, call, patcher = await self._start_with_open_turn()
-        try:
-            bridge.stop()
-            await asyncio.wait_for(task, timeout=3.0)
-        finally:
-            patcher.stop()
+    async def test_stop_returns_from_start_while_the_stream_is_open(self, running):
+        bridge, stream, task, call = await running()
+        bridge.stop()
+        await asyncio.wait_for(task, timeout=3.0)
         self._assert_shut_down(stream, call)
 
     @pytest.mark.asyncio
-    async def test_sigterm_returns_from_start_while_the_stream_is_open(self):
-        import signal
-
-        bridge, stream, task, call, patcher = await self._start_with_open_turn()
-        try:
-            os.kill(os.getpid(), signal.SIGTERM)
-            await asyncio.wait_for(task, timeout=3.0)
-        finally:
-            patcher.stop()
+    async def test_sigterm_returns_from_start_while_the_stream_is_open(self, running):
+        bridge, stream, task, call = await running()
+        assert signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL, (
+            "the bridge must install a SIGTERM handler; sending SIGTERM now would kill pytest"
+        )
+        os.kill(os.getpid(), signal.SIGTERM)
+        await asyncio.wait_for(task, timeout=3.0)
         self._assert_shut_down(stream, call)
-        assert not asyncio.get_running_loop().remove_signal_handler(signal.SIGTERM), (
+        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL, (
             "stop() must remove the SIGTERM handler it installed"
         )
+
+    @pytest.mark.asyncio
+    async def test_stop_from_another_thread_returns_from_start(self, running):
+        bridge, stream, task, call = await running()
+        await asyncio.to_thread(bridge.stop)
+        await asyncio.wait_for(task, timeout=3.0)
+        self._assert_shut_down(stream, call)
+
+    @pytest.mark.asyncio
+    async def test_a_turn_that_ignores_cancel_does_not_block_shutdown(self, running, monkeypatch):
+        monkeypatch.setattr(bridge_module, "SHUTDOWN_TURN_TIMEOUT_S", 0.1)
+        adapter = _IgnoresCancelAdapter()
+        bridge, stream, task, call = await running(adapter)
+        bridge.stop()
+        await asyncio.wait_for(task, timeout=2.0)
+        stream.done_writing.assert_awaited_once()
+        adapter.release.set()
+
+    @pytest.mark.asyncio
+    async def test_a_message_during_shutdown_gets_a_retryable_error(self, running):
+        bridge, stream, task, call = await running()
+        bridge.stop()
+        stream.push(_incoming("late"))
+        await asyncio.wait_for(task, timeout=3.0)
+        late = [r.agent_response for r in stream.written if r.agent_response.conversation_id == "late"]
+        assert [r.WhichOneof("payload") for r in late] == ["content", "error"], (
+            "a refused message gets START then an error, never a turn"
+        )
+        assert late[1].error.code == ErrorResponse.ErrorCode.Value("PLATFORM_ERROR")
+        assert late[1].error.message == AGENT_RESTARTING_MESSAGE
+        assert late[1].error.retryable is True
+        assert [c["conversation_id"] for c in bridge._adapter.calls] == ["c1"]
+
+    @pytest.mark.asyncio
+    async def test_a_stream_closed_by_the_server_fails_start(self, running):
+        bridge, stream, task, call = await running()
+        stream.push(_END)
+        with pytest.raises(ConnectionError):
+            await asyncio.wait_for(task, timeout=3.0)
+        assert call["cancelled"] is True, "turns must not outlive the stream"
+        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+
+    @pytest.mark.asyncio
+    async def test_a_reader_error_fails_start(self, running):
+        bridge, stream, task, call = await running()
+        stream.push(RuntimeError("dispatch bug"))
+        with pytest.raises(RuntimeError, match="dispatch bug"):
+            await asyncio.wait_for(task, timeout=3.0)
+
+
+class TestServeExit:
+    def test_serve_exits_while_a_blocking_turn_thread_is_still_running(self):
+        script = (
+            "import importlib, threading, time\n"
+            "s = importlib.import_module('astropods_adapter_core.serve')\n"
+            "s.SHUTDOWN_THREAD_TIMEOUT_S = 0.2\n"
+            "threading.Thread(target=time.sleep, args=(60,)).start()\n"
+            "s._exit(0)\n"
+        )
+        started = time.monotonic()
+        result = subprocess.run([sys.executable, "-c", script], timeout=10)
+        assert result.returncode == 0
+        assert time.monotonic() - started < 5, "a stuck non-daemon thread must not hold the process open"
 
 
 # --- save_conversation ---
@@ -1242,14 +1330,7 @@ class TestModelForwarding:
         adapter.name = "Agent"
         adapter.stream = AsyncMock()
         adapter.get_config.return_value = {"system_prompt": "", "tools": [], "models": ["a", "b"]}
-        mock_stream = MagicMock()
-        mock_stream.write = AsyncMock()
-
-        async def fake_aiter(self):
-            return
-            yield
-
-        mock_stream.__aiter__ = fake_aiter
+        mock_stream = _OpenStream([])
         mock_stub = MagicMock()
         mock_stub.ProcessConversation = MagicMock(return_value=mock_stream)
         bridge = MessagingBridge(adapter, ServeOptions(server_address="localhost:9090"))

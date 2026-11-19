@@ -102,10 +102,12 @@ DEFAULT_SERVER_ADDR = "localhost:9090"
 MAX_RETRIES = 10
 INITIAL_DELAY_MS = 500
 MAX_DELAY_MS = 15000
+SHUTDOWN_TURN_TIMEOUT_S = 5
 SHUTDOWN_DRAIN_TIMEOUT_S = 5
 
 # Users see ErrorResponse.message; details is logged and never shown.
 AGENT_ERROR_MESSAGE = "The agent couldn't finish its reply. Try again, and tell the agent's owner if it keeps happening."
+AGENT_RESTARTING_MESSAGE = "The agent is restarting. Try again in a moment."
 
 # StreamControl.Action value for a user "stop generating". Resolved once at
 # import so the hot feedback path is a plain int comparison.
@@ -240,6 +242,13 @@ class _StreamHooksImpl:
         self._enqueue(ConversationRequest(agent_response=response))
 
 
+def _running_loop() -> Optional[asyncio.AbstractEventLoop]:
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+
+
 def _has_field(message_type: type, name: str) -> bool:
     """The installed astropods-messaging release may predate the field."""
     return name in message_type.DESCRIPTOR.fields_by_name
@@ -287,6 +296,7 @@ class MessagingBridge:
         self._stub: Optional[AgentMessagingStub] = None
         self._write_queue: asyncio.Queue = asyncio.Queue()
         self._stop_event: asyncio.Event = asyncio.Event()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         # In-flight turn task per conversation, so a StreamControl STOP (chat
         # "stop generating") can cancel the awaited model call.
         self._inflight: dict[str, asyncio.Task] = {}
@@ -326,10 +336,11 @@ class MessagingBridge:
         while True:
             item = await self._write_queue.get()
             if item is None:
-                try:
-                    await stream.done_writing()
-                except Exception as e:
-                    logger.error("Stream close error: %s", e)
+                if not stream.done():
+                    try:
+                        await stream.done_writing()
+                    except Exception as e:
+                        _debug("[bridge] Stream half-close failed: %s", e)
                 break
             try:
                 await stream.write(item)
@@ -376,20 +387,31 @@ class MessagingBridge:
         await self._write_queue.put(ConversationRequest(message=registration))
         logger.info("%s is ready and listening for messages", agent_name)
 
-        loop = asyncio.get_running_loop()
+        self._loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, self.stop)
+            self._loop.add_signal_handler(sig, self.stop)
 
         reader = asyncio.create_task(self._read_stream(stream))
-        await self._stop_event.wait()
-        await self._shutdown(stream, reader, writer)
+        stopping = asyncio.create_task(self._stop_event.wait())
+        await asyncio.wait({reader, stopping}, return_when=asyncio.FIRST_COMPLETED)
+        stopping.cancel()
+        stream_ended = not self._stop_event.is_set()
+        self._remove_signal_handlers()
+        await self._shutdown(reader, writer)
+        if stream_ended:
+            error = reader.exception()
+            if error is not None:
+                raise error
+            raise ConnectionError("messaging stream closed by the server")
 
     async def _read_stream(self, stream: grpc.aio.StreamStreamCall) -> None:
         try:
             async for response in stream:
-                if self._stop_event.is_set():
-                    break
                 payload = response.WhichOneof("payload")
+                if self._stop_event.is_set():
+                    if payload == "incoming_message":
+                        self._refuse_during_shutdown(response.incoming_message.conversation_id)
+                    continue
 
                 if payload == "audio_config":
                     config = response.audio_config
@@ -461,18 +483,36 @@ class MessagingBridge:
         except grpc.aio.AioRpcError as e:
             if not self._stop_event.is_set():
                 logger.error("Stream error: %s", e)
+                raise
 
-    async def _shutdown(
-        self,
-        stream: grpc.aio.StreamStreamCall,
-        reader: asyncio.Task,
-        writer: asyncio.Task,
-    ) -> None:
+    def _refuse_during_shutdown(self, conversation_id: str) -> None:
+        error = ErrorResponse(
+            code=ErrorResponse.ErrorCode.Value("PLATFORM_ERROR"),
+            message=AGENT_RESTARTING_MESSAGE,
+        )
+        if _has_field(ErrorResponse, "retryable"):
+            error.retryable = True
+        start = ContentChunk(type=ContentChunk.ChunkType.Value("START"), content="")
+        for response in (
+            AgentResponse(conversation_id=conversation_id, content=start),
+            AgentResponse(conversation_id=conversation_id, error=error),
+        ):
+            self._write_queue.put_nowait(ConversationRequest(agent_response=response))
+        logger.info("Refused a message during shutdown: conversation=%s", conversation_id)
+
+    async def _shutdown(self, reader: asyncio.Task, writer: asyncio.Task) -> None:
         turns = list(self._inflight.values())
         self._inflight.clear()
         for task in turns:
             task.cancel()
-        await asyncio.gather(*turns, return_exceptions=True)
+        if turns:
+            _, stuck = await asyncio.wait(turns, timeout=SHUTDOWN_TURN_TIMEOUT_S)
+            if stuck:
+                logger.warning(
+                    "Shutdown: %d turns still running %ss after cancel",
+                    len(stuck),
+                    SHUTDOWN_TURN_TIMEOUT_S,
+                )
 
         await self._write_queue.put(None)
         try:
@@ -482,7 +522,6 @@ class MessagingBridge:
 
         reader.cancel()
         await asyncio.gather(reader, return_exceptions=True)
-        stream.cancel()
         if self._channel is not None:
             await self._channel.close()
             self._channel = None
@@ -798,11 +837,22 @@ class MessagingBridge:
             )
 
     def stop(self) -> None:
+        """Ask the bridge to shut down. Safe to call from any thread."""
+        loop = self._loop
+        if loop is not None and loop.is_running() and _running_loop() is not loop:
+            loop.call_soon_threadsafe(self.stop)
+            return
+        if self._stop_event.is_set():
+            return
         logger.info("Shutting down...")
         self._stop_event.set()
-        loop = asyncio.get_event_loop()
+        self._remove_signal_handlers()
+
+    def _remove_signal_handlers(self) -> None:
+        if self._loop is None:
+            return
         for sig in (signal.SIGINT, signal.SIGTERM):
             try:
-                loop.remove_signal_handler(sig)
+                self._loop.remove_signal_handler(sig)
             except Exception:
                 pass
