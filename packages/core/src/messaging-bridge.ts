@@ -1,3 +1,4 @@
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   MessagingClient,
@@ -56,6 +57,41 @@ type WireMessage = Message & {
   } | null;
   model?: string;
 };
+
+// Bedrock's per-request image limits for Claude, the strictest of the gateway's providers.
+const MAX_TURN_IMAGES = 20;
+const MAX_STAGED_IMAGE_BYTES = 3_750_000;
+// Base64 of this many raw bytes stays under Anthropic's 32 MB request limit.
+const MAX_TURN_IMAGE_BYTES = 20 * 2 ** 20;
+
+function imageMediaType(bytes: Buffer): string | undefined {
+  const head = bytes.subarray(0, 12).toString("latin1");
+  if (head.startsWith("\x89PNG\r\n\x1a\n")) return "image/png";
+  if (head.startsWith("\xff\xd8\xff")) return "image/jpeg";
+  if (head.startsWith("GIF8")) return "image/gif";
+  if (head.startsWith("RIFF") && head.slice(8, 12) === "WEBP") return "image/webp";
+  return undefined;
+}
+
+async function readStagedImage(
+  key: string,
+  maxBytes: number
+): Promise<{ url: string; mimeType: string; size: number } | undefined> {
+  const path = join(agentFilesDir(), `${key}${FILES_BLOB_SUFFIX}`);
+  try {
+    if ((await stat(path)).size > maxBytes) {
+      debug(`[bridge] Staged image over the turn's image limit; leaving it as a file: key=${key}`);
+      return undefined;
+    }
+    const bytes = await readFile(path);
+    const mimeType = imageMediaType(bytes);
+    if (!mimeType) return undefined;
+    return { url: `data:${mimeType};base64,${bytes.toString("base64")}`, mimeType, size: bytes.length };
+  } catch (error) {
+    logger.warn({ err: error, key }, "Staged image could not be read");
+    return undefined;
+  }
+}
 
 const DEFAULT_SERVER_ADDR = "localhost:9090";
 const MAX_RETRIES = 10;
@@ -503,22 +539,27 @@ export class MessagingBridge {
 
   /**
    * Resolve inbound IMAGE attachments to the shape the adapter passes to the
-   * model. Images arrive inline (bytes in a `data:` URI on `url`), so unlike
-   * files there is no volume round trip: the adapter forwards `url` straight to
-   * the model as visual content. Attachments without a `url` are skipped.
+   * model. One with only a `storageKey` is read from the files volume.
    */
-  private resolveImages(message: Message): ImageInput[] {
+  private async resolveImages(message: Message): Promise<ImageInput[]> {
     const atts = (message.attachments ?? []) as WireAttachment[];
     const out: ImageInput[] = [];
+    let budget = MAX_TURN_IMAGE_BYTES;
     for (const a of atts) {
-      if (a.type !== "IMAGE") continue;
-      if (!a.url) continue;
+      if (a.type !== "IMAGE" || out.length === MAX_TURN_IMAGES) continue;
+      const image = a.url
+        ? { url: a.url, mimeType: a.mimeType, size: a.sizeBytes }
+        : a.storageKey
+          ? await readStagedImage(a.storageKey, Math.min(budget, MAX_STAGED_IMAGE_BYTES))
+          : undefined;
+      if (!image) continue;
+      budget -= Number(image.size ?? 0);
       out.push({
         key: a.storageKey || undefined,
         name: a.filename || "image",
-        url: a.url,
-        mimeType: a.mimeType,
-        size: a.sizeBytes,
+        url: image.url,
+        mimeType: image.mimeType,
+        size: image.size,
       });
     }
     return out;
@@ -564,14 +605,14 @@ export class MessagingBridge {
     const attachments = this.resolveAttachments(message);
     const readable = attachments.flatMap((a) => (a.path ? [a.path] : []));
 
-    runInTurn(hooks.onFile, () => this.adapter.stream(message.content, hooks, {
+    runInTurn(hooks.onFile, async () => this.adapter.stream(message.content, hooks, {
         conversationId,
         // || catches empty strings too — ?? would let "" through.
         userId: message.user?.id || "anonymous",
         userName: message.user?.username || undefined,
         platformContext: message.platformContext,
         attachments,
-        images: this.resolveImages(message),
+        images: await this.resolveImages(message),
         history: this.resolveHistory(message),
         model: this.offeredModel(message),
         signal: controller.signal,

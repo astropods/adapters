@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import os
 from datetime import datetime, timezone
 
@@ -929,7 +930,8 @@ class TestImageResolution:
             ],
         )
 
-    def test_inline_image_carries_its_files_api_key(self):
+    @pytest.mark.asyncio
+    async def test_inline_image_carries_its_files_api_key(self):
         message = Message(
             conversation_id="c1",
             content="what is this?",
@@ -943,10 +945,11 @@ class TestImageResolution:
             ],
         )
 
-        assert self._bridge()._resolve_images(message)[0].key == "k1"
+        assert (await self._bridge()._resolve_images(message))[0].key == "k1"
 
-    def test_inline_image_reaches_the_agent(self):
-        images = self._bridge()._resolve_images(self._image())
+    @pytest.mark.asyncio
+    async def test_inline_image_reaches_the_agent(self):
+        images = await self._bridge()._resolve_images(self._image())
 
         assert len(images) == 1
         assert images[0].url.startswith("data:image/png;base64,")
@@ -954,10 +957,12 @@ class TestImageResolution:
         assert images[0].mime_type == "image/png"
         assert images[0].size == 12
 
-    def test_image_without_bytes_is_skipped(self):
-        assert self._bridge()._resolve_images(self._image(url="")) == []
+    @pytest.mark.asyncio
+    async def test_image_without_bytes_is_skipped(self):
+        assert await self._bridge()._resolve_images(self._image(url="")) == []
 
-    def test_file_attachment_is_not_an_image(self):
+    @pytest.mark.asyncio
+    async def test_file_attachment_is_not_an_image(self):
         message = Message(
             conversation_id="c1",
             content="hi",
@@ -971,8 +976,55 @@ class TestImageResolution:
             ],
         )
 
-        assert self._bridge()._resolve_images(message) == []
+        assert await self._bridge()._resolve_images(message) == []
         assert len(self._bridge()._resolve_attachments(message)) == 1
+
+    @pytest.mark.asyncio
+    async def test_staged_image_is_read_from_the_volume_typed_by_its_bytes(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AGENT_FILES_DIR", str(tmp_path))
+        png = b"\x89PNG\r\n\x1a\n" + bytes(16)
+        (tmp_path / "slack-F5.blob").write_bytes(png)
+        message = Message(
+            conversation_id="c1",
+            content="look",
+            attachments=[
+                Attachment(type=Attachment.Type.IMAGE, filename="shot5.png", mime_type="image/jpeg", storage_key="slack-F5")
+            ],
+        )
+
+        images = await self._bridge()._resolve_images(message)
+
+        assert [(i.key, i.url, i.mime_type, i.size) for i in images] == [
+            ("slack-F5", "data:image/png;base64," + base64.b64encode(png).decode(), "image/png", len(png))
+        ]
+
+    @pytest.mark.asyncio
+    async def test_staged_image_too_large_or_not_an_image_stays_a_file(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AGENT_FILES_DIR", str(tmp_path))
+        (tmp_path / "big.blob").write_bytes(b"\x89PNG\r\n\x1a\n" + bytes(3_750_000))
+        (tmp_path / "html.blob").write_bytes(b"<html>sign in</html>")
+        message = Message(
+            conversation_id="c1",
+            content="look",
+            attachments=[
+                Attachment(type=Attachment.Type.IMAGE, filename=f"{key}.png", storage_key=key)
+                for key in ("big", "html", "missing")
+            ],
+        )
+
+        assert await self._bridge()._resolve_images(message) == []
+
+    @pytest.mark.asyncio
+    async def test_at_most_20_images_reach_the_model_in_a_turn(self):
+        message = Message(
+            conversation_id="c1",
+            content="look",
+            attachments=[
+                Attachment(type=Attachment.Type.IMAGE, filename=f"{i}.png", url="data:image/png;base64,AAAA") for i in range(21)
+            ],
+        )
+
+        assert len(await self._bridge()._resolve_images(message)) == 20
 
     def test_image_is_not_a_file_attachment(self):
         assert self._bridge()._resolve_attachments(self._image()) == []

@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -651,6 +651,77 @@ describe("MessagingBridge", () => {
       expect((capturedOptions!.attachments ?? []).map((a) => a.key)).toEqual([
         "uuid-1",
       ]);
+    });
+
+    describe("staged images", () => {
+      const png = Buffer.concat([Buffer.from("\x89PNG\r\n\x1a\n", "latin1"), Buffer.alloc(16)]);
+      let dir: string;
+      let previousDir: string | undefined;
+
+      beforeEach(() => {
+        dir = mkdtempSync(join(tmpdir(), "bridge-images-"));
+        previousDir = process.env.AGENT_FILES_DIR;
+        process.env.AGENT_FILES_DIR = dir;
+      });
+
+      afterEach(() => {
+        process.env.AGENT_FILES_DIR = previousDir;
+        rmSync(dir, { recursive: true, force: true });
+      });
+
+      async function imagesFor(attachments: unknown[]): Promise<StreamOptions> {
+        let captured: StreamOptions | null = null;
+        const adapter = createMockAdapter({
+          stream: async (_prompt, hooks, options) => {
+            captured = options;
+            hooks.onFinish();
+          },
+        });
+        const bridge = new MessagingBridge(adapter, { serverAddress: "test:9090" });
+        await bridge.start();
+        mockResponseHandlers[0]({
+          conversationId: "conv-1",
+          incomingMessage: { conversationId: "conv-1", content: "look", platform: "slack", user: { id: "user-1" }, attachments },
+        } as any);
+        await new Promise((r) => setTimeout(r, 20));
+        expect(captured).not.toBeNull();
+        return captured!;
+      }
+
+      test("reads an IMAGE with only a storageKey from the volume, typed by its bytes", async () => {
+        writeFileSync(join(dir, "slack-F5.blob"), png);
+
+        const options = await imagesFor([
+          { type: "FILE", filename: "shot5.png", mimeType: "image/png", storageKey: "slack-F5" },
+          { type: "IMAGE", filename: "shot5.png", mimeType: "image/jpeg", storageKey: "slack-F5" },
+        ]);
+
+        expect(options.images).toEqual([
+          { key: "slack-F5", name: "shot5.png", url: `data:image/png;base64,${png.toString("base64")}`, mimeType: "image/png", size: png.length },
+        ]);
+        expect((options.attachments ?? []).map((a) => a.key)).toEqual(["slack-F5"]);
+      });
+
+      test("leaves a staged image that is too large or not an image as a file only", async () => {
+        writeFileSync(join(dir, "big.blob"), Buffer.concat([png, Buffer.alloc(3_750_000)]));
+        writeFileSync(join(dir, "html.blob"), "<html>sign in</html>");
+
+        const options = await imagesFor([
+          { type: "IMAGE", filename: "big.png", mimeType: "image/png", storageKey: "big" },
+          { type: "IMAGE", filename: "page.png", mimeType: "image/png", storageKey: "html" },
+          { type: "IMAGE", filename: "gone.png", mimeType: "image/png", storageKey: "missing" },
+        ]);
+
+        expect(options.images).toEqual([]);
+      });
+
+      test("hands the model at most 20 images in a turn", async () => {
+        const inline = Array.from({ length: 21 }, (_, i) => ({ type: "IMAGE", filename: `${i}.png`, url: "data:image/png;base64,AAAA" }));
+
+        const options = await imagesFor(inline);
+
+        expect(options.images).toHaveLength(20);
+      });
     });
 
     test("delivers agent-produced files on the END chunk via onFile", async () => {
