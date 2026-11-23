@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.0](https://github.com/astropods/adapters/compare/astropods-adapter-core-v0.11.1...astropods-adapter-core-v0.12.0) (2026-11-23)
+
+
+### Features
+
+* **core:** show images staged on the files volume to the model ([#133](https://github.com/astropods/adapters/issues/133)) ([32da07c](https://github.com/astropods/adapters/commit/32da07c274b1992870437a35e1ae01a5ab4ed25c))
+
+
+### Bug Fixes
+
+* **core-py:** bound shutdown and fail on a lost stream ([96dc885](https://github.com/astropods/adapters/commit/96dc885e1b4726ded11b6630c3921efc51c9103e))
+* **core-py:** exit the messaging bridge promptly on SIGTERM ([5b59b9d](https://github.com/astropods/adapters/commit/5b59b9d7f80a449f2da9b9a0715160e4af0a97c8))
+
 ## [0.11.1](https://github.com/astropods/adapters/compare/astropods-adapter-core-v0.11.0...astropods-adapter-core-v0.11.1) (2026-11-04)
 
 
